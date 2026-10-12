@@ -1,0 +1,12 @@
+{
+	"name": "elasticpro-zabbix-modules",
+	"private": true,
+	"description": "The Zabbix frontend side of ElasticPro: the Cluster Management page, the client master template it writes, and the report widgets.",
+	"scripts": {
+		"test": "node --test clients-module/test/*.test.mjs shared/test/*.test.mjs capacity-widget/test/*.test.mjs volume-widget/test/*.test.mjs resources-widget/test/*.test.mjs",
+		"sync": "node sync-assets.mjs"
+	},
+	"devDependencies": {
+		"jsdom": "^24.1.3"
+	}
+}
