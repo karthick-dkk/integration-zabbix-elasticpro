@@ -158,7 +158,16 @@ for page in ["ep_clients"]:
 
 WIDGETS = [("ep_capacity", "ElasticPro — Client capacity", "Client capacity"),
            ("ep_resources", "ElasticPro — Client resources", "Client resources")]
-gid = call("hostgroup.get", {"filter": {"name": "ElasticPro clients"}, "output": ["groupid"]})[0]["groupid"]
+# The groups the widgets look in: the one master hosts are made in, plus every group that
+# already holds a host carrying the master template. A site whose clients predate the
+# current group name (or that keeps them under its own) otherwise got a widget pinned to
+# an empty group, reporting "no client master hosts" with the hosts in plain sight.
+gids = {call("hostgroup.get", {"filter": {"name": "ElasticPro clients"}, "output": ["groupid"]})[0]["groupid"]}
+master_ids = [t["templateid"] for t in call("template.get", {"filter": {"host": TEMPLATES["master"]}, "output": ["templateid"]})]
+if master_ids:
+    for h in call("host.get", {"templateids": master_ids, "output": ["hostid"], "selectHostGroups": ["groupid"]}):
+        gids.update(g["groupid"] for g in h["hostgroups"])
+group_fields = [{"type": 2, "name": f"groupids.{i}", "value": g} for i, g in enumerate(sorted(gids, key=int))]
 for module_id, dashboard, widget in WIDGETS:
     modules = call("module.get", {"filter": {"id": module_id}, "output": ["moduleid", "status"]})
     if not modules:
@@ -177,5 +186,5 @@ for module_id, dashboard, widget in WIDGETS:
         continue
     did = call("dashboard.create", {"name": dashboard, "display_period": 60, "auto_start": 0, "pages": [{"widgets": [{
         "type": module_id, "name": widget, "x": 0, "y": 0, "width": 72, "height": 10, "view_mode": 0,
-        "fields": [{"type": 2, "name": "groupids.0", "value": gid}]}]}]})["dashboardids"][0]
+        "fields": group_fields}]}]})["dashboardids"][0]
     print("dashboard", did, "created:", dashboard)
