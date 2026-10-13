@@ -104,10 +104,15 @@ class Settings {
 		return $clean;
 	}
 
-	/** Back to what ElasticPro ships. */
-	public static function reset(): void {
-		Store::delete(self::FILE);
+	/**
+	 * Back to what ElasticPro ships. Answers whether the file is actually gone: the page said
+	 * "back to the ones ElasticPro ships" either way, so a folder that had stopped being
+	 * writable left the old settings in force under a success banner.
+	 */
+	public static function reset(): bool {
+		$gone = Store::delete(self::FILE);
 		self::$loaded = null;
+		return $gone;
 	}
 
 	/**
@@ -126,8 +131,11 @@ class Settings {
 
 		// Usage. An inverted pair would paint every cell red and read as a fault in the product,
 		// so warn comes down to high rather than high going up to warn.
+		// High has a floor of 1: at 0 every figure is "at or above", so every cell goes red and
+		// — since the templates take their macros from here — the jump host's triggers alarm on
+		// every cluster at once. Warn may be 0, which simply means "always at least yellow".
 		$usage_in = (array) ($in['usage'] ?? []);
-		$high = $num($usage_in['high'] ?? null, 0.0, 100.0, $d['usage']['high']);
+		$high = $num($usage_in['high'] ?? null, 1.0, 100.0, $d['usage']['high']);
 		$warn = min($num($usage_in['warn'] ?? null, 0.0, 100.0, $d['usage']['warn']), $high);
 
 		// Display. bars is a position in Bars::STYLES, named here as a range so this class needs

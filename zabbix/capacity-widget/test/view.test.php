@@ -11,9 +11,13 @@
 namespace {
 	define('ITEM_STATE_NORMAL', 0); define('USER_TYPE_SUPER_ADMIN', 3);
 	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
-	function _($s) { return $s; }
-	function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace('%'.($i + 1).'$s', (string) $v, $s); } return $s; }
-	function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); }
+	// Guarded because PHP's gettext extension already defines _(), and a Zabbix frontend host
+	// has gettext loaded — Zabbix uses it for translations. Without the guard every suite
+	// died with "Cannot redeclare _()" on exactly the machine the modules run on. gettext's
+	// _() returns its argument when no domain is bound, which is what the stub did anyway.
+	if (!function_exists('_')) { function _($s) { return $s; } }
+	if (!function_exists('_s')) { function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace('%'.($i + 1).'$s', (string) $v, $s); } return $s; } }
+	if (!function_exists('_n')) { function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); } }
 	function getSubGroups($ids) { return $ids; }
 	// Records the decimals it was asked for: this stand-in does not pad, so the number of places
 	// a figure was drawn to cannot be read back out of its text.

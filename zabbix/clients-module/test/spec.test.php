@@ -14,9 +14,13 @@ namespace {
 		'ZBX_WIDGET_FIELD_TYPE_GROUP' => 2] as $k => $v) { define($k, $v); }
 	define('ZBX_MONITORED_BY_SERVER', 0); define('ZBX_MONITORED_BY_PROXY', 1); define('ZBX_MONITORED_BY_PROXY_GROUP', 2);
 	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
-	function _($s) { return $s; }
-	function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace('%'.($i + 1).'$s', (string) $v, $s); } return $s; }
-	function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); }
+	// Guarded because PHP's gettext extension already defines _(), and a Zabbix frontend host
+	// has gettext loaded — Zabbix uses it for translations. Without the guard every suite
+	// died with "Cannot redeclare _()" on exactly the machine the modules run on. gettext's
+	// _() returns its argument when no domain is bound, which is what the stub did anyway.
+	if (!function_exists('_')) { function _($s) { return $s; } }
+	if (!function_exists('_s')) { function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace('%'.($i + 1).'$s', (string) $v, $s); } return $s; } }
+	if (!function_exists('_n')) { function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); } }
 }
 namespace Modules\EpClients\Test {
 	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting'] as $lib) {
@@ -233,6 +237,45 @@ namespace Modules\EpClients\Test {
 	check('and is fine once the site says yellow starts sooner', Forecast::fullIn(10 * 86400, ['warn_days' => 5])['level'] === 'ok');
 	check('the windows Settings hands over are the ones Forecast knows',
 		array_keys(Settings::forecast()) === array_keys(Forecast::WINDOWS));
+
+	/* ---------------- what a review found: the page and the widgets must agree ---------------- */
+	// A high mark of 0 made every figure "at or above", so every cell went red — and because the
+	// templates take these macros from here, the jump host's triggers alarmed on every cluster.
+	check('a high mark of 0 is lifted to the lowest usable one', Settings::clean(['usage' => ['high' => 0]])['usage']['high'] === 1.0);
+	check('and warn is ordered under it', Settings::clean(['usage' => ['high' => 0, 'warn' => 50]])['usage'] === ['warn' => 1.0, 'high' => 1.0]);
+	check('warn may still be 0 — always at least yellow is a real choice', Settings::clean(['usage' => ['warn' => 0]])['usage']['warn'] === 0.0);
+
+	// reset() said "back to the ones ElasticPro ships" whether or not the file went away.
+	check('reset answers whether the settings file is gone', (new \ReflectionMethod(Settings::class, 'reset'))->getReturnType()->getName() === 'bool');
+	Settings::save(['usage' => ['warn' => 11, 'high' => 22]]);
+	check('and it is true when the file was there and went', Settings::reset() === true);
+	check('and true again when there was nothing to delete', Settings::reset() === true);
+	$save_src2 = file_get_contents(__DIR__.'/../actions/SettingsSave.php');
+	check('the page reports a reset that did not happen', str_contains($save_src2, 'if (Settings::reset())')
+		&& str_contains($save_src2, 'could not be deleted'));
+
+	// The Clients list drew "when storage fills" with the shipped windows while the capacity
+	// widget used the site's, so one figure was yellow on one page and red on the other.
+	$list_src = file_get_contents(__DIR__.'/../actions/ClientList.php');
+	$list_view = file_get_contents(__DIR__.'/../views/ep.clients.list.php');
+	check('the list is given the site\'s forecast windows', str_contains($list_src, "'forecast' => Settings::forecast("));
+	check('and the view reads them rather than the shipped ones',
+		str_contains($list_view, 'Forecast::fullIn($c[\'full_in\'], $data[\'forecast\']'));
+	// The list hard-coded the default client type while the widgets read it from the settings.
+	check('the list takes the default client type from the settings', str_contains($list_src, 'Settings::defaultType(')
+		&& !str_contains($list_src, "?? 'On-Prem'"), 'ClientList still hard-codes On-Prem');
+	// Writability was asked once per client, inside the loop: N log lines per page load on a bad
+	// folder, and a mkdir from a page that only shows things.
+	check('the data folder is checked once per request, not once per client',
+		substr_count($list_src, 'Store::writable()') === 1);
+
+	// Writing the templates changes things, so the settings page must offer it as a POST with a
+	// token. It was a CLink, and Zabbix only checks the token on a POST.
+	$settings_view2 = file_get_contents(__DIR__.'/../views/ep.clients.settings.php');
+	check('the settings page offers Write master template as a POST',
+		str_contains($settings_view2, 'new CForm(\'post\', $url(\'ep.clients.template.install\'))')
+		&& str_contains($settings_view2, 'CCsrfTokenHelper::get(\'ep.clients.template.install\')'));
+	check('and no longer links to a writing action by GET', !preg_match('/CLink\(_\(.Write master template/', $settings_view2));
 
 	/* ---------------- the alerts follow the thresholds ---------------- */
 	// The reports colour by these macros, and the templates' triggers compare against the

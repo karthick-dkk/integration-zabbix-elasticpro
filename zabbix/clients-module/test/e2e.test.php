@@ -51,20 +51,26 @@ namespace {
 	define('API_OUTPUT_COUNT', 'count');
 
 	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
-	function _($s) { return $s; }
+	// Guarded because PHP's gettext extension already defines _(), and a Zabbix frontend host
+	// has gettext loaded — Zabbix uses it for translations. Without the guard every suite
+	// died with "Cannot redeclare _()" on exactly the machine the modules run on. gettext's
+	// _() returns its argument when no domain is bound, which is what the stub did anyway.
+	if (!function_exists('_')) { function _($s) { return $s; } }
 	/**
 	 * Both %N$s and %N$d, because some of the module's own messages use %1$d — the count of
 	 * pre-rename macros that stopped a save is one — and a stub that only knew %N$s would leave
 	 * the placeholder in the string, so a test asserting what the operator reads would fail for a
 	 * reason that has nothing to do with the module.
 	 */
-	function _s($s, ...$a) {
-		foreach ($a as $i => $v) {
-			$s = str_replace(['%'.($i + 1).'$s', '%'.($i + 1).'$d'], (string) $v, $s);
+	if (!function_exists('_s')) {
+		function _s($s, ...$a) {
+			foreach ($a as $i => $v) {
+				$s = str_replace(['%'.($i + 1).'$s', '%'.($i + 1).'$d'], (string) $v, $s);
+			}
+			return $s;
 		}
-		return $s;
 	}
-	function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); }
+	if (!function_exists('_n')) { function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); } }
 
 	/**
 	 * Zabbix's own channel for "why the last call failed". Reconciler::api() and

@@ -161,7 +161,9 @@ foreach ($data['clients'] as $c) {
 		: ($sev === '' ? '<span class="ep-sub">'.$e(_('none')).'</span>'
 		: '<a class="ep-sevs" title="'.$e(_('Open Problems')).'" href="zabbix.php?action=problem.view&amp;filter_set=1&amp;tags%5B0%5D%5Btag%5D=ep-client&amp;tags%5B0%5D%5Boperator%5D=1&amp;tags%5B0%5D%5Bvalue%5D='.rawurlencode($name).'">'.$sev.'</a>');
 
-	$fc = \Modules\EpClients\Lib\Forecast::fullIn($c['full_in']);
+	// The site's own windows, the same ones the Client capacity widget reads — otherwise one
+	// figure is yellow here and red there.
+	$fc = \Modules\EpClients\Lib\Forecast::fullIn($c['full_in'], $data['forecast'] ?? []);
 	$full = $fc === null ? '<span class="ep-sub">—</span>'
 		: ($fc['level'] === 'flat' ? '<span class="ep-sub">'.$e($fc['text']).'</span>'
 		: '<span class="'.['bad' => 'ep-bad-t ep-strong', 'warn' => 'ep-warn-t ep-strong', 'ok' => ''][$fc['level']].'">'.$e($fc['text']).'</span>');

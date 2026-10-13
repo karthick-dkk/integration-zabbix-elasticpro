@@ -27,6 +27,11 @@ class ClientList extends Base {
 
 	protected function doAction(): void {
 		$roles = $this->roles();
+		// Asked once. It was asked once per client inside the loop below — which on an unwritable
+		// folder meant one log line per client per page load, and a mkdir attempt from a page
+		// that only shows things.
+		$writable = Store::writable();
+		$cfg = Settings::all();
 		$byId = Roles::byId($roles);
 		$rec = $this->rec();
 		$state = $this->state($rec);
@@ -54,7 +59,7 @@ class ClientList extends Base {
 			// has gone away between the check above and the write — a mount lost mid-request —
 			// and this loop runs for every client, so one failure used to take the whole Cluster
 			// Management page down with a fatal rather than showing the clients it had.
-			if (!isset($registry[$name]) && Store::writable() && $this->canWrite()) {
+			if (!isset($registry[$name]) && $writable && $this->canWrite()) {
 				try {
 					$this->register($name);
 				}
@@ -129,7 +134,7 @@ class ClientList extends Base {
 				'masterid' => $c['masterid'],
 				'status' => $status,
 				'maintenance' => $maint[$name] ?? null,
-				'type' => $m['{$EP.CLIENT.TYPE}'] ?? 'On-Prem',
+				'type' => ($m['{$EP.CLIENT.TYPE}'] ?? '') !== '' ? $m['{$EP.CLIENT.TYPE}'] : Settings::defaultType($cfg),
 				'es_url' => $m['{$ES.URL}'] ?? '',
 				'jump' => ($m['{$EP.MONITORED.BY}'] ?? '') === 'jump' ? ($m['{$EP.JUMP.HOST}'] ?? '') : '',
 				'archive' => $bucket !== '' && $bucket !== ClientSpec::UNSET_BUCKET ? $bucket : '',
@@ -156,7 +161,8 @@ class ClientList extends Base {
 				continue;
 			}
 			$f = $r['form'] ?? [];
-			$clients[] = ['name' => $name, 'masterid' => null, 'status' => 'active', 'maintenance' => null, 'type' => $f['type'] ?? 'On-Prem',
+			$clients[] = ['name' => $name, 'masterid' => null, 'status' => 'active', 'maintenance' => null,
+				'type' => ($f['type'] ?? '') !== '' ? $f['type'] : Settings::defaultType($cfg),
 				'es_url' => $f['es_url'] ?? '', 'jump' => '', 'archive' => '', 'lead' => $f['lead_name'] ?? '', 'dl' => $f['cluster_dl'] ?? '',
 				'contract_end' => $f['contract_end'] ?? '', 'machines' => '—', 'unassigned' => 0, 'shared' => 0, 'removed' => array_values(array_diff_key($r['hosts'] ?? [], $exists)), 'changed' => array_values(array_intersect_key($r['hosts'] ?? [], $exists)),
 				'checks' => [], 'problems' => [], 'full_in' => null, 'over' => [], 'change' => $changes[$name] ?? null, 'search' => strtolower($name), 'master_missing' => true];
@@ -167,7 +173,8 @@ class ClientList extends Base {
 			'clients' => $clients,
 			'candidates' => $state->candidates($live),
 			'template' => TemplateInstaller::status($roles),
-			'store_ok' => Store::writable(),
+			'store_ok' => $writable,
+			'forecast' => Settings::forecast($cfg),
 			'can_write' => $this->canWrite(),
 			'store_dir' => Store::dir(),
 			'backups' => count(Store::listing('backups'))

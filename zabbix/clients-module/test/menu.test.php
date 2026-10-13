@@ -10,7 +10,11 @@ namespace {
 	define('USER_TYPE_ZABBIX_USER', 1); define('USER_TYPE_ZABBIX_ADMIN', 2); define('USER_TYPE_SUPER_ADMIN', 3);
 	define('ZBX_SIDEBAR_VIEW_MODE_COMPACT', 1);
 	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
-	function _($s) { return $s; }
+	// Guarded because PHP's gettext extension already defines _(), and a Zabbix frontend host
+	// has gettext loaded — Zabbix uses it for translations. Without the guard every suite
+	// died with "Cannot redeclare _()" on exactly the machine the modules run on. gettext's
+	// _() returns its argument when no domain is bound, which is what the stub did anyway.
+	if (!function_exists('_')) { function _($s) { return $s; } }
 
 	/** Enough of Zabbix's CMenu for the find-or-create decision: order matters, so it is a list. */
 	class CMenu {

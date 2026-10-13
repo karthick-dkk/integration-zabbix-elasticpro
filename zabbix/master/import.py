@@ -32,17 +32,21 @@ if not auth and not (os.environ.get("ZABBIX_USER") and os.environ.get("ZABBIX_PA
 def raw(method, params, authed=True):
     h = {"Content-Type": "application/json-rpc"}
     if authed and auth: h["Authorization"] = "Bearer " + auth
-    req = urllib.request.Request(url + "/api_jsonrpc.php", json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": 1}).encode(), h)
-    # Without this the ordinary failures — a wrong URL, an expired certificate, a 401 — arrive
-    # as a Python traceback, which tells an operator nothing about what to fix.
+    # Inside the try as well: a URL with no scheme ("zabbix.example.com") makes Request itself
+    # raise, and that was still a traceback.
     try:
-        return json.load(urllib.request.urlopen(req, context=ctx))
+        req = urllib.request.Request(url + "/api_jsonrpc.php", json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": 1}).encode(), h)
+        # A timeout, or a host that accepts the connection and never answers hangs the script for
+        # as long as the kernel allows — which for the version check is before anything is created.
+        return json.load(urllib.request.urlopen(req, context=ctx, timeout=30))
     except urllib.error.HTTPError as e:
         sys.exit(f"{method}: Zabbix answered HTTP {e.code} {e.reason} — is {url}/api_jsonrpc.php the API?")
     except urllib.error.URLError as e:
         sys.exit(f"{method}: cannot reach {url} — {e.reason}" + ("  (--insecure skips the certificate check)" if "CERTIFICATE" in str(e.reason).upper() else ""))
-    except ValueError:
-        sys.exit(f"{method}: {url} answered something that is not JSON — is that the Zabbix frontend?")
+    except ValueError as e:
+        sys.exit(f"{method}: {url} — {e}. Is ZABBIX_URL the Zabbix frontend, with its scheme?")
+    except OSError as e:
+        sys.exit(f"{method}: reading the answer from {url} failed — {e}")
 
 def call(method, params):
     r = raw(method, params)
@@ -129,7 +133,7 @@ for g in NEEDS_GROUPS:
         call("hostgroup.create", {"name": g})
         print("created host group", g)
 
-t = call("template.get", {"filter": {"host": "ElasticPro client master"}, "output": ["templateid"], "selectHosts": ["host"]})
+t = call("template.get", {"filter": {"host": TEMPLATES["master"]}, "output": ["templateid"], "selectHosts": ["host"]})
 print("master template:", ("written; master hosts: " + (", ".join(h["host"] for h in t[0]["hosts"]) or "none yet")) if t
       else "not written yet — ElasticPro → Clients → Write master template")
 

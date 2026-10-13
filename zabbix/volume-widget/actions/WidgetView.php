@@ -54,7 +54,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 		];
 
 		$templates = API::Template()->get([
-			'output' => ['templateid'],
+			'output' => ['templateid', 'host'],
 			'filter' => ['host' => $plan_names],
 			'selectMacros' => ['macro', 'value']
 		]);
@@ -63,13 +63,33 @@ class WidgetView extends CControllerDashboardWidgetView {
 			$this->setResponse(new CControllerResponseData($data));
 			return;
 		}
-		$template = $templates[0];
+		// Every template the mapping answers to, not whichever one the database happened to
+		// return first. A site that has mapped the plan slot and still has the shipped template
+		// installed has two of them, and picking [0] made the columns, the thresholds and the
+		// list of clusters depend on database order — with the clusters linked to the other one
+		// vanishing from the report.
+		//
+		// Put back into the order the names were asked for, which is the mapping's order: the
+		// name a site chose first, then the spellings it merely still answers to. Zabbix returns
+		// them in its own order, so without this the winner would be whichever row came back.
+		usort($templates, function ($a, $b) use ($plan_names) {
+			$at = array_search($a['host'], $plan_names, true);
+			$bt = array_search($b['host'], $plan_names, true);
+			return ($at === false ? PHP_INT_MAX : $at) <=> ($bt === false ? PHP_INT_MAX : $bt);
+		});
+		$templateids = array_column($templates, 'templateid');
+		// The first template that defines a macro owns it, so the mapped template's own
+		// thresholds beat a shipped template left behind.
+		$defaults = [];
+		foreach ($templates as $t) {
+			$defaults += array_column($t['macros'] ?? [], 'value', 'macro');
+		}
 
-		// The columns, from the template's items.
+		// The columns, from the templates' items.
 		$columns = [];
 		foreach (API::Item()->get([
 			'output' => ['key_', 'name', 'units', 'value_type'],
-			'templateids' => [$template['templateid']],
+			'templateids' => $templateids,
 			'selectTags' => ['tag', 'value']
 		]) as $item) {
 			$tags = array_column($item['tags'], 'value', 'tag');
@@ -108,7 +128,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'output' => ['hostid', 'name'],
 			'selectHostGroups' => ['name'],
 			'selectTags' => ['tag', 'value'],
-			'templateids' => [$template['templateid']],
+			'templateids' => $templateids,
 			'preservekeys' => true
 		];
 		if ($this->fields_values['groupids']) {
@@ -116,8 +136,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 		}
 		$hosts = API::Host()->get($options);
 
-		// The thresholds the template's triggers use, per host where a host overrides them.
-		$defaults = array_column($template['macros'], 'value', 'macro');
+		// The thresholds the template's triggers use, per host where a host overrides them
+		// ($defaults was merged across every found template above).
 		$host_macros = [];
 		$values = [];
 		if ($hosts) {

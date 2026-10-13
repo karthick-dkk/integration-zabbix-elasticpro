@@ -37,8 +37,14 @@ class SettingsSave extends Base {
 		$in = fn(string $k) => trim((string) $this->getInput($k, ''));
 		try {
 			if ($this->hasInput('reset')) {
-				Settings::reset();
-				CMessageHelper::setSuccessTitle(_('Settings are back to the ones ElasticPro ships'));
+				if (Settings::reset()) {
+					CMessageHelper::setSuccessTitle(_('Settings are back to the ones ElasticPro ships'));
+				}
+				else {
+					CMessageHelper::setErrorTitle(_('Settings not changed'));
+					CMessageHelper::addError(_s('%1$s could not be deleted. Check the data folder\'s permissions.',
+						Settings::FILE));
+				}
 			}
 			else {
 				Settings::save([

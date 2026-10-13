@@ -11,8 +11,12 @@ namespace {
 	define('ITEM_STATE_NORMAL', 0); define('USER_TYPE_SUPER_ADMIN', 3);
 	define('ITEM_VALUE_TYPE_FLOAT', 0); define('ITEM_VALUE_TYPE_UINT64', 3);
 	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
-	function _($s) { return $s; }
-	function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace('%'.($i + 1).'$s', (string) $v, $s); } return $s; }
+	// Guarded because PHP's gettext extension already defines _(), and a Zabbix frontend host
+	// has gettext loaded — Zabbix uses it for translations. Without the guard every suite
+	// died with "Cannot redeclare _()" on exactly the machine the modules run on. gettext's
+	// _() returns its argument when no domain is bound, which is what the stub did anyway.
+	if (!function_exists('_')) { function _($s) { return $s; } }
+	if (!function_exists('_s')) { function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace('%'.($i + 1).'$s', (string) $v, $s); } return $s; } }
 	function getSubGroups($ids) { return $ids; }
 	function zbx_date2age($t) { return '5m'; }
 	// Records the decimals it was asked for: this stand-in does not pad, so the places a figure
@@ -44,6 +48,10 @@ namespace {
 	class FakeApi {
 		public static $plan = true;
 		public static $master = true;
+		/** A second plan template, as a site that mapped the slot and kept the shipped one has. */
+		public static $two_plans = false;
+		/** The templateids the controller asked for items and hosts by. */
+		public static $used_ids = [];
 		/** Every template name the controller asked Zabbix for, in order. */
 		public static $asked_for = [];
 		private $what;
@@ -56,13 +64,24 @@ namespace {
 					if (!isset($o['selectMacros'])) {
 						return self::$master ? [['templateid' => 7]] : [];
 					}
-					return self::$plan ? [['templateid' => 9, 'macros' => [
+					if (!self::$plan) {
+						return [];
+					}
+					// The mapped template is asked for first; Zabbix answers in its own order, so
+					// the shipped one is deliberately returned FIRST here.
+					$mapped = ['templateid' => 9, 'host' => self::$two_plans ? 'ACME plan' : 'ElasticPro client plan', 'macros' => [
 						['macro' => '{$ELASTICPRO.PLAN.LIVE_USED.WARN}', 'value' => '85'],
 						['macro' => '{$ELASTICPRO.PLAN.LIVE_DAYS.MIN}', 'value' => '14']
-					]]] : [];
+					]];
+					$shipped = ['templateid' => 8, 'host' => 'ElasticPro client plan', 'macros' => [
+						['macro' => '{$ELASTICPRO.PLAN.LIVE_USED.WARN}', 'value' => '99'],
+						['macro' => '{$ELASTICPRO.PLAN.LIVE_DAYS.MIN}', 'value' => '1']
+					]];
+					return self::$two_plans ? [$shipped, $mapped] : [$mapped];
 				case 'Item':
 					// The template's items are the columns; a host's items are the figures.
 					if (isset($o['templateids'])) {
+						self::$used_ids = $o['templateids'];
 						$tag = fn($plan, $col) => [['tag' => 'plan', 'value' => $plan], ['tag' => 'column', 'value' => (string) $col]];
 						return [
 							['key_' => 'plan[live.used.pct]', 'name' => 'Client plan: Live used %', 'units' => '%', 'value_type' => ITEM_VALUE_TYPE_FLOAT,
@@ -133,6 +152,7 @@ namespace Modules\EpVolume\Test {
 	function run(array $fields = []): array {
 		Settings::forget();
 		\FakeApi::$asked_for = [];
+		\FakeApi::$used_ids = [];
 		$v = new WidgetView();
 		$v->fields_values = $fields + ['groupids' => []];
 		(new \ReflectionMethod($v, 'doAction'))->invoke($v);
@@ -234,6 +254,33 @@ namespace Modules\EpVolume\Test {
 		if (is_file($dir.'/'.$f)) { unlink($dir.'/'.$f); }
 	}
 	rmdir($dir);
+}
+
+namespace Modules\EpVolume\Test {
+	use Modules\EpVolume\Lib\{Roles, Settings};
+
+	/* ---------------- two plan templates at once ---------------- */
+	// A site that maps the plan slot and still has the shipped template installed has two. The
+	// controller took $templates[0], so which one drove the columns, the thresholds and the list
+	// of clusters depended on database order — and clusters linked to the other one vanished.
+	// The site has mapped the slot to its own name and kept the shipped template installed.
+	Roles::saveTemplateNames(['plan' => 'ACME plan', 'plan_also' => 'ElasticPro client plan']);
+	\FakeApi::$two_plans = true;
+	$d = run();
+	check('both plan templates are read, not just whichever came back first',
+		\FakeApi::$used_ids === [9, 8], \FakeApi::$used_ids);
+	check('the report still draws its columns', array_column($d['columns'], 'id')
+		=== ['plan[live.days]', 'plan[live.used.pct]', 'plan[note]']);
+	// 90.5 % is over the mapped template's warning of 85 but under the shipped one's 99. The
+	// mapped name was asked for first, so its own thresholds are the ones that must apply.
+	check('the mapped template\'s thresholds win over a shipped template left behind',
+		cell($d, 'karthi-ES-Cluster', 'plan[live.used.pct]')['class'] === 'ep-warn',
+		cell($d, 'karthi-ES-Cluster', 'plan[live.used.pct]')['class']);
+	Roles::saveTemplateNames([]);
+	\FakeApi::$two_plans = false;
+	$d = run();
+	check('and one template alone still behaves as before', \FakeApi::$used_ids === [9] && $d['error'] === null);
+
 	echo "$passed passed, $failed failed", PHP_EOL;
 	exit($failed ? 1 : 0);
 }

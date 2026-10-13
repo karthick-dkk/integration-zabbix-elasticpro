@@ -28,6 +28,28 @@ if ($ro) {
 	$page->addItem((new CDiv(_('You can read these; only a Super admin changes them.')))->addClass('ep-soft'));
 }
 
+// The templates carry their own copy of the two usage thresholds, and it is those copies the
+// triggers compare against — so a setting that has not reached them means the reports and the
+// alerts disagree, and only the reports moved. Said at the top of the page where the change was
+// made, rather than discovered later from an alert that never arrived.
+//
+// Its own form, above the settings form and not inside it: writing the templates changes things,
+// so it must be a POST with a token, and HTML has no nested forms. A GET link here would have
+// been reachable from any page that could make this browser fetch a URL.
+$in_template = $data['template'];
+if ($in_template !== null && (($in_template['warn'] !== null && abs($in_template['warn'] - (float) $s['usage']['warn']) > 0.001)
+		|| ($in_template['high'] !== null && abs($in_template['high'] - (float) $s['usage']['high']) > 0.001))) {
+	$drift = [_s('The alerts still fire at %1$s %% and %2$s %%. Those thresholds live on the templates this page writes, and their triggers are what actually alarm — the reports already follow the figures below. Write the master template to bring the two into step.',
+		$in_template['warn'] ?? '—', $in_template['high'] ?? '—')];
+	if (!$ro) {
+		$drift[] = (new CForm('post', $url('ep.clients.template.install')))
+			->addVar(CSRF_TOKEN_NAME, CCsrfTokenHelper::get('ep.clients.template.install'))
+			->addItem((new CSubmit('go', _('Write master template')))->addClass(ZBX_STYLE_BTN_ALT))
+			->addClass('ep-drift-form');
+	}
+	$page->addItem((new CDiv($drift))->addClass('msg-warning')->addClass('ep-box'));
+}
+
 $form = (new CForm('post', $url('ep.clients.settings.save')))
 	->addVar(CSRF_TOKEN_NAME, CCsrfTokenHelper::get('ep.clients.settings.save'))->setId('ep-settings-form');
 $grid = new CFormGrid();
@@ -54,18 +76,6 @@ $number(_('High at, %'), 'high', $s['usage']['high'], $d['usage']['high'],
 	_('Usage at or above this is red; at or above the warning, yellow.'));
 $grid->addItem([new CLabel(''), new CFormField($hint(_s('A client\'s master host overrides both for itself with %1$s and %2$s.',
 	\Modules\EpClients\Lib\Settings::WARN_MACRO, \Modules\EpClients\Lib\Settings::HIGH_MACRO)))]);
-// The triggers compare against the template's own copy of these two, so a changed setting that
-// has not reached the template means the reports and the alerts disagree. Said here, where the
-// change was made, rather than discovered later from an alert that did not arrive.
-$in_template = $data['template'];
-if ($in_template !== null && (($in_template['warn'] !== null && abs($in_template['warn'] - (float) $s['usage']['warn']) > 0.001)
-		|| ($in_template['high'] !== null && abs($in_template['high'] - (float) $s['usage']['high']) > 0.001))) {
-	$grid->addItem([new CLabel(''), new CFormField((new CDiv([
-		_s('The alerts still fire at %1$s %% and %2$s %%: those thresholds live on the template "%3$s", and its triggers are what actually alarm. Write the master template to bring them into step.',
-			$in_template['warn'] ?? '—', $in_template['high'] ?? '—', $data['template_name']),
-		$ro ? null : [' ', new CLink(_('Write master template'), $url('ep.clients.template.install'))]
-	]))->addClass('msg-warning')->addClass('ep-box'))]);
-}
 
 /* ---------------- display ---------------- */
 $head(_('Display'));
@@ -122,4 +132,5 @@ $page->addItem($form->addItem($grid))->show();
 	.ep-hint { opacity: .75; margin-top: 3px; max-width: 90ch; }
 	#ep-settings-form h4 { margin: 18px 0 2px; }
 	#ep-settings-form .list-table { margin-top: 2px; max-width: 320px; }
+	.ep-drift-form { display: inline; margin-left: 6px; }
 </style>
