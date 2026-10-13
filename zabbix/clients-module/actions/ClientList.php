@@ -5,7 +5,7 @@ namespace Modules\EpClients\Actions;
 use API;
 use CControllerResponseData;
 use Exception;
-use Modules\EpClients\Lib\{ClientSpec, Forecast, History, MasterTemplate, Lifecycle, Registry, Roles, SetupChecks, Store, TemplateInstaller};
+use Modules\EpClients\Lib\{ClientSpec, Forecast, History, MasterTemplate, Lifecycle, Registry, Roles, Settings, SetupChecks, Store, TemplateInstaller};
 
 /**
  * The clients, by status: each with its type, ES URL, contacts, servers per family, setup checks,
