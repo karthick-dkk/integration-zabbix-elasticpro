@@ -1,9 +1,11 @@
 # ElasticPro — Zabbix modules
 
 The Zabbix frontend side of ElasticPro: the Cluster Management page, the client master template it
-writes, and the report widgets. The templates ElasticPro itself feeds (client plan, alerts,
-log delay) live with the core, in `deploy/zabbix/` of the ElasticPro repository
-(https://github.com/karthick-dkk/elasticpro); this project is the Zabbix side only.
+writes, the report widgets, the embed module, and a copy of the four templates ElasticPro itself
+feeds (automation, alerts, client plan, log delay). Those templates and the embed module are
+generated and edited with the core, in `deploy/zabbix/` of the ElasticPro repository
+(https://github.com/karthick-dkk/elasticpro); the copies here are stamped with the version they
+came from, so a Zabbix can be set up from this project alone.
 
 | Folder | What | Import |
 |---|---|---|
@@ -13,6 +15,8 @@ log delay) live with the core, in `deploy/zabbix/` of the ElasticPro repository
 | `resources-widget/` | **Client resources** dashboard widget — Requested / Allocated / Used per family or role, plus ES storage and log delay; expand a client into its servers; Type filter, Columns dialog, CSV / Excel export | copy into `modules/` as `ep_resources`, then `master/import.py` |
 | `volume-widget/` | **Volume report** dashboard widget — the client plan per cluster, laid out as in ElasticPro (sections over columns), with CSV / Excel export. Columns come from the ElasticPro client plan template itself | copy into Zabbix's `modules/` as `ep_volume`, then `volume-widget/import.py` |
 | `shared/` | the widgets' export, Columns dialog and styles, and the PHP they share with the Clients page (data folder, settings, roles, column settings); `node sync-assets.mjs` copies them into each module | — |
+| `embed-module/` | **ElasticPro** page — embeds the dashboard inside Zabbix and signs the person in through the pairing (one-time code, then SSO) | copy into `modules/` as `elasticpro`, enable, pair from ElasticPro's Config → Zabbix |
+| `templates/` | the four templates ElasticPro feeds — automation, alerts, client plan, log delay — as shipped with the core version named in `templates/README.md` | *Data collection → Templates → Import*, or `zbx_phase34.py` from the ElasticPro repository |
 
 **Settings.** The thresholds, decimals, size unit, forecast windows and client types the page and
 all three widgets read live on **ElasticPro → Settings**, in `settings.json` in the data folder. A
