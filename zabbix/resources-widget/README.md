@@ -7,7 +7,7 @@ CPU (cores), memory, disk.
 
 - **Expand** a client (▸, or *Expand all*) for its servers: roles (a server with several reads
   "ES Data + Parser + Engine", marked shared or single node), extra services, host, IP, agent
-  status, CPU cores and use, memory and use, one column per disk mount (Disk /, Disk /data …) with its size and use, and **Fullest disk**: the disk on that server closest to full (its highest used %), which the server's disk colour is decided on.
+  status, CPU cores and use, memory and use, one column per disk mount (Disk /, Disk /data …) with its size and use, each coloured by its own figure.
 - **Type** filter: DI / On-Prem — the table, the count and the export follow it.
 - **Columns** (Super admins): rename, show / hide, reorder; show a family's roles as their own
   sections (ES Data Hot, ES Master …). One setting for everyone; the export follows it.
@@ -32,7 +32,7 @@ the other client report:
   sorts last either way.
 - **Resize** a column by dragging its header's right edge; double-click to fit.
 - **⋮** holds **Columns…** (Super admins) and the exports.
-- **⚙ Table settings**: colours for normal, warn and high, row height, which server columns show, and every disk or only the fullest. These are one
+- **⚙ Table settings**: colours for normal, warn and high, row height and which server columns show. These are one
   viewer's preferences, kept in that browser. Thresholds and the bar style stay the widget's own
   **Warn at**, **High at** and **Display**, so everyone sees the same colour for the same figure.
 

@@ -140,12 +140,10 @@
 .ep-panel .ep-seg .ep-pbtn:last-child { border-radius: 0 3px 3px 0 !important; border-left: 0 !important; }
 .ep-panel .ep-seg .ep-pbtn[aria-pressed="true"] { background: var(--ep-sel-bg) !important; color: var(--ep-strong) !important; border-color: var(--ep-sel-line) !important; }
 .ep-panel .ep-disk-line b { font-weight: 500; }
-/* Table settings: fullest disk only, and server columns a viewer has hidden. */
-.ep-panel.ep-disks-fullest [data-sc="disks"] { display: none; }
+/* Table settings: server columns a viewer has hidden. */
 .ep-panel.ep-hide-role [data-sc="role"], .ep-panel.ep-hide-host [data-sc="host"], .ep-panel.ep-hide-ip [data-sc="ip"],
 .ep-panel.ep-hide-status [data-sc="status"], .ep-panel.ep-hide-cores [data-sc="cores"], .ep-panel.ep-hide-cpu [data-sc="cpu"],
-.ep-panel.ep-hide-mem [data-sc="mem"], .ep-panel.ep-hide-memu [data-sc="memu"], .ep-panel.ep-hide-disks [data-sc="disks"],
-.ep-panel.ep-hide-fullest [data-sc="fullest"] { display: none; }
+.ep-panel.ep-hide-mem [data-sc="mem"], .ep-panel.ep-hide-memu [data-sc="memu"], .ep-panel.ep-hide-disks [data-sc="disks"] { display: none; }
 
 /* Row height: compact is the default; comfortable gives every row more air. */
 .ep-panel.ep-comfortable .ep-res-table td, .ep-panel.ep-comfortable .ep-cap-table td { padding: 8px 10px; }

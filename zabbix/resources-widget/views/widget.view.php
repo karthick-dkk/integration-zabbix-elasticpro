@@ -121,8 +121,7 @@ foreach ($data['rows'] as $n => $row) {
 		foreach ($mounts as $m) {
 			$head->addItem((new CTag('th', true, _s('Disk %1$s', $m)))->setAttribute('data-sc', 'disks'));
 		}
-		$head->addItem((new CTag('th', true, _('Fullest disk')))->setAttribute('data-sc', 'fullest')
-			->setAttribute('title', _('The disk on this server closest to full: its highest used %. The server\'s disk colour is decided on it.')));
+
 		$sb = new CTag('tbody', true);
 		foreach ($row['servers'] as $s) {
 			// Each role its own chip; a server with several reads "ES Data · Parser · Engine".
@@ -167,8 +166,7 @@ foreach ($data['rows'] as $n => $row) {
 				->addItem($barcell('cpu', $s['cpu_used'], $s['classes']['cpu']))
 				->addItem($scell('mem', $s['mem_total'] === null ? '—' : convertUnits(['value' => $s['mem_total'], 'units' => 'B'])))
 				->addItem($barcell('memu', $s['mem_used'], $s['classes']['mem']))
-				->addItem($diskCells)
-				->addItem($scell('fullest', $pct($s['disk_used']), $s['classes']['disk'])));
+				->addItem($diskCells));
 		}
 		$srv = (new CTag('table', true))->addClass('ep-servers')->addItem((new CTag('thead', true))->addItem($head))->addItem($sb);
 		// Across the whole row, the expand column included: no empty cell pushing the servers right.

@@ -11,9 +11,9 @@
  * Shared: sync-assets.mjs copies this into the widgets that use it. Edit it here.
  */
 window.EpPanel = {
-	DEFAULTS: { colors: { ok: '#73bf69', warn: '#ff9830', high: '#f2495c' }, density: 'compact', disks: 'all', hiddenSrv: [], widths: {} },
+	DEFAULTS: { colors: { ok: '#73bf69', warn: '#ff9830', high: '#f2495c' }, density: 'compact', hiddenSrv: [], widths: {} },
 	SERVER_COLUMNS: [['role', 'Role'], ['host', 'Host'], ['ip', 'IP'], ['status', 'Status'], ['cores', 'CPU cores'], ['cpu', 'CPU used'],
-		['mem', 'Memory'], ['memu', 'Memory used'], ['disks', 'Disks'], ['fullest', 'Fullest disk']],
+		['mem', 'Memory'], ['memu', 'Memory used'], ['disks', 'Disks']],
 
 	prefs(kind) {
 		const p = JSON.parse(JSON.stringify(this.DEFAULTS));
@@ -28,7 +28,6 @@ window.EpPanel = {
 			if (!/^#[0-9a-f]{6}$/i.test(String(p.colors[k]))) p.colors[k] = this.DEFAULTS.colors[k];
 		}
 		if (!['compact', 'comfortable'].includes(p.density)) p.density = this.DEFAULTS.density;
-		if (!['all', 'fullest'].includes(p.disks)) p.disks = this.DEFAULTS.disks;
 		const known = new Set(this.SERVER_COLUMNS.map(([k]) => k));
 		p.hiddenSrv = Array.isArray(p.hiddenSrv) ? p.hiddenSrv.filter((k) => known.has(k)) : [];
 		const widths = {};
@@ -263,7 +262,6 @@ window.EpPanel = {
 		root.style.setProperty('--ep-warn', prefs.colors.warn);
 		root.style.setProperty('--ep-high', prefs.colors.high);
 		root.classList.toggle('ep-comfortable', prefs.density === 'comfortable');
-		root.classList.toggle('ep-disks-fullest', prefs.disks === 'fullest');
 		for (const [k] of this.SERVER_COLUMNS) root.classList.toggle('ep-hide-' + k, prefs.hiddenSrv.includes(k));
 	},
 
@@ -286,7 +284,6 @@ window.EpPanel = {
 				+ `<fieldset><legend>Row height</legend>${radios('ep-dens-' + kind, [['compact', 'Compact'], ['comfortable', 'Comfortable']], prefs.density)}</fieldset>`
 				+ (hasServers
 					? `<fieldset><legend>Server columns</legend>${this.SERVER_COLUMNS.map(([k, l]) => `<label><input type="checkbox" data-sc="${k}"${prefs.hiddenSrv.includes(k) ? '' : ' checked'}> ${l}</label>`).join('')}</fieldset>`
-						+ `<fieldset><legend>Disks in server rows</legend>${radios('ep-disks-' + kind, [['all', 'Every disk'], ['fullest', 'Fullest disk only']], prefs.disks)}</fieldset>`
 					: '')
 				+ `<p>Columns: drag a header's right edge to resize, double-click it to fit. The report's own columns, names and order are in ⋮ → Columns.</p>`
 				+ `<p>Thresholds and the bar style are the widget's Warn at, High at and Display settings, so everyone sees the same colours for the same figures. These here are yours alone, kept in this browser.</p>`
@@ -316,7 +313,6 @@ window.EpPanel = {
 			const t = e.target;
 			if (t.dataset.color) prefs.colors[t.dataset.color] = t.value;
 			else if (t.name === 'ep-dens-' + kind) prefs.density = t.value;
-			else if (t.name === 'ep-disks-' + kind) prefs.disks = t.value;
 			else if (t.dataset.sc) {
 				const s = new Set(prefs.hiddenSrv);
 				t.checked ? s.delete(t.dataset.sc) : s.add(t.dataset.sc);
