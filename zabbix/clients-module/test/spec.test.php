@@ -45,9 +45,14 @@ namespace Modules\EpClients\Test {
 	putenv('EP_DATA_DIR='.$dir);
 
 	/* ---------------- roles ---------------- */
-	$roles = Roles::defaults();
-	check('the default roles are valid', Roles::validate($roles) === [], Roles::validate($roles));
-	check('families: ES, Parser, Forwarder, Engine, Single node', array_column($roles['families'], 'label') === ['ES', 'Parser', 'Forwarder', 'Engine', 'Single node']);
+	$defaults = Roles::defaults();
+	check('the default roles are valid', Roles::validate($defaults) === [], Roles::validate($defaults));
+	check('families: ES, Parser, Forwarder, Engine — a single node is a server with all four, not a role', array_column($defaults['families'], 'label') === ['ES', 'Parser', 'Forwarder', 'Engine']
+		&& !isset(Roles::byId($defaults)['single_node']));
+	// The rest of these cases describe a site whose roles.json still has the "Single node" family an
+	// earlier release shipped: it must keep working until the site removes it.
+	$roles = $defaults; $roles['families'][] = Roles::LEGACY_SINGLE_NODE;
+	check('a saved Single node family is still valid', Roles::validate($roles) === [], Roles::validate($roles));
 	check('ES roles: data, hot, warm, coordination, master', array_column($roles['families'][0]['roles'], 'short') === ['ES-Data', 'ES-Data-Hot', 'ES-Data-Warm', 'ES-Coord', 'ES-Master']);
 	check('Engine roles: Engine, UEBA, AIML', array_column($roles['families'][3]['roles'], 'short') === ['Engine', 'UEBA', 'AIML']);
 	$byId = Roles::byId($roles);
@@ -71,7 +76,7 @@ namespace Modules\EpClients\Test {
 	array_pop($v1['families']);
 	$v1['families'][1]['roles'][0]['label'] = 'Log parser';
 	$up = Roles::upgrade($v1);
-	check('upgrade adds ES Data, Engine and Single node', isset(Roles::byId($up)['es_data'], Roles::byId($up)['engine'], Roles::byId($up)['single_node']));
+	check('upgrade adds ES Data and Engine, and no longer Single node', isset(Roles::byId($up)['es_data'], Roles::byId($up)['engine']) && !isset(Roles::byId($up)['single_node']));
 	check('upgrade keeps what was changed', Roles::byId($up)['parser']['label'] === 'Log parser' && $up['version'] === 2);
 	check('ES Data goes first in ES, as in the defaults', $up['families'][0]['roles'][0]['id'] === 'es_data');
 	$clash = $v1; $clash['families'][1]['roles'][] = ['id' => 'mine', 'label' => 'Mine', 'short' => 'Engine', 'group' => 'Mine'];
@@ -729,7 +734,7 @@ namespace Modules\EpClients\Test {
 		'roles' => $v1, 'clients' => ['k' => $old], 'machines' => 3]));
 	$b = Backups::get('20260101-000000-abcd');
 	check('a backup from before servers reads in today\'s terms', $b['schema'] === 2 && isset($b['clients']['k']['servers'])
-		&& json_decode($b['clients']['k']['servers'], true)[0]['roles'] === ['es_data_hot', 'es_coord'] && isset(Roles::byId($b['roles'])['single_node']));
+		&& json_decode($b['clients']['k']['servers'], true)[0]['roles'] === ['es_data_hot', 'es_coord'] && isset(Roles::byId($b['roles'])['es_data']) && !isset(Roles::byId($b['roles'])['single_node']));
 	unlink($dir.'/backups/20260101-000000-abcd.json'); rmdir($dir.'/backups');
 
 	/* ---------------- column settings ---------------- */

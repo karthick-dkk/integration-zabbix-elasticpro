@@ -13,7 +13,7 @@ cluster DL and contract end date), **Elasticsearch** (URL, user, password, monit
 |---|---|
 | **Add client** | Creates (or reuses) the host group named after the client, then `<client>-Master` (figures, alerts, dashboard), `<client>-ES-Cluster` when an ES URL is given, `<client>-ULM` when a bucket is given, and one Linux host per server. |
 | **Type** | **DI**: log archive (S3 bucket, region) and ES URL required. **On-Prem**: optional. tag1 values are not typed in: the archive check finds them in the cluster once a day. |
-| **Servers** | Added one at a time: an IP (or several pasted), one or more roles, optional extra services and notes. The host name follows the roles: `karthi-AIML-1`, `karthi-ES-Data-Parser-Engine-1`, `karthi-ES-Data-Hot-Coord-1`; **Single node** (`karthi-Single-Node-1`) stands for ES + Parser + Forwarder + Engine. The page previews each name before it is added. |
+| **Servers** | Added one at a time: an IP (or several pasted), one or more roles, optional extra services and notes. The host name follows the roles: `karthi-AIML-1`, `karthi-ES-Data-Parser-Engine-1`, `karthi-ES-Data-Hot-Coord-1`; a single node is one server holding ES Data, Parser, Forwarder and Engine (`karthi-ES-Data-Parser-Forwarder-Engine-1`), marked *single node* in Client resources. The page previews each name before it is added. |
 | **Password** | **Vault** (a `path:key`) or **Zabbix secret** (typed once, kept as a secret macro on the cluster and archive hosts, never shown again). |
 | **Monitored by** | The Zabbix server, a proxy or a proxy group — every host of the client except the master is monitored through it. Or **Windows jump host (SSH), no proxy**: see below. |
 | **Requested capacity** | Per role; rows appear for the roles the servers have ("+ Request another role" for capacity not built yet). A family's total adds up the roles that count in it. |
@@ -25,7 +25,7 @@ cluster DL and contract end date), **Elasticsearch** (URL, user, password, monit
 | **Test connection** | On a saved client: asks Zabbix to run the cluster check (HTTP, or SSH through the jump host) and each server's agent check now, and shows what they found. |
 | **Delete for good** | Only for a decommissioned client, and only after its name is typed. Deletes the hosts this page made, with their history. Hosts made by hand and host groups stay. |
 
-A server joins the group of each of its roles and of each family they count in (a Single node
+A server joins the group of each of its roles and of each family they count in (a single node
 joins ESNodes, Parsers, Forwarders and Engines), so a shared server counts once per family and in
 full for each role. Hosts the page makes carry `managed-by: elasticpro-clients`; nothing without
 it is ever deleted. Several hosts on one IP (made before servers could hold several roles) are
@@ -171,7 +171,10 @@ the fixture cluster behind it, for testing without Windows.
 ## Roles
 
 Families and their roles: ES (ES Data, ES Data Hot, ES Data Warm, ES Coordination, ES Master),
-Parser (Parser, S3 Parser), Forwarder, Engine (Engine, UEBA, AIML) and Single node. Add a family
+Parser (Parser, S3 Parser), Forwarder, Engine (Engine, UEBA, AIML). There is no Single node role:
+pick ES Data, Parser, Forwarder and Engine for one server. A site whose roles still carry the
+"Single node" family an earlier release shipped keeps it working, and can remove it here once no
+server uses it. Add a family
 or role, rename, reorder, remove (refused while machines use it). Each change rewrites the master
 template. Roles saved by an older version gain the new ones on the next **Write master template**.
 

@@ -10,9 +10,12 @@ namespace Modules\EpVolume\Lib;
  * UEBA …), each with its own host group and its own name part in host names: karthi-ES-Data-Hot-1.
  *
  * A server may hold several roles: it joins every one of their groups, and its name joins their
- * name parts (karthi-ES-Data-Parser-Engine-1). A role may also count in other families
- * (`alsoIn`): Single node is one role for an all-in-one server, and its machines count toward
- * ES, Parser, Forwarder and Engine.
+ * name parts (karthi-ES-Data-Parser-Engine-1). A single node is not a role of its own: it is
+ * one server holding ES, Parser, Forwarder and Engine roles together (ClientData::isSingleNode).
+ *
+ * A role may still count in other families (`alsoIn`). Releases before this one shipped a
+ * "Single node" family built that way (LEGACY_SINGLE_NODE); a site whose saved roles.json still
+ * has it keeps it working, and can remove it on the Roles page once no server uses it.
  *
  * Kept in the data folder as roles.json; the defaults below are what a first start writes.
  * Everything that knows about machines reads this: the Clients page and its CSV, the master
@@ -137,15 +140,21 @@ class Roles {
 				['id' => 'engine', 'label' => 'Engine', 'short' => 'Engine', 'group' => 'Engine'],
 				['id' => 'ueba', 'label' => 'UEBA', 'short' => 'UEBA', 'group' => 'UEBA'],
 				['id' => 'aiml', 'label' => 'AIML', 'short' => 'AIML', 'group' => 'AIML']
-			]],
-			// One role for an all-in-one server; it counts in each family it stands for.
-			['id' => 'single', 'label' => 'Single node', 'group' => 'Single node', 'macroPrefix' => 'SINGLE', 'memAlias' => '',
-				'order' => ['servers', 'cpu', 'mem', 'disk'], 'roles' => [
-				['id' => 'single_node', 'label' => 'Single node', 'short' => 'Single-Node', 'group' => 'Single node',
-					'alsoIn' => ['es', 'parser', 'fwd', 'engine'], 'exclusive' => true]
 			]]
 		]];
 	}
+
+	/**
+	 * The "Single node" family earlier releases shipped: one all-in-one role counted in ES,
+	 * Parser, Forwarder and Engine. No longer in the defaults — a single node is a server holding
+	 * those four roles — but kept here so a saved roles.json that still has it is understood, and
+	 * so tests can describe such a site.
+	 */
+	public const LEGACY_SINGLE_NODE = ['id' => 'single', 'label' => 'Single node', 'group' => 'Single node', 'macroPrefix' => 'SINGLE', 'memAlias' => '',
+		'order' => ['servers', 'cpu', 'mem', 'disk'], 'roles' => [
+			['id' => 'single_node', 'label' => 'Single node', 'short' => 'Single-Node', 'group' => 'Single node',
+				'alsoIn' => ['es', 'parser', 'fwd', 'engine'], 'exclusive' => true]
+		]];
 
 	public static function load(): array {
 		$config = Store::read(self::FILE);
