@@ -22,10 +22,10 @@ export const PANEL_JS = ['ep-panel.js'];
 export const PANEL_CSS = ['ep-panel.css'];
 export const PANEL_WIDGETS = ['capacity-widget', 'resources-widget'];
 /** The panel look alone, without the table controls: Top hosts is a list, not a table. */
-export const PANEL_CSS_ONLY = ['tophosts-widget'];
+export const PANEL_CSS_ONLY = ['tophosts-widget', 'overview-widget'];
 export const SHARED_PHP = ['Store.php', 'Settings.php', 'Roles.php', 'ColumnSettings.php', 'Forecast.php', 'ClientTypes.php', 'Bars.php', 'ClientData.php'];
 export const SHARED_ACTIONS = { 'ColumnsSave.php': ['resources-widget', 'capacity-widget', 'volume-widget'] };
-export const PHP_MODULES = { 'clients-module': 'EpClients', 'resources-widget': 'EpResources', 'capacity-widget': 'EpCapacity', 'volume-widget': 'EpVolume', 'tophosts-widget': 'EpTophosts' };
+export const PHP_MODULES = { 'clients-module': 'EpClients', 'resources-widget': 'EpResources', 'capacity-widget': 'EpCapacity', 'volume-widget': 'EpVolume', 'tophosts-widget': 'EpTophosts', 'overview-widget': 'EpOverview' };
 
 /** The shared PHP file as it sits in a module. */
 export function phpFor(source, namespace) {

@@ -197,19 +197,6 @@ namespace Modules\EpResources\Test {
 	check('every disk is coloured by its own figure: / at 99 % red, /data at 50 % plain',
 		$srv[0]['disks'][0]['class'] === 'ep-high' && $srv[0]['disks'][1]['class'] === '', $srv[0]['disks']);
 
-	/* ---------------- the overview panels' figures ---------------- */
-	$ov = $d['overview'];
-	check('the overview lists the clients in the table\'s order', array_column($ov['clients'], 'name') === array_column($d['rows'], 'client'));
-	check('and every family, for its panels', in_array('es', array_column($ov['families'], 'id'), true), $ov['families']);
-	$ok = $ov['clients'][array_search('karthi', array_column($ov['clients'], 'name'))];
-	check('ES CPU in the overview is the table\'s figure, coloured the same: 95 % red',
-		$ok['families']['es']['cpu']['usage'] === 95.0 && $ok['families']['es']['cpu']['class'] === 'ep-high'
-		&& $ok['families']['es']['cpu']['requested'] === 16.0 && $ok['families']['es']['cpu']['allocated'] === 8.0, $ok['families']['es']['cpu']);
-	check('ES storage used reaches the overview in bytes', $ok['storage']['used'] === 2.0 * 1073741824, $ok['storage']);
-	check('the overview carries the servers, with their status and classes',
-		count($ok['servers']) === 4 && in_array('down', array_column($ok['servers'], 'status'), true) && isset($ok['servers'][0]['classes']['cpu']) && !isset($ok['servers'][0]['classes']['disk']));
-	check('a server with two roles counts once per role in the overview', in_array(['Engine', 'AIML'], array_column($ok['servers'], 'roles'), true));
-	check('the overview has the thresholds the colours came from', $ok['warn'] > 0 && $ok['high'] > $ok['warn']);
 	check('acme has no servers', $acme['servers'] === []);
 	check('servers export in the table\'s client order', array_column($e['servers']['rows'], 4) === ['karthi-ES-Data-Hot-1', 'karthi-Engine-AIML-1', 'karthi-Forwarder-1', 'karthi-Parser-1']);
 	check('servers export: one row per machine, GB', count($e['servers']['rows']) === 4 && $e['servers']['rows'][3][9] === 8.0 && $e['servers']['types'] === ['DI', 'DI', 'DI', 'DI']);

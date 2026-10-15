@@ -28,10 +28,6 @@ $toolbar = (new CDiv([
 	(new CTag('select', true, array_merge([(new CTag('option', true, _('All')))->setAttribute('value', '')],
 		array_map(fn($t) => (new CTag('option', true, $t))->setAttribute('value', $t), $data['meta']['types'])
 	)))->setAttribute('data-ep-type-filter', '')->setAttribute('aria-label', _('Client type')),
-	(new CDiv([
-		(new CSimpleButton(_('Table')))->addClass('ep-pbtn')->setAttribute('data-ep-view', 'table')->setAttribute('aria-pressed', 'true'),
-		(new CSimpleButton(_('Overview')))->addClass('ep-pbtn')->setAttribute('data-ep-view', 'overview')->setAttribute('aria-pressed', 'false')
-	]))->addClass('ep-seg')->setAttribute('role', 'group')->setAttribute('aria-label', _('View')),
 	(new CSimpleButton(_('Expand all')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-expand-all', ''),
 	// Table settings, the report's Columns and its exports, in the panel menu.
 	(new CDiv([
@@ -182,11 +178,8 @@ $table = (new CTag('table', true))
 	->addItem($body);
 
 $view
-	->addItem((new CDiv([$toolbar, (new CDiv($table))->addClass('ep-res-scroll ep-pscroll'),
-		// The overview panels, drawn by ep-overview.js from ep_overview when Overview is chosen.
-		(new CDiv(''))->addClass('ep-ov ep-pscroll')->setAttribute('hidden', 'hidden')]))
+	->addItem((new CDiv([$toolbar, (new CDiv($table))->addClass('ep-res-scroll ep-pscroll')]))
 		->addClass('ep-panel')->setAttribute('data-ep-panel', 'resources'))
-	->setVar('ep_overview', $data['overview'])
 	->setVar('export', $data['export'])
 	->setVar('ep_meta', $data['meta'])
 	->show();

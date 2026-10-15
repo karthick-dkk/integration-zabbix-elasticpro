@@ -1,0 +1,33 @@
+{
+	"manifest_version": 2.0,
+	"id": "ep_overview",
+	"type": "widget",
+	"name": "ElasticPro client overview",
+	"namespace": "EpOverview",
+	"version": "2.0",
+	"author": "ElasticPro",
+	"description": "Every client at a glance, or one client in detail: servers up and down, devices, CPU, memory and ES storage, used of allocated per family, and servers by role. Settings choose host groups, client, client type, which panels show, the family the cards show, and the thresholds.",
+	"widget": {
+		"js_class": "WidgetEpOverview",
+		"size": {
+			"width": 72,
+			"height": 8
+		},
+		"refresh_rate": 60
+	},
+	"actions": {
+		"widget.ep_overview.view": {
+			"class": "WidgetView"
+		}
+	},
+	"assets": {
+		"js": [
+			"ep-overview.js",
+			"class.widget.js"
+		],
+		"css": [
+			"ep-panel.css",
+			"widget.css"
+		]
+	}
+}
