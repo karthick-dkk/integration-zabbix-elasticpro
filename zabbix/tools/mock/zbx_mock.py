@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Five mock ElasticPro clients on the TEST VM's Zabbix — every host named "Mock …" and also in the
-group "ElasticPro mock data", so they are easy to tell apart and to remove (--remove).
+Five mock ElasticPro clients on a TEST Zabbix — named "Mock …" unless --names says otherwise, and
+every host also in the group "ElasticPro mock data", so they are easy to tell apart and to remove (--remove).
 
 Each client is built the way a real one is: a master host on the client master template with its
 request macros, server hosts in the client's group and their role groups, and a cluster host,
 whose items the master template's calculated items read. The server and cluster items are
 Zabbix agent checks answered by mock_agent.py on 127.0.0.1:<port>; values.json says what.
 
-  ZABBIX_URL=… ZABBIX_USER=Admin ZABBIX_PASSWORD=… python3 zbx_mock.py values.json [--remove]
+  ZABBIX_URL=… ZABBIX_USER=Admin ZABBIX_PASSWORD=… python3 zbx_mock.py values.json [--names "A,B,C,D,E"] [--remove]
 """
 import json, os, sys, time, urllib.request
 
@@ -54,38 +54,52 @@ FAMILY_GROUP = {'es': 'ESNodes', 'parser': 'Parsers', 'fwd': 'Forwarders', 'engi
 ROLE_FAMILY = {'es_data': 'es', 'es_data_hot': 'es', 'es_data_warm': 'es', 'es_coord': 'es', 'es_master': 'es', 'parser': 'parser',
                's3_parser': 'parser', 'forwarder': 'fwd', 'engine': 'engine', 'ueba': 'engine', 'aiml': 'engine', 'single_node': 'single'}
 
-# The five clients. servers: (role, count, cores, mem GB, cpu %, mem %, disks {mount: (size GB, used %)}, down count)
-CLIENTS = [
-    {'name': 'Mock Alpha', 'type': 'DI', 'url': 'https://es.mock-alpha.local:9200', 'purchased_gb': 4000, 'devices': 400,
-     'storage': (4000, 2300, 6), 'seen': 388, 'delay': (0, 400, 0, 95, 340),
-     'servers': [('es_data_hot', 3, 16, 64, 46, 62, {'/': (100, 22), '/data': (1300, 58)}, 0), ('es_master', 1, 8, 32, 12, 55, {'/': (100, 18)}, 0),
-                 ('es_coord', 1, 8, 32, 18, 48, {'/': (100, 20)}, 0), ('parser', 2, 8, 32, 52, 58, {'/': (200, 31)}, 0),
-                 ('forwarder', 1, 4, 16, 33, 41, {'/': (500, 47)}, 0), ('engine', 1, 8, 32, 61, 66, {'/': (100, 29)}, 0)],
-     'requested': {'es_data_hot': (3, 48, 192), 'es_master': (1, 8, 32), 'es_coord': (1, 8, 32), 'parser': (2, 16, 64), 'forwarder': (1, 4, 16), 'engine': (1, 8, 32)}},
-    {'name': 'Mock Bravo', 'type': 'On-Prem', 'url': 'https://10.40.1.10:9200', 'purchased_gb': 3000, 'devices': 300,
-     'storage': (3000, 2760, 12), 'seen': 287, 'delay': (7, 300, 2, 410, 5400),
-     'servers': [('es_data', 2, 16, 64, 71, 78, {'/': (100, 41), '/data': (1500, 92)}, 1), ('es_master', 1, 4, 16, 14, 61, {'/': (50, 22)}, 0),
-                 ('parser', 1, 8, 32, 64, 70, {'/': (200, 38)}, 0), ('forwarder', 1, 4, 16, 28, 44, {'/': (500, 81)}, 0)],
-     'requested': {'es_data': (2, 32, 128), 'es_master': (1, 4, 16), 'parser': (1, 8, 32), 'forwarder': (1, 4, 16)}},
-    {'name': 'Mock Charlie', 'type': 'CI', 'url': 'https://es.mock-charlie.local:9200', 'purchased_gb': 8000, 'devices': 1200,
-     'storage': (7000, 4100, 25), 'seen': 1104, 'delay': (3, 1200, 0, 160, 1900),
-     'servers': [('es_data_hot', 2, 16, 64, 84, 74, {'/': (100, 35), '/data': (2000, 64)}, 0), ('es_data_warm', 2, 8, 64, 38, 69, {'/': (100, 28), '/data': (1500, 51)}, 0),
-                 ('es_master', 3, 4, 16, 11, 52, {'/': (50, 21)}, 0), ('es_coord', 2, 8, 32, 27, 47, {'/': (100, 19)}, 0),
-                 ('parser', 2, 8, 32, 88, 81, {'/': (200, 44)}, 0), ('s3_parser', 1, 8, 32, 42, 50, {'/': (200, 36)}, 0),
-                 ('forwarder', 2, 4, 16, 36, 40, {'/': (500, 52)}, 0), ('engine', 1, 8, 32, 58, 63, {'/': (100, 33)}, 0),
-                 ('ueba', 1, 8, 32, 47, 59, {'/': (100, 27)}, 0), ('aiml', 1, 16, 64, 76, 71, {'/': (200, 48)}, 0)],
-     'requested': {'es_data_hot': (4, 64, 256), 'es_data_warm': (2, 16, 128), 'es_master': (3, 12, 48), 'es_coord': (2, 16, 64),
-                   'parser': (3, 24, 96), 's3_parser': (1, 8, 32), 'forwarder': (2, 8, 32), 'engine': (1, 8, 32), 'ueba': (1, 8, 32), 'aiml': (1, 16, 64)}},
-    {'name': 'Mock Delta', 'type': 'DI', 'url': 'https://es.mock-delta.local:9200', 'purchased_gb': 500, 'devices': 50,
-     'storage': (500, 210, 2), 'seen': 50, 'delay': (0, 50, 0, 60, 180),
-     'servers': [('single_node', 1, 16, 64, 39, 57, {'/': (100, 26), '/data': (500, 42)}, 0), ('forwarder', 1, 4, 16, 22, 35, {'/': (200, 30)}, 0)],
-     'requested': {'single_node': (1, 16, 64), 'forwarder': (1, 4, 16)}},
-    {'name': 'Mock Echo', 'type': 'On-Prem', 'url': 'https://10.60.0.5:9200', 'purchased_gb': 10000, 'devices': 900,
-     'storage': (9000, 6100, 40), 'seen': 860, 'delay': (12, 900, 4, 720, 9600),
-     'servers': [('es_data', 4, 16, 128, 66, 91, {'/': (100, 33), '/data': (2250, 67)}, 0), ('es_master', 3, 4, 16, 9, 58, {'/': (50, 24)}, 0),
-                 ('parser', 3, 8, 32, 74, 86, {'/': (200, 41)}, 1), ('forwarder', 2, 4, 16, 31, 46, {'/': (500, 61)}, 0)],
-     'requested': {'es_data': (4, 64, 512), 'es_master': (3, 12, 48), 'parser': (3, 24, 96), 'forwarder': (2, 8, 32)}},
+# The five clients. Names from --names "A,B,C,D,E" (on a test system people like to see their own);
+# the profiles below stay in this order. Every client has ES, Parser, Forwarder and Engine servers.
+# servers: (roles, count, cores, mem GB, cpu %, mem %, disks {mount: (size GB, used %)}, down count).
+# A server with several roles is one machine in each role's group: ('es_data', 'engine', 'parser',
+# 'forwarder') is a single node, ES, Engine, Parser and Forwarder on one box.
+PROFILES = [
+    {'type': 'DI', 'purchased_gb': 4000, 'devices': 400, 'storage': (4000, 2300, 6), 'seen': 388, 'delay': (0, 400, 0, 95, 340),
+     'servers': [(('es_data_hot',), 3, 16, 64, 46, 62, {'/': (100, 22), '/data': (1300, 58)}, 0), (('es_master',), 1, 8, 32, 12, 55, {'/': (100, 18)}, 0),
+                 (('es_coord',), 1, 8, 32, 18, 48, {'/': (100, 20)}, 0), (('parser',), 2, 8, 32, 52, 58, {'/': (200, 31)}, 0),
+                 (('forwarder',), 1, 4, 16, 33, 41, {'/': (500, 47)}, 0), (('engine',), 1, 8, 32, 61, 66, {'/': (100, 29)}, 0)]},
+    {'type': 'On-Prem', 'purchased_gb': 3000, 'devices': 300, 'storage': (3000, 2760, 12), 'seen': 287, 'delay': (7, 300, 2, 410, 5400),
+     'servers': [(('es_data',), 2, 16, 64, 71, 78, {'/': (100, 41), '/data': (1500, 92)}, 1), (('es_master',), 1, 4, 16, 14, 61, {'/': (50, 22)}, 0),
+                 (('parser',), 1, 8, 32, 64, 70, {'/': (200, 38)}, 0), (('forwarder',), 1, 4, 16, 28, 44, {'/': (500, 81)}, 0),
+                 (('engine',), 1, 8, 32, 49, 57, {'/': (100, 31)}, 0)]},
+    {'type': 'CI', 'purchased_gb': 8000, 'devices': 1200, 'storage': (7000, 4100, 25), 'seen': 1104, 'delay': (3, 1200, 0, 160, 1900),
+     'servers': [(('es_data_hot',), 2, 16, 64, 84, 74, {'/': (100, 35), '/data': (2000, 64)}, 0), (('es_data_warm',), 2, 8, 64, 38, 69, {'/': (100, 28), '/data': (1500, 51)}, 0),
+                 (('es_master',), 3, 4, 16, 11, 52, {'/': (50, 21)}, 0), (('es_coord',), 2, 8, 32, 27, 47, {'/': (100, 19)}, 0),
+                 (('parser',), 2, 8, 32, 88, 81, {'/': (200, 44)}, 0), (('s3_parser',), 1, 8, 32, 42, 50, {'/': (200, 36)}, 0),
+                 (('forwarder',), 2, 4, 16, 36, 40, {'/': (500, 52)}, 0), (('engine',), 1, 8, 32, 58, 63, {'/': (100, 33)}, 0),
+                 (('ueba',), 1, 8, 32, 47, 59, {'/': (100, 27)}, 0), (('aiml',), 1, 16, 64, 76, 71, {'/': (200, 48)}, 0)],
+     'short': {'es_data_hot': 4, 'parser': 3}},
+    {'type': 'DI', 'purchased_gb': 500, 'devices': 50, 'storage': (500, 210, 2), 'seen': 50, 'delay': (0, 50, 0, 60, 180),
+     'servers': [(('es_data', 'engine', 'parser', 'forwarder'), 1, 16, 64, 39, 57, {'/': (100, 26), '/data': (500, 42)}, 0)]},
+    {'type': 'On-Prem', 'purchased_gb': 10000, 'devices': 900, 'storage': (9000, 6100, 40), 'seen': 860, 'delay': (12, 900, 4, 720, 9600),
+     'servers': [(('es_data',), 4, 16, 128, 66, 91, {'/': (100, 33), '/data': (2250, 67)}, 0), (('es_master',), 3, 4, 16, 9, 58, {'/': (50, 24)}, 0),
+                 (('parser',), 3, 8, 32, 74, 86, {'/': (200, 41)}, 1), (('forwarder',), 2, 4, 16, 31, 46, {'/': (500, 61)}, 0),
+                 (('engine',), 1, 8, 32, 44, 60, {'/': (100, 26)}, 0), (('aiml',), 1, 16, 64, 69, 72, {'/': (200, 39)}, 0)]},
 ]
+NAMES = ['Mock Alpha', 'Mock Bravo', 'Mock Charlie', 'Mock Delta', 'Mock Echo']
+if '--names' in sys.argv:
+    NAMES = [n.strip() for n in sys.argv[sys.argv.index('--names') + 1].split(',') if n.strip()][:5]
+CLIENTS = []
+for n, prof in zip(NAMES, PROFILES):
+    slug = ''.join(ch for ch in n.lower() if ch.isalnum())
+    c = {'name': n, 'url': f'https://es.{slug}.local:9200', **prof}
+    # Requested: what each role has, unless the profile asks for more (to show a shortfall).
+    req = {}
+    for roles, count, cores, mem_gb, *_ in prof['servers']:
+        for rid in roles:
+            have = req.get(rid, (0, 0, 0))
+            req[rid] = (have[0] + count, have[1] + count * cores, have[2] + count * mem_gb)
+    for rid, want in prof.get('short', {}).items():
+        cnt, cpu, mem = req[rid]
+        req[rid] = (want, cpu * want // cnt, mem * want // cnt)
+    c['requested'] = req
+    CLIENTS.append(c)
 
 values = {'start': time.time(), 'hosts': {}}
 port = 10061
@@ -120,7 +134,7 @@ for c in CLIENTS:
         R = rid.upper()
         macros += [(f'{{$EP.{R}.SERVER.COUNT.REQUESTED}}', cnt), (f'{{$EP.{R}.CPU.REQUESTED}}', cpu), (f'{{$EP.{R}.MEMORY.REQUESTED}}', mem),
                    (f'{{$EP.{R}.ROOTDISK.REQUESTED}}', 100)]
-    data_roles = {s[0] for s in c['servers'] if '/data' in s[6]}
+    data_roles = {r for s in c['servers'] if '/data' in s[6] for r in s[0] if r.startswith('es_')}
     for rid in data_roles:
         macros.append((f'{{$EP.{rid.upper()}.DISK2.FS}}', '/data'))
     upsert_host(f'{n}-Master', [clients_gid, cg, mock_gid], templates=[tpl['templateid']], macros=macros)
@@ -142,10 +156,14 @@ for c in CLIENTS:
     port += 1
 
     # The servers.
-    for rid, count, cores, mem_gb, cpu, memu, disks, down in c['servers']:
-        groups = list(dict.fromkeys([cg, mock_gid, group(ROLE_GROUP[rid]), group(FAMILY_GROUP[ROLE_FAMILY[rid]])]))
+    for roles, count, cores, mem_gb, cpu, memu, disks, down in c['servers']:
+        gs = [cg, mock_gid]
+        for rid in roles:
+            gs += [group(ROLE_GROUP[rid]), group(FAMILY_GROUP[ROLE_FAMILY[rid]])]
+        groups = list(dict.fromkeys(gs))
+        label = 'Single-Node' if len(roles) > 1 else ROLE_GROUP[roles[0]].replace(' ', '-')
         for i in range(1, count + 1):
-            host = f"{n}-{ROLE_GROUP[rid].replace(' ', '-')}-{i}"
+            host = f"{n}-{label}-{i}"
             items = [ag('agent.ping', 'Agent ping', vt=3), ag('system.cpu.num', 'CPU cores', vt=3), ag('system.cpu.util', 'CPU utilization', '%'),
                      ag('vm.memory.size[total]', 'Memory total', 'B', vt=3), ag('vm.memory.utilization', 'Memory utilization', '%')]
             vals = {'agent.ping': '1', 'system.cpu.num': str(cores), 'system.cpu.util': {'base': cpu, 'wobble': 6, 'min': 0, 'max': 100},
