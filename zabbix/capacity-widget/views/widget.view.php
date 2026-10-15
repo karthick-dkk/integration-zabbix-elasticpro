@@ -25,12 +25,12 @@ else {
 		(new CTag('select', true, array_merge([(new CTag('option', true, _('All')))->setAttribute('value', '')],
 			array_map(fn($t) => (new CTag('option', true, $t))->setAttribute('value', $t), $data['meta']['types'])
 		)))->setAttribute('data-ep-type-filter', '')->setAttribute('aria-label', _('Client type')),
-		(new CSimpleButton('⚙ '._('Table settings')))->addClass('ep-pbtn')->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
-		// The report's Columns and its exports, in the panel menu.
+		// Table settings, the report's Columns and its exports, in the panel menu.
 		(new CDiv([
 			(new CSimpleButton('⋮'))->addClass('ep-pbtn')->setAttribute('data-ep-menu', '')->setAttribute('aria-haspopup', 'true')
-				->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Columns and export')),
+				->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Table settings, columns and export')),
 			(new CDiv([
+				(new CSimpleButton(_('Table settings').'…'))->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
 				(new CSimpleButton(_('Columns').'…'))->setAttribute('data-ep-columns', ''),
 				(new CSimpleButton(_('Export CSV')))->setAttribute('data-ep-export', 'csv'),
 				(new CSimpleButton(_('Export Excel')))->setAttribute('data-ep-export', 'xlsx')

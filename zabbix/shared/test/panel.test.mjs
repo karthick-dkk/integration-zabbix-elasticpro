@@ -35,6 +35,8 @@ test('the panel files are copied to the two client reports, loaded after the sha
     assert.ok(js.indexOf('EpPanel.init') > js.indexOf('EpColumns.init'), `${w}: the panel starts after EpColumns`);
     const view = fs.readFileSync(path.join(ROOT, w, 'views/widget.view.php'), 'utf8');
     for (const hook of ["'ep-panel'", 'data-ep-search', 'data-ep-settings', 'data-ep-menu', 'ep-menu-pop', 'data-ep-columns', 'data-ep-type-filter']) assert.ok(view.includes(hook), `${w}: ${hook}`);
+    const menu = view.slice(view.indexOf("addClass('ep-menu-pop')") - 900, view.indexOf("addClass('ep-menu-pop')"));
+    assert.ok(menu.includes("'data-ep-settings'"), `${w}: Table settings is an item in the ⋮ menu`);
   }
   // The Volume report keeps its own look.
   const vol = JSON.parse(fs.readFileSync(path.join(ROOT, 'volume-widget/manifest.json'), 'utf8'));
@@ -65,8 +67,7 @@ const HTML = `<div id="w"><div class="ep-panel" data-ep-panel="resources">
     <label><input type="search" data-ep-search></label>
     <select data-ep-type-filter><option value="">All</option><option value="DI">DI</option><option value="On-Prem">On-Prem</option></select>
     <button data-ep-expand-all>Expand all</button>
-    <button data-ep-settings>Table settings</button>
-    <div class="ep-menu"><button data-ep-menu>⋮</button><div class="ep-menu-pop" hidden><button data-ep-columns>Columns</button><button data-ep-export="csv">CSV</button></div></div>
+    <div class="ep-menu"><button data-ep-menu>⋮</button><div class="ep-menu-pop" hidden><button data-ep-settings>Table settings</button><button data-ep-columns>Columns</button><button data-ep-export="csv">CSV</button></div></div>
   </div>
   <div class="ep-pscroll"><table class="ep-res-table">
     <thead><tr><th class="ep-res-toggle"></th><th colspan="3">x</th></tr>
@@ -167,6 +168,26 @@ test('what comes back from storage is checked before it is used', (t) => {
   assert.ok(!root.classList.contains('ep-comfortable'));
   body.querySelector('[data-ep-settings]').click();
   assert.ok(!body.querySelector('.ep-set').innerHTML.includes('onerror'), 'nothing from storage reaches the markup unchecked');
+});
+
+test('the toolbar hides until hover, and stays while a filter is in force or a menu is open', (t) => {
+  const css = fs.readFileSync(path.join(HERE, 'ep-panel.css'), 'utf8');
+  assert.match(css, /\.ep-panel \.ep-pt \{ max-height: 0; opacity: 0;/);
+  assert.match(css, /\.ep-panel:hover \.ep-pt, \.ep-panel:focus-within \.ep-pt, \.ep-panel\.ep-pt-pinned \.ep-pt, \.ep-panel\.ep-pt-open \.ep-pt/);
+  assert.match(css, /@media \(hover: none\)/, 'touch screens always see it');
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w, body } = setup(lib);
+  const root = body.querySelector('.ep-panel'), q = body.querySelector('[data-ep-search]');
+  assert.ok(!root.classList.contains('ep-pt-pinned'));
+  q.value = 'beta'; q.dispatchEvent(new w.Event('input'));
+  assert.ok(root.classList.contains('ep-pt-pinned'), 'a search in force keeps it showing');
+  q.value = ''; q.dispatchEvent(new w.Event('input'));
+  assert.ok(!root.classList.contains('ep-pt-pinned'));
+  body.querySelector('[data-ep-menu]').click();
+  assert.ok(root.classList.contains('ep-pt-open'), 'an open menu keeps it showing');
+  body.querySelector('[data-ep-settings]').click();
+  assert.equal(body.querySelector('.ep-menu-pop').hidden, true, 'choosing Table settings closes the menu');
+  assert.ok(root.classList.contains('ep-pt-open'), 'and the open drawer keeps the toolbar showing');
 });
 
 test('the menu opens and closes, and Table settings opens its drawer', (t) => {

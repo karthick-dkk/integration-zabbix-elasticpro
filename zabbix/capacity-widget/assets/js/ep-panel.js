@@ -103,6 +103,8 @@ window.EpPanel = {
 		}
 		const count = root.querySelector('[data-ep-count]');
 		if (count && count.dataset.template) count.textContent = count.dataset.template.replace('%n', shown);
+		// A filter in force keeps the toolbar showing, so what is hidden is never a mystery.
+		root.classList.toggle('ep-pt-pinned', type !== '' || q !== '');
 	},
 
 	/* ---- sorting ---- */
@@ -245,14 +247,20 @@ window.EpPanel = {
 		const btn = root.querySelector('[data-ep-menu]');
 		const pop = root.querySelector('.ep-menu-pop');
 		if (!btn || !pop) return;
-		const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
-		btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute('aria-expanded', String(!pop.hidden)); });
+		const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); this.openState(ctx); };
+		btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute('aria-expanded', String(!pop.hidden)); this.openState(ctx); });
 		pop.addEventListener('click', () => close());
 		root.addEventListener('click', (e) => { if (!e.target.closest('.ep-menu')) close(); });
 		root.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 		// Columns is for Super admins; ep-columns.js hides the button for anyone else.
 		const cols = pop.querySelector('[data-ep-columns]');
 		if (cols && cols.hidden && ![...pop.querySelectorAll('button')].some((b) => !b.hidden)) btn.hidden = true;
+	},
+
+	/** The toolbar stays shown while its menu or Table settings is open. */
+	openState(ctx) {
+		const pop = ctx.root.querySelector('.ep-menu-pop'), set = ctx.root.querySelector('.ep-set');
+		ctx.root.classList.toggle('ep-pt-open', !!(pop && !pop.hidden) || !!(set && !set.hidden));
 	},
 
 	/* ---- Table settings ---- */
@@ -291,8 +299,14 @@ window.EpPanel = {
 		};
 		draw();
 		root.appendChild(box);
-		const open = (on) => { box.hidden = !on; btn.setAttribute('aria-expanded', String(on)); if (on) { draw(); const f = box.querySelector('input'); if (f) f.focus(); } };
-		btn.addEventListener('click', (e) => { e.stopPropagation(); open(box.hidden); });
+		const open = (on) => { box.hidden = !on; btn.setAttribute('aria-expanded', String(on)); this.openState(ctx); if (on) { draw(); const f = box.querySelector('input'); if (f) f.focus(); } };
+		btn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			// It is an item in the ⋮ menu: choosing it closes the menu.
+			const pop = root.querySelector('.ep-menu-pop');
+			if (pop) { pop.hidden = true; const m = root.querySelector('[data-ep-menu]'); if (m) m.setAttribute('aria-expanded', 'false'); }
+			open(box.hidden);
+		});
 		box.addEventListener('click', (e) => {
 			e.stopPropagation();
 			if (e.target.closest('[data-x]')) open(false);

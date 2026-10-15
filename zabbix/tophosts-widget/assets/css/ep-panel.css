@@ -50,6 +50,15 @@
 .ep-panel .ep-menu-pop button:hover { background: var(--ep-pop-hover) !important; }
 .ep-panel .ep-menu-pop button[hidden] { display: none; }
 
+/* The toolbar stays out of the way: hidden until the pointer is over the panel, gone again when it
+   leaves. It stays while it is being used (keyboard focus in it, a menu or Table settings open),
+   while a search or a Type filter is in force (ep-pt-pinned), and on screens with no hover. */
+.ep-panel .ep-pt { max-height: 0; opacity: 0; padding-bottom: 0; overflow: hidden; transition: max-height .15s ease, opacity .15s ease, padding .15s ease; }
+.ep-panel:hover .ep-pt, .ep-panel:focus-within .ep-pt, .ep-panel.ep-pt-pinned .ep-pt, .ep-panel.ep-pt-open .ep-pt {
+	max-height: 80px; opacity: 1; padding-bottom: 6px; overflow: visible; }
+@media (hover: none) { .ep-panel .ep-pt { max-height: none; opacity: 1; padding-bottom: 6px; overflow: visible; } }
+@media (prefers-reduced-motion: reduce) { .ep-panel .ep-pt { transition: none; } }
+
 /* ---- the table ---- */
 .ep-panel .ep-pscroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .ep-panel table.ep-res-table, .ep-panel table.ep-cap-table {

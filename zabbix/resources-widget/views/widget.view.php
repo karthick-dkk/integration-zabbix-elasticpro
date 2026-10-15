@@ -33,12 +33,12 @@ $toolbar = (new CDiv([
 		(new CSimpleButton(_('Overview')))->addClass('ep-pbtn')->setAttribute('data-ep-view', 'overview')->setAttribute('aria-pressed', 'false')
 	]))->addClass('ep-seg')->setAttribute('role', 'group')->setAttribute('aria-label', _('View')),
 	(new CSimpleButton(_('Expand all')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-expand-all', ''),
-	(new CSimpleButton('⚙ '._('Table settings')))->addClass('ep-pbtn')->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
-	// The report's Columns and its exports, in the panel menu.
+	// Table settings, the report's Columns and its exports, in the panel menu.
 	(new CDiv([
 		(new CSimpleButton('⋮'))->addClass('ep-pbtn')->setAttribute('data-ep-menu', '')->setAttribute('aria-haspopup', 'true')
-			->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Columns and export')),
+			->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Table settings, columns and export')),
 		(new CDiv([
+			(new CSimpleButton(_('Table settings').'…'))->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
 			(new CSimpleButton(_('Columns').'…'))->setAttribute('data-ep-columns', ''),
 			(new CSimpleButton(_('Export CSV')))->setAttribute('data-ep-export', 'csv'),
 			(new CSimpleButton(_('Export servers CSV')))->setAttribute('data-ep-export', 'csv-servers'),
