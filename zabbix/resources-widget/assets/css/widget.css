@@ -34,7 +34,7 @@
 .ep-panel .ep-ov { display: grid; gap: 8px; align-content: start; }
 .ep-panel .ep-ov[hidden], .ep-panel .ep-res-scroll[hidden] { display: none; }
 .ep-panel .ep-ov-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.ep-panel .ep-ov-bar select { background: #1f2b3d; color: var(--ep-strong); border: 1px solid #2f4a70; border-radius: 3px; padding: 3px 8px; font: inherit; font-weight: 500; }
+.ep-panel .ep-ov-bar select { background: var(--ep-sel-bg); color: var(--ep-strong); border: 1px solid var(--ep-sel-line); border-radius: 3px; padding: 3px 8px; font: inherit; font-weight: 500; }
 .ep-panel .ep-ov-note { color: var(--ep-muted); font-size: 12px; }
 .ep-panel .ep-ov-panel { background: var(--ep-bg-2); border: 1px solid var(--ep-line-2); border-radius: 2px; padding: 6px 10px 10px; min-width: 0; }
 .ep-panel .ep-ov-panel h4 { margin: 0 0 6px; color: var(--ep-strong); font-weight: 500; font-size: 13px; }
@@ -44,7 +44,7 @@
 .ep-panel .ep-ov-card { display: grid; gap: 8px; text-align: left; background: var(--ep-bg); border: 1px solid var(--ep-line-2); border-radius: 2px; padding: 10px 12px; color: inherit; font: inherit; cursor: pointer; }
 /* Zabbix sizes every button to one 24 px line; a card is a button that holds a block. */
 .ep-panel button.ep-ov-card { height: auto !important; min-height: 0; line-height: 1.4; white-space: normal; vertical-align: top; }
-.ep-panel .ep-ov-card:hover { border-color: #2f4a70; }
+.ep-panel .ep-ov-card:hover { border-color: var(--ep-sel-line); }
 .ep-panel .ep-ov-card-h { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ep-panel .ep-ov-card-h b { color: var(--ep-strong); font-weight: 500; font-size: 14px; }
 .ep-panel .ep-ov-badge { font-size: 10.5px; color: var(--ep-warn); border: 1px solid var(--ep-line); border-radius: 3px; padding: 0 5px; }
@@ -54,7 +54,7 @@
 .ep-panel .ep-ov-trio b small { font-size: 13px; color: var(--ep-muted); }
 .ep-panel .ep-ov-trio > span > small { font-size: 11px; color: var(--ep-muted); }
 .ep-panel .ep-ov-m { display: grid; grid-template-columns: 70px 1fr 50px; gap: 8px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; }
-.ep-panel .ep-ov-m i { height: 8px; border-radius: 1px; background: #22252b; position: relative; overflow: hidden; }
+.ep-panel .ep-ov-m i { height: 8px; border-radius: 1px; background: var(--ep-track); position: relative; overflow: hidden; }
 .ep-panel .ep-ov-m i b { position: absolute; inset: 0 auto 0 0; }
 .ep-panel .ep-ov-m em { font-style: normal; text-align: right; font-weight: 500; }
 .ep-panel .ep-ov-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
@@ -70,7 +70,7 @@
 .ep-panel .ep-ov-bg > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-panel .ep-ov-bg em { font-style: normal; text-align: right; font-weight: 500; }
 .ep-panel .ep-ov-lcd { display: grid; grid-template-columns: repeat(25, 1fr); gap: 2px; height: 13px; }
-.ep-panel .ep-ov-lcd i { border-radius: 1px; background: #22252b; }
+.ep-panel .ep-ov-lcd i { border-radius: 1px; background: var(--ep-track); }
 .ep-panel .ep-ov-pies { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .ep-panel .ep-ov-pie h5 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; color: var(--ep-strong); font-size: 12px; }
 .ep-panel .ep-ov-pie-b { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; align-items: center; }

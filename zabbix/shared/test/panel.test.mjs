@@ -41,6 +41,17 @@ test('the panel files are copied to the two client reports, loaded after the sha
   assert.ok(!vol.assets.js.includes('ep-panel.js') && !vol.assets.css.includes('ep-panel.css'));
 });
 
+test('the panel follows the Zabbix theme: light by default, dark under Dark and high-contrast dark', () => {
+  const css = fs.readFileSync(path.join(HERE, 'ep-panel.css'), 'utf8');
+  assert.match(css, /\[theme="dark-theme"\] \.ep-panel, \[theme="hc-dark"\] \.ep-panel \{/);
+  const block = (sel) => css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+  const light = block('.ep-panel {\n\t--ep-ok'), dark = block('[theme="dark-theme"] .ep-panel');
+  const names = (b) => [...b.matchAll(/(--ep-[a-z0-9-]+):/g)].map((m) => m[1]).sort();
+  assert.deepEqual(names(dark), names(light), 'every colour has a value in both themes');
+  const rules = css.slice(css.indexOf('/* ---- toolbar ---- */')).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.deepEqual(rules.match(/#[0-9a-f]{6}\b/gi) || [], [], 'no colour outside the two theme blocks');
+});
+
 test('the panel colours a status by the class WidgetView chose, never by a figure of its own', () => {
   const css = fs.readFileSync(path.join(HERE, 'ep-panel.css'), 'utf8');
   for (const cls of ['td.ep-warn', 'td.ep-high', 'td.ep-short', 'td.ep-unset']) assert.ok(css.includes(cls), cls);

@@ -111,7 +111,7 @@ window.EpOverview = {
 		const known = v !== null && v !== undefined;
 		const f = known ? Math.max(0, Math.min(1, v / 100)) : 0;
 		return `<svg viewBox="0 0 180 112" role="img" aria-label="${known ? this.num(v) + ' %' : 'not reported'}">${band}`
-			+ `<path d="${arc(0, 1, Rv)}" stroke="#22252b" stroke-width="18" fill="none"></path>`
+			+ `<path d="${arc(0, 1, Rv)}" style="stroke:var(--ep-track)" stroke-width="18" fill="none"></path>`
 			+ (f > 0 ? `<path d="${arc(0, f, Rv)}" stroke="${this.color(cls)}" stroke-width="18" fill="none"></path>` : '')
 			+ `<text x="${cx}" y="${cy - 8}" text-anchor="middle" font-size="24" font-weight="500" fill="${known ? this.color(cls) : 'var(--ep-muted)'}">${known ? this.num(v) + '%' : '—'}</text>`
 			+ `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="10.5" fill="var(--ep-muted)">${this.esc(sub || '')}</text></svg>`;
