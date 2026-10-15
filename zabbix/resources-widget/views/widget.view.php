@@ -16,24 +16,37 @@ if ($data['error'] !== null) {
 }
 
 $toolbar = (new CDiv([
-	(new CSpan(_n('%1$s client', '%1$s clients', count($data['rows']))))->addClass('ep-res-count')->setAttribute('data-ep-count', '')
+	(new CSpan(_n('%1$s client', '%1$s clients', count($data['rows']))))->addClass('ep-res-count ep-pt-count')->setAttribute('data-ep-count', '')
 		->setAttribute('data-template', _('%n clients')),
-	new CLabel(_('Type')), ' ',
+	(new CLabel([(new CSpan('⌕'))->setAttribute('aria-hidden', 'true'),
+		(new CTag('input', false))->setAttribute('type', 'search')->setAttribute('data-ep-search', '')
+			->setAttribute('placeholder', _('Client, host or IP'))->setAttribute('aria-label', _('Search clients, hosts or IPs'))
+	]))->addClass('ep-pt-search'),
+	new CLabel(_('Type')),
 	// The types the site has, from ElasticPro -> Settings. Hard-coded here before, which is how
 	// CI came to be missing from a filter whose list has always had it.
 	(new CTag('select', true, array_merge([(new CTag('option', true, _('All')))->setAttribute('value', '')],
 		array_map(fn($t) => (new CTag('option', true, $t))->setAttribute('value', $t), $data['meta']['types'])
 	)))->setAttribute('data-ep-type-filter', '')->setAttribute('aria-label', _('Client type')),
 	(new CSimpleButton(_('Expand all')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-expand-all', ''),
-	(new CSimpleButton(_('Columns')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-columns', ''),
-	(new CSimpleButton(_('Export CSV')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-export', 'csv'),
-	(new CSimpleButton(_('Export servers CSV')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-export', 'csv-servers'),
-	(new CSimpleButton(_('Export Excel')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-export', 'xlsx')
-]))->addClass('ep-res-toolbar');
+	(new CSimpleButton('⚙ '._('Table settings')))->addClass('ep-pbtn')->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
+	// The report's Columns and its exports, in the panel menu.
+	(new CDiv([
+		(new CSimpleButton('⋮'))->addClass('ep-pbtn')->setAttribute('data-ep-menu', '')->setAttribute('aria-haspopup', 'true')
+			->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Columns and export')),
+		(new CDiv([
+			(new CSimpleButton(_('Columns').'…'))->setAttribute('data-ep-columns', ''),
+			(new CSimpleButton(_('Export CSV')))->setAttribute('data-ep-export', 'csv'),
+			(new CSimpleButton(_('Export servers CSV')))->setAttribute('data-ep-export', 'csv-servers'),
+			(new CSimpleButton(_('Export Excel')))->setAttribute('data-ep-export', 'xlsx')
+		]))->addClass('ep-menu-pop')->setAttribute('hidden', 'hidden')
+	]))->addClass('ep-menu')
+]))->addClass('ep-res-toolbar ep-pt');
 
 if (!$data['rows']) {
-	$view->addItem($toolbar)
-		->addItem((new CDiv(_('No client master hosts yet. Add clients in ElasticPro → Clients — they appear here, and export is enabled.')))->addClass('ep-empty'))
+	$view->addItem((new CDiv([$toolbar,
+			(new CDiv(_('No client master hosts yet. Add clients in ElasticPro → Clients — they appear here, and export is enabled.')))->addClass('ep-empty')
+		]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'resources'))
 		->setVar('export', $data['export'])->setVar('ep_meta', $data['meta'])->show();
 	return;
 }
@@ -87,38 +100,63 @@ foreach ($data['rows'] as $n => $row) {
 
 	if ($row['servers']) {
 		$head = new CTag('tr', true);
-		foreach ([_('Role'), _('Host'), _('IP'), _('Status'), _('CPU cores'), _('CPU used'), _('Memory'), _('Memory used'), _('Disks'), _('Fullest disk')] as $h) {
-			$head->addItem(new CTag('th', true, $h));
+		// data-sc names each column, so a viewer can hide one in Table settings.
+		foreach (['role' => _('Role'), 'host' => _('Host'), 'ip' => _('IP'), 'status' => _('Status'), 'cores' => _('CPU cores'), 'cpu' => _('CPU used'),
+				'mem' => _('Memory'), 'memu' => _('Memory used'), 'disks' => _('Disks'), 'fullest' => _('Fullest disk')] as $sc => $h) {
+			$head->addItem((new CTag('th', true, $h))->setAttribute('data-sc', $sc));
 		}
 		$sb = new CTag('tbody', true);
 		foreach ($row['servers'] as $s) {
-			$roleCell = [$s['role']];
-			foreach ($s['services'] ?? [] as $svc) {
+			// Each role its own chip; a server with several reads "ES Data · Parser · Engine".
+			$roleCell = [];
+			foreach (array_filter(array_map('trim', explode('+', $s['role']))) as $r) {
+				$roleCell[] = (new CSpan($r))->addClass('ep-role-chip');
 				$roleCell[] = ' ';
+			}
+			foreach ($s['services'] ?? [] as $svc) {
 				$roleCell[] = (new CSpan($svc))->addClass('ep-svc');
+				$roleCell[] = ' ';
 			}
 			if (!empty($s['single'])) {
-				$roleCell[] = ' ';
 				$roleCell[] = (new CSpan(_('single node')))->addClass('ep-mark');
 			}
 			elseif (!empty($s['shared'])) {
-				$roleCell[] = ' ';
 				$roleCell[] = (new CSpan(_('shared')))->addClass('ep-mark');
 			}
-			$sb->addItem((new CTag('tr', true))
-				->addItem(new CTag('td', true, $roleCell))
-				->addItem(new CTag('td', true, new CLink($s['host'],
-					(new CUrl('zabbix.php'))->setArgument('action', 'latest.view')->setArgument('hostids', [$s['hostid']])->getUrl())))
-				->addItem(new CTag('td', true, $s['ip'] !== '' ? $s['ip'] : '—'))
-				->addItem((new CTag('td', true, new CSpan($s['status'] === 'up' ? _('up') : ($s['status'] === 'down' ? _('down') : _('no data')))))->addClass('ep-st-'.$s['status']))
-				->addItem(new CTag('td', true, $s['cpu_cores'] === null ? '—' : (string) (int) $s['cpu_cores']))
-				->addItem((new CTag('td', true, $pct($s['cpu_used'])))->addClass($s['classes']['cpu'] !== '' ? $s['classes']['cpu'] : null))
-				->addItem(new CTag('td', true, $s['mem_total'] === null ? '—' : convertUnits(['value' => $s['mem_total'], 'units' => 'B'])))
-				->addItem((new CTag('td', true, $pct($s['mem_used'])))->addClass($s['classes']['mem'] !== '' ? $s['classes']['mem'] : null))
-				->addItem(new CTag('td', true, array_map(fn($d) => (new CDiv([(new CSpan($d['mount']))->addClass('ep-mount'), ' ',
+			// The fullest disk is the one the server's disk class was decided on; it alone takes the colour.
+			$max = null;
+			foreach ($s['disks'] ?? [] as $k => $d) {
+				if ($d['used'] !== null && ($max === null || $d['used'] > $s['disks'][$max]['used'])) {
+					$max = $k;
+				}
+			}
+			$disks = [];
+			foreach ($s['disks'] ?? [] as $k => $d) {
+				$disks[] = (new CSpan([
+					(new CSpan($d['mount']))->addClass('ep-mount'),
+					(new CSpan((new CTag('i', true, ''))->setAttribute('style', 'width:'.($d['used'] === null ? 0 : max(0, min(100, round($d['used'], 1)))).'%')))->addClass('ep-disk-bar'),
 					$d['total'] === null ? '—' : convertUnits(['value' => $d['total'], 'units' => 'B']),
-					$d['used'] === null ? '' : ' · '.round($d['used']).' %']))->addClass('ep-disk-line'), $s['disks'] ?? [])))
-				->addItem((new CTag('td', true, $pct($s['disk_used'])))->addClass($s['classes']['disk'] !== '' ? $s['classes']['disk'] : null)));
+					$d['used'] === null ? '' : [' · ', new CTag('b', true, round($d['used']).' %')]
+				]))->addClass('ep-disk-line')->addClass($k === $max ? 'ep-disk-max' : null)
+					->addClass($k === $max && $s['classes']['disk'] !== '' ? $s['classes']['disk'] : null);
+			}
+			$bar = fn($v, $cls) => \Modules\EpResources\Lib\Bars::cell($pct($v), $v, $data['bars'] ?? 'under', $cls);
+			$scell = fn($sc, $content, $cls = '') => (new CTag('td', true, $content))->setAttribute('data-sc', $sc)
+				->addClass($cls !== '' ? $cls : null);
+			$barcell = fn($sc, $v, $cls) => $scell($sc, $bar($v, $cls), $cls)
+				->addClass($v !== null && ($data['bars'] ?? 'under') !== 'none' ? 'ep-barcell' : null);
+			$sb->addItem((new CTag('tr', true))
+				->addItem($scell('role', $roleCell))
+				->addItem($scell('host', new CLink($s['host'],
+					(new CUrl('zabbix.php'))->setArgument('action', 'latest.view')->setArgument('hostids', [$s['hostid']])->getUrl())))
+				->addItem($scell('ip', $s['ip'] !== '' ? $s['ip'] : '—'))
+				->addItem($scell('status', new CSpan($s['status'] === 'up' ? _('up') : ($s['status'] === 'down' ? _('down') : _('no data'))), 'ep-st-'.$s['status']))
+				->addItem($scell('cores', $s['cpu_cores'] === null ? '—' : (string) (int) $s['cpu_cores']))
+				->addItem($barcell('cpu', $s['cpu_used'], $s['classes']['cpu']))
+				->addItem($scell('mem', $s['mem_total'] === null ? '—' : convertUnits(['value' => $s['mem_total'], 'units' => 'B'])))
+				->addItem($barcell('memu', $s['mem_used'], $s['classes']['mem']))
+				->addItem($scell('disks', (new CSpan($disks))->addClass('ep-disks')))
+				->addItem($barcell('fullest', $s['disk_used'], $s['classes']['disk'])));
 		}
 		$srv = (new CTag('table', true))->addClass('ep-servers')->addItem((new CTag('thead', true))->addItem($head))->addItem($sb);
 		$body->addItem((new CTag('tr', true))->addClass('ep-sub')->setAttribute('data-parent', $id)->setAttribute('hidden', 'hidden')
@@ -134,8 +172,8 @@ $table = (new CTag('table', true))
 	->addItem($body);
 
 $view
-	->addItem($toolbar)
-	->addItem((new CDiv($table))->addClass('ep-res-scroll'))
+	->addItem((new CDiv([$toolbar, (new CDiv($table))->addClass('ep-res-scroll ep-pscroll')]))
+		->addClass('ep-panel')->setAttribute('data-ep-panel', 'resources'))
 	->setVar('export', $data['export'])
 	->setVar('ep_meta', $data['meta'])
 	->show();

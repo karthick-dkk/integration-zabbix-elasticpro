@@ -17,6 +17,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const SHARED = ['ep-xlsx.js', 'ep-export.js', 'ep-columns.js'];
 export const SHARED_CSS = ['ep-widget.css'];
 export const WIDGETS = ['capacity-widget', 'volume-widget', 'resources-widget'];
+/** The panel look and its controls: only the two client reports use them, so the Volume report is untouched. */
+export const PANEL_JS = ['ep-panel.js'];
+export const PANEL_CSS = ['ep-panel.css'];
+export const PANEL_WIDGETS = ['capacity-widget', 'resources-widget'];
 export const SHARED_PHP = ['Store.php', 'Settings.php', 'Roles.php', 'ColumnSettings.php', 'Forecast.php', 'ClientTypes.php', 'Bars.php'];
 export const SHARED_ACTIONS = { 'ColumnsSave.php': ['resources-widget', 'capacity-widget', 'volume-widget'] };
 export const PHP_MODULES = { 'clients-module': 'EpClients', 'resources-widget': 'EpResources', 'capacity-widget': 'EpCapacity', 'volume-widget': 'EpVolume' };
@@ -37,6 +41,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       if (fs.existsSync(path.join(HERE, 'shared', f))) fs.copyFileSync(path.join(HERE, 'shared', f), path.join(HERE, w, 'assets', 'js', f));
     }
     for (const f of SHARED_CSS) fs.copyFileSync(path.join(HERE, 'shared', f), path.join(HERE, w, 'assets', 'css', f));
+  }
+  for (const w of PANEL_WIDGETS) {
+    for (const f of PANEL_JS) fs.copyFileSync(path.join(HERE, 'shared', f), path.join(HERE, w, 'assets', 'js', f));
+    for (const f of PANEL_CSS) fs.copyFileSync(path.join(HERE, 'shared', f), path.join(HERE, w, 'assets', 'css', f));
   }
   for (const [dir, ns] of Object.entries(PHP_MODULES)) {
     if (!fs.existsSync(path.join(HERE, dir))) continue;
