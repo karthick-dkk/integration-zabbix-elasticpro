@@ -188,11 +188,11 @@ namespace Modules\EpResources\Test {
 	check('karthi expands into its machines with a role (ULM has none)', array_column($srv, 'host') === ['karthi-ES-Data-Hot-1', 'karthi-Forwarder-1', 'karthi-Parser-1'], array_column($srv, 'host'));
 	check('the ES data node shows / and its data disk, each measured', array_column($srv[0]['disks'], 'mount') === ['/', '/data']
 		&& $srv[0]['disks'][0]['used'] === 99.0 && $srv[0]['disks'][1]['used'] === 50.0, $srv[0]['disks']);
-	check('its fullest disk is the one coloured', $srv[0]['disk_used'] === 99.0);
-	check('other roles have / only', $srv[2]['mount'] === '/' && $srv[2]['disk_used'] === 91.0);
+	check('there is no one fullest-disk figure per server', !array_key_exists('disk_used', $srv[0]));
+	check('other roles have / only', $srv[2]['mount'] === '/' && $srv[2]['disks'][0]['used'] === 91.0);
 	check('status from the agent interface', array_column($srv, 'status') === ['up', 'unknown', 'down']);
 	check('devices: purchased and seen columns', col($d, 'devices.purchased') !== null && col($d, 'devices.seen') !== null);
-	check('server colours: 85 % CPU yellow, 91 % disk red', $srv[0]['classes']['cpu'] === 'ep-warn' && $srv[2]['classes']['disk'] === 'ep-high');
+	check('server colours: 85 % CPU yellow, 91 % disk red', $srv[0]['classes']['cpu'] === 'ep-warn' && $srv[2]['disks'][0]['class'] === 'ep-high');
 	check('unmeasured server figures stay unknown', $srv[1]['cpu_used'] === null && $srv[1]['mem_total'] === null);
 	check('every disk is coloured by its own figure: / at 99 % red, /data at 50 % plain',
 		$srv[0]['disks'][0]['class'] === 'ep-high' && $srv[0]['disks'][1]['class'] === '', $srv[0]['disks']);
@@ -207,7 +207,7 @@ namespace Modules\EpResources\Test {
 		&& $ok['families']['es']['cpu']['requested'] === 16.0 && $ok['families']['es']['cpu']['allocated'] === 8.0, $ok['families']['es']['cpu']);
 	check('ES storage used reaches the overview in bytes', $ok['storage']['used'] === 2.0 * 1073741824, $ok['storage']);
 	check('the overview carries the servers, with their status and classes',
-		count($ok['servers']) === 4 && in_array('down', array_column($ok['servers'], 'status'), true) && isset($ok['servers'][0]['classes']['disk']));
+		count($ok['servers']) === 4 && in_array('down', array_column($ok['servers'], 'status'), true) && isset($ok['servers'][0]['classes']['cpu']) && !isset($ok['servers'][0]['classes']['disk']));
 	check('a server with two roles counts once per role in the overview', in_array(['Engine', 'AIML'], array_column($ok['servers'], 'roles'), true));
 	check('the overview has the thresholds the colours came from', $ok['warn'] > 0 && $ok['high'] > $ok['warn']);
 	check('acme has no servers', $acme['servers'] === []);

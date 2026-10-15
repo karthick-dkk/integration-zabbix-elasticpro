@@ -120,7 +120,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 				$div = Settings::sizeDivisor($this->cfg);
 				$serverRows[$client['name']][] = [$client['name'], $client['type'], $s['role'], implode(', ', $s['services'] ?? []), $s['host'], $s['ip'], $s['status'],
 					$s['cpu_cores'], self::r1($s['cpu_used']), $s['mem_total'] !== null ? round($s['mem_total'] / $div, 2) : null, self::r1($s['mem_used']),
-					$s['mount'], $s['disk_total'] !== null ? round($s['disk_total'] / $div, 2) : null, self::r1($s['disk_used'])];
+					$s['mount'], $s['disk_total'] !== null ? round($s['disk_total'] / $div, 2) : null];
 			}
 			unset($s);
 			$data['rows'][] = ['client' => $client['name'], 'type' => $client['type'], 'cells' => $cells, 'servers' => $srv,
@@ -144,8 +144,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'rows' => array_map(fn($i) => $exportRows[$i], $order),
 			'types' => array_map(fn($i) => $exportTypes[$i], $order),
 			'servers' => ['headers' => ['Client', 'Type', 'Roles', 'Services', 'Host', 'IP', 'Status', 'CPU cores', 'CPU used (%)',
-				'Memory ('.Settings::sizeLabel($this->cfg).')', 'Memory used (%)', 'Disks', 'Disk ('.Settings::sizeLabel($this->cfg).')',
-				'Fullest disk (%)'], 'rows' => $servers_out, 'types' => array_column($servers_out, 1)]
+				'Memory ('.Settings::sizeLabel($this->cfg).')', 'Memory used (%)', 'Disks', 'Disk ('.Settings::sizeLabel($this->cfg).')'],
+				'rows' => $servers_out, 'types' => array_column($servers_out, 1)]
 		];
 		$this->setResponse(new CControllerResponseData($data));
 	}
@@ -254,7 +254,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 				'class' => self::usageClass($num('ep.es.storage.usage'), $warn, $high)],
 			'families' => $fam,
 			'servers' => array_map(fn($s) => ['host' => $s['host'], 'hostid' => $s['hostid'], 'roles' => array_values(array_filter(array_map('trim', explode('+', $s['role'])))),
-				'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'], 'disk' => $s['disk_used'], 'classes' => $s['classes']], $srv)
+				'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'], 'classes' => $s['classes']], $srv)
 		];
 	}
 

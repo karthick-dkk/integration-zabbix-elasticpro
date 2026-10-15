@@ -13,7 +13,7 @@ use Modules\EpTophosts\Includes\WidgetForm;
 use Modules\EpTophosts\Lib\{ClientData, Roles, Settings};
 
 /**
- * Top hosts: the busiest client servers, by CPU, memory or fullest disk. The clients and their
+ * Top hosts: the busiest client servers, by CPU or memory. The clients and their
  * servers are ClientData's — the same reading Client resources expands into — and each server's
  * colour is decided with its own client's thresholds, so a host is the same colour here as in
  * Client resources. Every server goes to the page with all three figures, so the ranking can be
@@ -23,6 +23,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 
 	protected function doAction(): void {
 		$cfg = Settings::all();
+		// A widget saved when it could also rank by disk falls back to CPU.
 		$rank = WidgetForm::RANKS[(int) ($this->fields_values['rank'] ?? 0)] ?? 'cpu';
 		$data = [
 			'name' => $this->getInput('name', $this->widget->getDefaultName()),
@@ -71,7 +72,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 			foreach ($list as $s) {
 				$s = ClientData::classify($s, $warn, $high);
 				$data['servers'][] = ['host' => $s['host'], 'hostid' => $s['hostid'], 'client' => $client, 'type' => $c['type'], 'role' => $s['role'],
-					'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'], 'disk' => $s['disk_used'],
+					'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'],
 					'classes' => $s['classes'], 'url' => (new \CUrl('zabbix.php'))->setArgument('action', 'latest.view')->setArgument('hostids', [$s['hostid']])->getUrl()];
 			}
 		}

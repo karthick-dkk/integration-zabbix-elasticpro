@@ -6,7 +6,7 @@
 	"namespace": "EpTophosts",
 	"version": "2.0",
 	"author": "ElasticPro",
-	"description": "The busiest client servers, ranked by CPU, memory or fullest disk, coloured at each client's thresholds. Settings choose the host groups, the client and the client type; the ranking can be switched on the widget.",
+	"description": "The busiest client servers, ranked by CPU or memory, coloured at each client's thresholds. Settings choose the host groups, the client and the client type; the ranking can be switched on the widget.",
 	"widget": {
 		"js_class": "WidgetEpTophosts",
 		"size": {

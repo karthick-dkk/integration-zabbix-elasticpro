@@ -115,15 +115,17 @@ namespace Modules\EpTophosts\Test {
 		&& !in_array('gone', array_column($d['servers'], 'client'), true), array_column($d['servers'], 'host'));
 	$h = $byHost($d);
 	check('all three figures go to the page, so the switch needs no reload', $h['karthi-ES-Data-Hot-1']['cpu'] === 85.0
-		&& $h['karthi-ES-Data-Hot-1']['mem'] === 40.0 && $h['karthi-ES-Data-Hot-1']['disk'] === 99.0);
-	check('not measured stays unknown, never zero', $h['karthi-Forwarder-1']['mem'] === null && $h['karthi-Forwarder-1']['disk'] === null);
+		&& $h['karthi-ES-Data-Hot-1']['mem'] === 40.0 && !array_key_exists('disk', $h['karthi-ES-Data-Hot-1']));
+	check('not measured stays unknown, never zero', $h['karthi-Forwarder-1']['mem'] === null);
 	check('colours at the client\'s thresholds: karthi at the defaults, 85 % CPU is warn', $h['karthi-ES-Data-Hot-1']['classes']['cpu'] === 'ep-warn');
 	check('acme\'s own thresholds (30 / 40): 35 % CPU is warn there', $h['acme-ES-Data-Hot-1']['classes']['cpu'] === 'ep-warn', $h['acme-ES-Data-Hot-1']['classes']);
 	check('each host links to its Latest data', strpos($h['karthi-Parser-1']['url'], 'latest.view') !== false && strpos($h['karthi-Parser-1']['url'], '202') !== false);
 	check('rank and count from the settings, CPU and 10 by default', $d['rank'] === 'cpu' && $d['count'] === 10 && $d['scope'] === '');
 
-	$d = run(['rank' => 2, 'count' => 3]);
-	check('Rank by: fullest disk, three hosts', $d['rank'] === 'disk' && $d['count'] === 3);
+	$d = run(['rank' => 1, 'count' => 3]);
+	check('Rank by: memory, three hosts', $d['rank'] === 'mem' && $d['count'] === 3);
+	$d = run(['rank' => 2]);
+	check('a widget saved to rank by the old disk choice ranks by CPU', $d['rank'] === 'cpu');
 
 	$d = run(['client' => 'ACME']);
 	check('Client: one client, matched without regard to case', array_unique(array_column($d['servers'], 'client')) === ['acme'] && $d['scope'] === 'ACME');

@@ -7,7 +7,7 @@ use API;
 /**
  * The clients and their servers, read one way for every report that lists them: Client resources,
  * and Top hosts, which ranks the same servers. Two readings would drift — a decommissioned client
- * dropped from one and not the other, a server's fullest disk taken one way here and another there —
+ * dropped from one and not the other, a server's figures taken one way here and another there —
  * so both ask this.
  *
  * Copied from ../../shared/php by ../../sync-assets.mjs — edit it there.
@@ -116,7 +116,7 @@ class ClientData {
 				'shared' => count($held) > 1 && !self::isSingleNode($held), 'single' => self::isSingleNode($held), 'host' => $h['name'], 'hostid' => $hostid, 'ip' => $ip ?? '',
 				'status' => $avail === 1 ? 'up' : ($avail === 2 ? 'down' : 'unknown'), 'mount' => implode(', ', $mine),
 				'disks' => array_map(fn($m) => ['mount' => $m, 'total' => null, 'used' => null], $mine),
-				'cpu_cores' => null, 'cpu_used' => null, 'mem_total' => null, 'mem_used' => null, 'disk_total' => null, 'disk_used' => null];
+				'cpu_cores' => null, 'cpu_used' => null, 'mem_total' => null, 'mem_used' => null, 'disk_total' => null];
 			$want[$hostid] = ['system.cpu.num' => 'cpu_cores', 'system.cpu.util' => 'cpu_used', 'vm.memory.size[total]' => 'mem_total',
 				'vm.memory.utilization' => 'mem_used'];
 			foreach ($mine as $i => $m) {
@@ -145,13 +145,12 @@ class ClientData {
 				}
 			}
 		}
-		// A server's disk: the sum of the sizes known, and its fullest disk — each only when measured.
+		// A server's disk size: the sum of the sizes known, only when measured. Each disk keeps its
+		// own use; there is no one "fullest disk" figure per server.
 		foreach ($out as $client => $list) {
 			foreach ($list as $hid => $s) {
 				$totals = array_filter(array_column($s['disks'], 'total'), fn($v) => $v !== null);
-				$used = array_filter(array_column($s['disks'], 'used'), fn($v) => $v !== null);
 				$out[$client][$hid]['disk_total'] = $totals ? array_sum($totals) : null;
-				$out[$client][$hid]['disk_used'] = $used ? max($used) : null;
 			}
 		}
 		foreach ($out as $client => $list) {
@@ -164,14 +163,12 @@ class ClientData {
 
 	/**
 	 * A server's colour classes, each from its own figure and the client's thresholds: CPU,
-	 * memory, the fullest disk — and every disk on its own, so a second disk past its threshold
-	 * is coloured too and not only the fullest one.
+	 * memory, and every disk on its own.
 	 */
 	public static function classify(array $s, float $warn, float $high): array {
 		$s['classes'] = [
 			'cpu' => self::usageClass($s['cpu_used'], $warn, $high),
-			'mem' => self::usageClass($s['mem_used'], $warn, $high),
-			'disk' => self::usageClass($s['disk_used'], $warn, $high)
+			'mem' => self::usageClass($s['mem_used'], $warn, $high)
 		];
 		foreach ($s['disks'] as $i => $d) {
 			$s['disks'][$i]['class'] = self::usageClass($d['used'], $warn, $high);

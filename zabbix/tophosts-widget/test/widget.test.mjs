@@ -41,7 +41,7 @@ test('the ranking: highest first, at most count, unmeasured left out, names esca
   const s = (host, cpu, mem, disk, cls = '') => ({ host, client: 'c<1>', role: 'ES', url: 'zabbix.php?x=1&y="2"', cpu, mem, disk, classes: { cpu: cls, mem: '', disk: '' } });
   const data = { count: 2, servers: [s('a', 10, null, 5), s('b<img>', 90, 50, null, 'ep-high'), s('c', 50, 20, 70), s('d', null, 60, 80)] };
   assert.deepEqual(w.EpTopHosts.ranked(data.servers, 'cpu', 2).map((x) => x.host), ['b<img>', 'c']);
-  assert.deepEqual(w.EpTopHosts.ranked(data.servers, 'disk', 5).map((x) => x.host), ['d', 'c', 'a'], 'no disk figure: not ranked as zero');
+  assert.deepEqual(w.EpTopHosts.ranked(data.servers, 'mem', 5).map((x) => x.host), ['d', 'b<img>', 'c'], 'no memory figure: not ranked as zero');
   const ol = w.document.querySelector('ol');
   w.EpTopHosts.draw(ol, data, 'cpu');
   assert.equal(ol.querySelectorAll('li').length, 2);
