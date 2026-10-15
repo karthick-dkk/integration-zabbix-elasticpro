@@ -21,6 +21,23 @@ CPU (cores), memory, disk.
 The columns are built from the roles each time, so a role added on the Clients page appears here
 with no change to this widget.
 
+
+## Panel view
+
+The report draws as a dark table panel (`shared/ep-panel.css`, `shared/ep-panel.js`), shared with
+the other client report:
+
+- **Search** finds a client by any text in its row or its servers (host, IP), together with the **Type** filter.
+- **Sort** by any column: click its header; again to reverse. A figure nobody measured or entered
+  sorts last either way.
+- **Resize** a column by dragging its header's right edge; double-click to fit.
+- **⋮** holds **Columns…** (Super admins) and the exports.
+- **⚙ Table settings**: colours for normal, warn and high, row height, which server columns show, and every disk or only the fullest. These are one
+  viewer's preferences, kept in that browser. Thresholds and the bar style stay the widget's own
+  **Warn at**, **High at** and **Display**, so everyone sees the same colour for the same figure.
+
+The search, the sort and the open clients survive the widget's refresh.
+
 ## Install
 
 Copy this folder to Zabbix's modules directory as `modules/ep_resources`, then run

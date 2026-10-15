@@ -29,11 +29,13 @@
 			"ep-xlsx.js",
 			"ep-export.js",
 			"ep-columns.js",
+			"ep-panel.js",
 			"class.widget.js"
 		],
 		"css": [
 			"ep-widget.css",
-			"widget.css"
+			"widget.css",
+			"ep-panel.css"
 		]
 	}
 }

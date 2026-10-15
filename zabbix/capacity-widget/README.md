@@ -31,6 +31,23 @@ holding a copy of today's numbers. One consequence on upgrade: a widget where so
 follows the site. Since the site's default is also *bar under the value*, nothing changes until an
 admin changes it there on purpose.
 
+
+## Panel view
+
+The report draws as a dark table panel (`shared/ep-panel.css`, `shared/ep-panel.js`), shared with
+the other client report:
+
+- **Search** finds a client by any text in its row, together with the **Type** filter.
+- **Sort** by any column: click its header; again to reverse. A figure nobody measured or entered
+  sorts last either way.
+- **Resize** a column by dragging its header's right edge; double-click to fit.
+- **⋮** holds **Columns…** (Super admins) and the exports.
+- **⚙ Table settings**: colours for normal, warn and high, row height. These are one
+  viewer's preferences, kept in that browser. Thresholds and the bar style stay the widget's own
+  **Warn at**, **High at** and **Display**, so everyone sees the same colour for the same figure.
+
+The search, the sort and the open clients survive the widget's refresh.
+
 ## Install
 
 1. Copy this folder to Zabbix's modules directory as `modules/ep_capacity` (Docker: mount it
