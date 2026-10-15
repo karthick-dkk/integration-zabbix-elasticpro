@@ -15,7 +15,7 @@ use Zabbix\Widgets\Fields\{CWidgetFieldIntegerBox, CWidgetFieldMultiSelectGroup,
 class WidgetForm extends CWidgetForm {
 
 	/** What the Rank by setting stores, by position: Zabbix wants an integer there. */
-	public const RANKS = ['cpu', 'mem', 'disk'];
+	public const RANKS = ['cpu', 'mem'];
 
 	public const USAGE_DEFAULT = Settings::INHERIT;
 
@@ -34,7 +34,7 @@ class WidgetForm extends CWidgetForm {
 			->addField(new CWidgetFieldMultiSelectGroup('groupids', _('Host groups')))
 			->addField(new CWidgetFieldTextBox('client', _('Client')))
 			->addField((new CWidgetFieldSelect('client_type', _('Client type'), [0 => _('All')] + array_combine(array_map([self::class, 'typeKey'], $types), $types)))->setDefault(0))
-			->addField((new CWidgetFieldSelect('rank', _('Rank by'), [0 => _('CPU'), 1 => _('Memory'), 2 => _('Fullest disk')]))->setDefault(0))
+			->addField((new CWidgetFieldSelect('rank', _('Rank by'), [0 => _('CPU'), 1 => _('Memory')]))->setDefault(0))
 			->addField((new CWidgetFieldIntegerBox('count', _('Hosts'), 1, 100))->setDefault(10))
 			->addField((new CWidgetFieldIntegerBox('usage_warn', _('Warn at, %'), 0, 100))->setDefault(self::USAGE_DEFAULT))
 			->addField((new CWidgetFieldIntegerBox('usage_high', _('High at, %'), 0, 100))->setDefault(self::USAGE_DEFAULT));

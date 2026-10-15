@@ -28,17 +28,13 @@ $toolbar = (new CDiv([
 	(new CTag('select', true, array_merge([(new CTag('option', true, _('All')))->setAttribute('value', '')],
 		array_map(fn($t) => (new CTag('option', true, $t))->setAttribute('value', $t), $data['meta']['types'])
 	)))->setAttribute('data-ep-type-filter', '')->setAttribute('aria-label', _('Client type')),
-	(new CDiv([
-		(new CSimpleButton(_('Table')))->addClass('ep-pbtn')->setAttribute('data-ep-view', 'table')->setAttribute('aria-pressed', 'true'),
-		(new CSimpleButton(_('Overview')))->addClass('ep-pbtn')->setAttribute('data-ep-view', 'overview')->setAttribute('aria-pressed', 'false')
-	]))->addClass('ep-seg')->setAttribute('role', 'group')->setAttribute('aria-label', _('View')),
 	(new CSimpleButton(_('Expand all')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-expand-all', ''),
-	(new CSimpleButton('⚙ '._('Table settings')))->addClass('ep-pbtn')->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
-	// The report's Columns and its exports, in the panel menu.
+	// Table settings, the report's Columns and its exports, in the panel menu.
 	(new CDiv([
 		(new CSimpleButton('⋮'))->addClass('ep-pbtn')->setAttribute('data-ep-menu', '')->setAttribute('aria-haspopup', 'true')
-			->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Columns and export')),
+			->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Table settings, columns and export')),
 		(new CDiv([
+			(new CSimpleButton(_('Table settings').'…'))->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
 			(new CSimpleButton(_('Columns').'…'))->setAttribute('data-ep-columns', ''),
 			(new CSimpleButton(_('Export CSV')))->setAttribute('data-ep-export', 'csv'),
 			(new CSimpleButton(_('Export servers CSV')))->setAttribute('data-ep-export', 'csv-servers'),
@@ -103,12 +99,25 @@ foreach ($data['rows'] as $n => $row) {
 	$body->addItem($tr);
 
 	if ($row['servers']) {
+		// One column per mount the client's servers have (/, /data …), in the order first met.
+		$mounts = [];
+		foreach ($row['servers'] as $s) {
+			foreach ($s['disks'] ?? [] as $d) {
+				if (!in_array($d['mount'], $mounts, true)) {
+					$mounts[] = $d['mount'];
+				}
+			}
+		}
 		$head = new CTag('tr', true);
 		// data-sc names each column, so a viewer can hide one in Table settings.
-		foreach (['role' => _('Role'), 'host' => _('Host'), 'ip' => _('IP'), 'status' => _('Status'), 'cores' => _('CPU cores'), 'cpu' => _('CPU used'),
-				'mem' => _('Memory'), 'memu' => _('Memory used'), 'disks' => _('Disks'), 'fullest' => _('Fullest disk')] as $sc => $h) {
+		foreach (['role' => _('Role'), 'host' => _('Host'), 'ip' => _('IP'), 'status' => _('Status'), 'cores' => _('Cores'), 'cpu' => _('CPU used'),
+				'mem' => _('Memory'), 'memu' => _('Memory used')] as $sc => $h) {
 			$head->addItem((new CTag('th', true, $h))->setAttribute('data-sc', $sc));
 		}
+		foreach ($mounts as $m) {
+			$head->addItem((new CTag('th', true, _s('Disk %1$s', $m)))->setAttribute('data-sc', 'disks'));
+		}
+
 		$sb = new CTag('tbody', true);
 		foreach ($row['servers'] as $s) {
 			// Each role its own chip; a server with several reads "ES Data · Parser · Engine".
@@ -127,22 +136,16 @@ foreach ($data['rows'] as $n => $row) {
 			elseif (!empty($s['shared'])) {
 				$roleCell[] = (new CSpan(_('shared')))->addClass('ep-mark');
 			}
-			// Every disk takes the colour of its own figure; the fullest is marked, for "fullest disk only".
-			$max = null;
-			foreach ($s['disks'] ?? [] as $k => $d) {
-				if ($d['used'] !== null && ($max === null || $d['used'] > $s['disks'][$max]['used'])) {
-					$max = $k;
-				}
-			}
-			$disks = [];
-			foreach ($s['disks'] ?? [] as $k => $d) {
-				$disks[] = (new CSpan([
-					(new CSpan($d['mount']))->addClass('ep-mount'),
+			// Each mount in its own column, coloured by its own figure. A server without that disk: empty.
+			$byMount = array_column($s['disks'] ?? [], null, 'mount');
+			$diskCells = [];
+			foreach ($mounts as $m) {
+				$d = $byMount[$m] ?? null;
+				$diskCells[] = (new CTag('td', true, $d === null ? '' : (new CSpan([
 					(new CSpan((new CTag('i', true, ''))->setAttribute('style', 'width:'.($d['used'] === null ? 0 : max(0, min(100, round($d['used'], 1)))).'%')))->addClass('ep-disk-bar'),
 					$d['total'] === null ? '—' : convertUnits(['value' => $d['total'], 'units' => 'B']),
 					$d['used'] === null ? '' : [' · ', new CTag('b', true, round($d['used']).' %')]
-				]))->addClass('ep-disk-line')->addClass($k === $max ? 'ep-disk-max' : null)
-					->addClass(($d['class'] ?? '') !== '' ? $d['class'] : null);
+				]))->addClass('ep-disk-line')->addClass(($d['class'] ?? '') !== '' ? $d['class'] : null)))->setAttribute('data-sc', 'disks');
 			}
 			$bar = fn($v, $cls) => \Modules\EpResources\Lib\Bars::cell($pct($v), $v, $data['bars'] ?? 'under', $cls);
 			$scell = fn($sc, $content, $cls = '') => (new CTag('td', true, $content))->setAttribute('data-sc', $sc)
@@ -159,13 +162,12 @@ foreach ($data['rows'] as $n => $row) {
 				->addItem($barcell('cpu', $s['cpu_used'], $s['classes']['cpu']))
 				->addItem($scell('mem', $s['mem_total'] === null ? '—' : convertUnits(['value' => $s['mem_total'], 'units' => 'B'])))
 				->addItem($barcell('memu', $s['mem_used'], $s['classes']['mem']))
-				->addItem($scell('disks', (new CSpan($disks))->addClass('ep-disks')))
-				->addItem($barcell('fullest', $s['disk_used'], $s['classes']['disk'])));
+				->addItem($diskCells));
 		}
 		$srv = (new CTag('table', true))->addClass('ep-servers')->addItem((new CTag('thead', true))->addItem($head))->addItem($sb);
+		// Across the whole row, the expand column included: no empty cell pushing the servers right.
 		$body->addItem((new CTag('tr', true))->addClass('ep-sub')->setAttribute('data-parent', $id)->setAttribute('hidden', 'hidden')
-			->addItem((new CTag('td', true, ''))->addClass('ep-res-toggle'))
-			->addItem((new CTag('td', true, (new CDiv($srv))->addClass('ep-servers-wrap')))->setAttribute('colspan', count($data['columns']))));
+			->addItem((new CTag('td', true, (new CDiv($srv))->addClass('ep-servers-wrap')))->setAttribute('colspan', count($data['columns']) + 1)));
 	}
 }
 
@@ -176,11 +178,8 @@ $table = (new CTag('table', true))
 	->addItem($body);
 
 $view
-	->addItem((new CDiv([$toolbar, (new CDiv($table))->addClass('ep-res-scroll ep-pscroll'),
-		// The overview panels, drawn by ep-overview.js from ep_overview when Overview is chosen.
-		(new CDiv(''))->addClass('ep-ov ep-pscroll')->setAttribute('hidden', 'hidden')]))
+	->addItem((new CDiv([$toolbar, (new CDiv($table))->addClass('ep-res-scroll ep-pscroll')]))
 		->addClass('ep-panel')->setAttribute('data-ep-panel', 'resources'))
-	->setVar('ep_overview', $data['overview'])
 	->setVar('export', $data['export'])
 	->setVar('ep_meta', $data['meta'])
 	->show();

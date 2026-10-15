@@ -1,6 +1,6 @@
 /*
- * Client resources: the Overview view — the panels of the approved Version 2 design, drawn from
- * `ep_overview` (WidgetView::overview). Every figure and every colour class comes from the
+ * Client overview widget — the panels of the approved Version 2 design, drawn from `ep_overview`
+ * (WidgetView). Every figure and every colour class comes from the
  * controller, which decided them with the same thresholds as the table; this only lays them out.
  *
  * All clients: one summary card per client, then "Used of allocated" and "Servers by role" with a
@@ -28,33 +28,28 @@ window.EpOverview = {
 	},
 
 	init(widget, body, data) {
-		const root = body.querySelector('.ep-panel[data-ep-panel="resources"]');
+		const root = body.querySelector('.ep-panel[data-ep-panel="overview"]');
 		const pane = root && root.querySelector('.ep-ov');
 		if (!root || !pane || !data) return;
-		const st = widget._epOv || (widget._epOv = { view: 'table', client: '' });
-		const table = root.querySelector('.ep-res-scroll');
-		const only = root.querySelectorAll('[data-ep-expand-all]');
-		const show = (view) => {
-			st.view = view;
-			for (const b of root.querySelectorAll('[data-ep-view]')) b.setAttribute('aria-pressed', String(b.dataset.epView === view));
-			pane.hidden = view !== 'overview';
-			if (table) table.hidden = view === 'overview';
-			for (const b of only) b.hidden = view === 'overview';
-			if (view === 'overview') this.draw(root, pane, data, st);
+		const set = data.settings || {};
+		// What the viewer chose survives the refresh; the widget's Client setting is where it starts.
+		const st = widget._epOv || (widget._epOv = { client: set.client || '', q: '', type: '' });
+		const q = root.querySelector('[data-ep-search]'), sel = root.querySelector('[data-ep-type-filter]');
+		if (q) q.value = st.q;
+		if (sel && [...sel.options].some((o) => o.value === st.type)) sel.value = st.type;
+		const redraw = () => {
+			st.q = q ? q.value : ''; st.type = sel ? sel.value : '';
+			root.classList.toggle('ep-pt-pinned', st.q !== '' || st.type !== '');
+			this.draw(root, pane, data, st);
 		};
-		for (const b of root.querySelectorAll('[data-ep-view]')) b.addEventListener('click', () => show(b.dataset.epView));
-		// The search and the Type filter decide the overview's clients too.
-		const redraw = () => { if (st.view === 'overview') this.draw(root, pane, data, st); };
-		const q = root.querySelector('[data-ep-search]');
 		if (q) q.addEventListener('input', redraw);
-		const sel = root.querySelector('[data-ep-type-filter]');
 		if (sel) sel.addEventListener('change', redraw);
 		pane.addEventListener('change', (e) => { if (e.target.matches('[data-ep-ov-client]')) { st.client = e.target.value; redraw(); } });
 		pane.addEventListener('click', (e) => {
 			const card = e.target.closest('[data-ep-ov-pick]');
 			if (card) { st.client = card.dataset.epOvPick; redraw(); }
 		});
-		show(st.view);
+		redraw();
 	},
 
 	visible(root, data, st) {
@@ -77,9 +72,12 @@ window.EpOverview = {
 			pane.innerHTML = picker + `<div class="ep-empty">No client matches the search or the type.</div>`;
 			return;
 		}
-		const summary = st.client ? this.tiles(list[0]) : `<section class="ep-ov-panel ep-ov-wide"><h4>Summary by client <small>select a client to open its own view</small></h4><div class="ep-ov-cards">${list.map((c) => this.card(c)).join('')}</div></section>`;
-		pane.innerHTML = picker + summary
-			+ `<div class="ep-ov-row">${this.usedOfAllocated(list, data.families)}${this.roles(list)}</div>`;
+		const set = data.settings || {}, panels = set.panels || { summary: true, used: true, roles: true };
+		const fam = data.families.find((f) => f.id === set.family) || data.families[0] || { id: 'es', label: 'ES' };
+		const summary = !panels.summary ? '' : st.client ? this.tiles(list[0], fam) : `<section class="ep-ov-panel ep-ov-wide"><h4>Summary by client <small>select a client to open its own view</small></h4><div class="ep-ov-cards">${list.map((c) => this.card(c, fam)).join('')}</div></section>`;
+		const row = (panels.used ? this.usedOfAllocated(list, data.families) : '') + (panels.roles ? this.roles(list) : '');
+		pane.innerHTML = picker + summary + (row ? `<div class="ep-ov-row">${row}</div>` : '')
+			+ (!summary && !row ? '<div class="ep-empty">Every panel is turned off in this widget\'s settings.</div>' : '');
 	},
 
 	servers(c) {
@@ -88,17 +86,17 @@ window.EpOverview = {
 		return { up, down, total: c.servers.length };
 	},
 
-	card(c) {
+	card(c, fam) {
 		const e = this.esc.bind(this);
 		const { up, down, total } = this.servers(c);
-		const es = c.families.es || null;
+		const es = c.families[fam.id] || null;
 		const bar = (label, v, cls) => `<div class="ep-ov-m"><span>${e(label)}</span><i><b style="width:${v === null || v === undefined ? 0 : Math.max(0, Math.min(100, v))}%;background:${this.color(cls)}"></b></i><em style="color:${v === null || v === undefined ? 'var(--ep-faint)' : this.color(cls)}">${v === null || v === undefined ? '—' : this.num(v) + '%'}</em></div>`;
 		return `<button type="button" class="ep-ov-card" data-ep-ov-pick="${e(c.name)}" title="Open ${e(c.name)}">`
 			+ `<span class="ep-ov-card-h"><b>${e(c.name)}</b><span class="ep-pill">${e(c.type)}</span>${c.badge ? `<span class="ep-ov-badge">${e(c.badge)}</span>` : ''}</span>`
 			+ `<span class="ep-ov-trio"><span><b style="color:var(--ep-ok)">${up}<small> / ${total}</small></b><small>servers up</small></span>`
 			+ `<span><b style="color:${down ? 'var(--ep-high)' : 'var(--ep-ok)'}">${down}</b><small>down</small></span>`
 			+ `<span><b style="color:var(--ep-blue)">${c.devices.purchased ?? '—'}</b><small>devices</small></span></span>`
-			+ (es ? bar('ES CPU', es.cpu.usage, es.cpu.class) + bar('ES memory', es.mem.usage, es.mem.class) : '')
+			+ (es ? bar(`${fam.label} CPU`, es.cpu.usage, es.cpu.class) + bar(`${fam.label} memory`, es.mem.usage, es.mem.class) : '')
 			+ bar('ES storage', c.storage.usage, c.storage.class) + `</button>`;
 	},
 
@@ -117,18 +115,18 @@ window.EpOverview = {
 			+ `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="10.5" fill="var(--ep-muted)">${this.esc(sub || '')}</text></svg>`;
 	},
 
-	tiles(c) {
+	tiles(c, fam) {
 		const e = this.esc.bind(this);
 		const { up, down, total } = this.servers(c);
-		const es = c.families.es || { cpu: {}, mem: {} };
+		const es = c.families[fam.id] || { cpu: {}, mem: {} };
 		const downHosts = c.servers.filter((s) => s.status === 'down').map((s) => s.host).join(', ');
 		const tile = (h, body, extra = '') => `<section class="ep-ov-panel ep-ov-tile${extra}"><h4>${e(h)}</h4>${body}</section>`;
 		return `<div class="ep-ov-tiles">`
 			+ tile('Devices', `<div class="ep-ov-stat"><b style="color:var(--ep-blue)">${c.devices.purchased ?? '—'}</b><small>purchased · ${c.devices.seen === null || c.devices.seen === undefined ? 'seen not measured' : c.devices.seen + ' seen'}</small></div>`)
 			+ tile('Servers up', `<div class="ep-ov-stat"><b style="color:var(--ep-ok)">${up}<small> / ${total}</small></b><small>${total - up - down} with no data</small></div>`)
 			+ tile('Servers down', `<div class="ep-ov-stat"><b>${down}</b><small>${down ? e(downHosts) : 'none'}</small></div>`, down ? ' ep-ov-bad' : '')
-			+ tile('ES CPU', this.gauge(es.cpu.usage, es.cpu.class, c.warn, c.high, es.cpu.allocated === null || es.cpu.allocated === undefined ? '' : `of ${this.num(es.cpu.allocated, 0)} cores`))
-			+ tile('ES memory', this.gauge(es.mem.usage, es.mem.class, c.warn, c.high, es.mem.allocated === null || es.mem.allocated === undefined ? '' : `of ${this.bytes(es.mem.allocated)}`))
+			+ tile(`${fam.label} CPU`, this.gauge(es.cpu.usage, es.cpu.class, c.warn, c.high, es.cpu.allocated === null || es.cpu.allocated === undefined ? '' : `of ${this.num(es.cpu.allocated, 0)} cores`))
+			+ tile(`${fam.label} memory`, this.gauge(es.mem.usage, es.mem.class, c.warn, c.high, es.mem.allocated === null || es.mem.allocated === undefined ? '' : `of ${this.bytes(es.mem.allocated)}`))
 			+ tile('ES storage', this.gauge(c.storage.usage, c.storage.class, c.warn, c.high, c.storage.used === null ? 'not reported' : `${this.bytes(c.storage.used)} of ${this.bytes(c.storage.allocated)}`))
 			+ `</div>`;
 	},

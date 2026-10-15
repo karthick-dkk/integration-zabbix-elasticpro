@@ -11,9 +11,9 @@
  * Shared: sync-assets.mjs copies this into the widgets that use it. Edit it here.
  */
 window.EpPanel = {
-	DEFAULTS: { colors: { ok: '#73bf69', warn: '#ff9830', high: '#f2495c' }, density: 'compact', disks: 'all', hiddenSrv: [], widths: {} },
+	DEFAULTS: { colors: { ok: '#73bf69', warn: '#ff9830', high: '#f2495c' }, density: 'compact', hiddenSrv: [], widths: {} },
 	SERVER_COLUMNS: [['role', 'Role'], ['host', 'Host'], ['ip', 'IP'], ['status', 'Status'], ['cores', 'CPU cores'], ['cpu', 'CPU used'],
-		['mem', 'Memory'], ['memu', 'Memory used'], ['disks', 'Disks'], ['fullest', 'Fullest disk']],
+		['mem', 'Memory'], ['memu', 'Memory used'], ['disks', 'Disks']],
 
 	prefs(kind) {
 		const p = JSON.parse(JSON.stringify(this.DEFAULTS));
@@ -28,7 +28,6 @@ window.EpPanel = {
 			if (!/^#[0-9a-f]{6}$/i.test(String(p.colors[k]))) p.colors[k] = this.DEFAULTS.colors[k];
 		}
 		if (!['compact', 'comfortable'].includes(p.density)) p.density = this.DEFAULTS.density;
-		if (!['all', 'fullest'].includes(p.disks)) p.disks = this.DEFAULTS.disks;
 		const known = new Set(this.SERVER_COLUMNS.map(([k]) => k));
 		p.hiddenSrv = Array.isArray(p.hiddenSrv) ? p.hiddenSrv.filter((k) => known.has(k)) : [];
 		const widths = {};
@@ -104,6 +103,8 @@ window.EpPanel = {
 		}
 		const count = root.querySelector('[data-ep-count]');
 		if (count && count.dataset.template) count.textContent = count.dataset.template.replace('%n', shown);
+		// A filter in force keeps the toolbar showing, so what is hidden is never a mystery.
+		root.classList.toggle('ep-pt-pinned', type !== '' || q !== '');
 	},
 
 	/* ---- sorting ---- */
@@ -246,14 +247,20 @@ window.EpPanel = {
 		const btn = root.querySelector('[data-ep-menu]');
 		const pop = root.querySelector('.ep-menu-pop');
 		if (!btn || !pop) return;
-		const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
-		btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute('aria-expanded', String(!pop.hidden)); });
+		const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); this.openState(ctx); };
+		btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute('aria-expanded', String(!pop.hidden)); this.openState(ctx); });
 		pop.addEventListener('click', () => close());
 		root.addEventListener('click', (e) => { if (!e.target.closest('.ep-menu')) close(); });
 		root.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 		// Columns is for Super admins; ep-columns.js hides the button for anyone else.
 		const cols = pop.querySelector('[data-ep-columns]');
 		if (cols && cols.hidden && ![...pop.querySelectorAll('button')].some((b) => !b.hidden)) btn.hidden = true;
+	},
+
+	/** The toolbar stays shown while its menu or Table settings is open. */
+	openState(ctx) {
+		const pop = ctx.root.querySelector('.ep-menu-pop'), set = ctx.root.querySelector('.ep-set');
+		ctx.root.classList.toggle('ep-pt-open', !!(pop && !pop.hidden) || !!(set && !set.hidden));
 	},
 
 	/* ---- Table settings ---- */
@@ -263,7 +270,6 @@ window.EpPanel = {
 		root.style.setProperty('--ep-warn', prefs.colors.warn);
 		root.style.setProperty('--ep-high', prefs.colors.high);
 		root.classList.toggle('ep-comfortable', prefs.density === 'comfortable');
-		root.classList.toggle('ep-disks-fullest', prefs.disks === 'fullest');
 		for (const [k] of this.SERVER_COLUMNS) root.classList.toggle('ep-hide-' + k, prefs.hiddenSrv.includes(k));
 	},
 
@@ -286,7 +292,6 @@ window.EpPanel = {
 				+ `<fieldset><legend>Row height</legend>${radios('ep-dens-' + kind, [['compact', 'Compact'], ['comfortable', 'Comfortable']], prefs.density)}</fieldset>`
 				+ (hasServers
 					? `<fieldset><legend>Server columns</legend>${this.SERVER_COLUMNS.map(([k, l]) => `<label><input type="checkbox" data-sc="${k}"${prefs.hiddenSrv.includes(k) ? '' : ' checked'}> ${l}</label>`).join('')}</fieldset>`
-						+ `<fieldset><legend>Disks in server rows</legend>${radios('ep-disks-' + kind, [['all', 'Every disk'], ['fullest', 'Fullest disk only']], prefs.disks)}</fieldset>`
 					: '')
 				+ `<p>Columns: drag a header's right edge to resize, double-click it to fit. The report's own columns, names and order are in ⋮ → Columns.</p>`
 				+ `<p>Thresholds and the bar style are the widget's Warn at, High at and Display settings, so everyone sees the same colours for the same figures. These here are yours alone, kept in this browser.</p>`
@@ -294,8 +299,14 @@ window.EpPanel = {
 		};
 		draw();
 		root.appendChild(box);
-		const open = (on) => { box.hidden = !on; btn.setAttribute('aria-expanded', String(on)); if (on) { draw(); const f = box.querySelector('input'); if (f) f.focus(); } };
-		btn.addEventListener('click', (e) => { e.stopPropagation(); open(box.hidden); });
+		const open = (on) => { box.hidden = !on; btn.setAttribute('aria-expanded', String(on)); this.openState(ctx); if (on) { draw(); const f = box.querySelector('input'); if (f) f.focus(); } };
+		btn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			// It is an item in the ⋮ menu: choosing it closes the menu.
+			const pop = root.querySelector('.ep-menu-pop');
+			if (pop) { pop.hidden = true; const m = root.querySelector('[data-ep-menu]'); if (m) m.setAttribute('aria-expanded', 'false'); }
+			open(box.hidden);
+		});
 		box.addEventListener('click', (e) => {
 			e.stopPropagation();
 			if (e.target.closest('[data-x]')) open(false);
@@ -316,7 +327,6 @@ window.EpPanel = {
 			const t = e.target;
 			if (t.dataset.color) prefs.colors[t.dataset.color] = t.value;
 			else if (t.name === 'ep-dens-' + kind) prefs.density = t.value;
-			else if (t.name === 'ep-disks-' + kind) prefs.disks = t.value;
 			else if (t.dataset.sc) {
 				const s = new Set(prefs.hiddenSrv);
 				t.checked ? s.delete(t.dataset.sc) : s.add(t.dataset.sc);

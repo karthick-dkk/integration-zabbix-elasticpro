@@ -50,13 +50,22 @@
 .ep-panel .ep-menu-pop button:hover { background: var(--ep-pop-hover) !important; }
 .ep-panel .ep-menu-pop button[hidden] { display: none; }
 
+/* The toolbar stays out of the way: hidden until the pointer is over the panel, gone again when it
+   leaves. It stays while it is being used (keyboard focus in it, a menu or Table settings open),
+   while a search or a Type filter is in force (ep-pt-pinned), and on screens with no hover. */
+.ep-panel .ep-pt { max-height: 0; opacity: 0; padding-bottom: 0; overflow: hidden; transition: max-height .15s ease, opacity .15s ease, padding .15s ease; }
+.ep-panel:hover .ep-pt, .ep-panel:focus-within .ep-pt, .ep-panel.ep-pt-pinned .ep-pt, .ep-panel.ep-pt-open .ep-pt {
+	max-height: 80px; opacity: 1; padding-bottom: 6px; overflow: visible; }
+@media (hover: none) { .ep-panel .ep-pt { max-height: none; opacity: 1; padding-bottom: 6px; overflow: visible; } }
+@media (prefers-reduced-motion: reduce) { .ep-panel .ep-pt { transition: none; } }
+
 /* ---- the table ---- */
 .ep-panel .ep-pscroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .ep-panel table.ep-res-table, .ep-panel table.ep-cap-table {
 	width: 100%; border-collapse: separate; border-spacing: 0; background: transparent; color: var(--ep-fg); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 .ep-panel .ep-res-table th, .ep-panel .ep-res-table td, .ep-panel .ep-cap-table th, .ep-panel .ep-cap-table td {
-	padding: 4px 8px; border: 0; border-bottom: 1px solid var(--ep-line-2); text-align: right; background: transparent; color: inherit;
+	padding: 4px 8px; border: 0; border-bottom: 1px solid var(--ep-line-2); text-align: center; background: transparent; color: inherit;
 }
 .ep-panel .ep-res-table thead th, .ep-panel .ep-cap-table thead th { position: sticky; top: 0; z-index: 2; background: var(--ep-bg); color: var(--ep-blue); font-weight: 500; border-bottom: 1px solid var(--ep-line); }
 .ep-panel .ep-res-table thead tr + tr th { top: 24px; }
@@ -96,7 +105,7 @@
 .ep-panel .ep-barcell.ep-high { --ep-bar: var(--ep-high); }
 .ep-panel .ep-bar-track { background: var(--ep-track); border-radius: 2px; }
 .ep-panel .ep-bar-under { display: inline-grid; grid-template-columns: 56px auto; gap: 6px; align-items: center; }
-.ep-panel .ep-bar-under .ep-bar-line { grid-column: 2; grid-row: 1; text-align: right; min-width: 44px; }
+.ep-panel .ep-bar-under .ep-bar-line { grid-column: 2; grid-row: 1; text-align: left; min-width: 44px; }
 .ep-panel .ep-bar-under .ep-bar-track { grid-column: 1; grid-row: 1; height: 8px; margin: 0; }
 .ep-panel .ep-bar-under .ep-bar-fill { background: linear-gradient(90deg, var(--ep-ok), var(--ep-bar)); }
 .ep-panel .ep-bar-incell .ep-bar-fill { opacity: .55; }
@@ -104,12 +113,19 @@
 
 /* ---- a client's servers ---- */
 .ep-panel .ep-sub > td { background: var(--ep-bg-3) !important; padding: 0 !important; border-bottom: 1px solid var(--ep-line); }
-.ep-panel .ep-servers-wrap { padding: 2px 10px 6px 30px; }
+.ep-panel .ep-servers-wrap { padding: 2px 8px 6px 8px; overflow-x: auto; }
 .ep-panel .ep-servers { font-size: 12px; color: var(--ep-fg); }
-.ep-panel .ep-servers th { color: var(--ep-muted); font-weight: 500; opacity: 1; padding: 3px 7px; border-bottom: 1px solid var(--ep-line); text-align: right; }
-.ep-panel .ep-servers td { padding: 2px 7px; border-bottom: 1px solid var(--ep-line-2); text-align: right; }
-.ep-panel .ep-servers th[data-sc="role"], .ep-panel .ep-servers th[data-sc="host"], .ep-panel .ep-servers th[data-sc="ip"], .ep-panel .ep-servers th[data-sc="status"],
-.ep-panel .ep-servers td[data-sc="role"], .ep-panel .ep-servers td[data-sc="host"], .ep-panel .ep-servers td[data-sc="ip"], .ep-panel .ep-servers td[data-sc="status"] { text-align: left; }
+.ep-panel .ep-servers th { color: var(--ep-muted); font-weight: 500; opacity: 1; padding: 3px 6px; border-bottom: 1px solid var(--ep-line); text-align: center; }
+.ep-panel .ep-servers td { padding: 2px 6px; border-bottom: 1px solid var(--ep-line-2); text-align: center; }
+/* Compact server bars: the table should fit the panel without scrolling sideways. */
+.ep-panel .ep-servers .ep-bar-under { grid-template-columns: 40px auto; gap: 5px; }
+.ep-panel .ep-servers .ep-bar-under .ep-bar-line { min-width: 38px; }
+.ep-panel .ep-servers .ep-bar-under .ep-bar-track { height: 6px; }
+.ep-panel .ep-servers td[data-sc="role"] { white-space: normal; }
+.ep-panel .ep-servers .ep-role-chip { font-size: 10.5px; padding: 0 5px; }
+/* Values sit centred under their headers; names (role, host) read from the left. */
+.ep-panel .ep-servers th[data-sc="role"], .ep-panel .ep-servers th[data-sc="host"],
+.ep-panel .ep-servers td[data-sc="role"], .ep-panel .ep-servers td[data-sc="host"] { text-align: left; }
 .ep-panel .ep-servers td[data-sc="ip"] { color: var(--ep-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
 .ep-panel .ep-servers a { color: var(--ep-blue); }
 .ep-panel .ep-servers td.ep-warn, .ep-panel .ep-servers td.ep-high { font-weight: 500; }
@@ -123,7 +139,7 @@
 .ep-panel .ep-disks { display: inline-flex; gap: 10px; white-space: nowrap; }
 .ep-panel .ep-servers .ep-disk-line { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
 .ep-panel .ep-servers .ep-disk-line .ep-mount { min-width: 0; color: var(--ep-muted); opacity: 1; }
-.ep-panel .ep-disk-bar { display: inline-block; width: 30px; height: 5px; border-radius: 2px; background: var(--ep-track); position: relative; overflow: hidden; vertical-align: middle; }
+.ep-panel .ep-disk-bar { display: inline-block; width: 26px; margin-right: 4px; height: 5px; border-radius: 2px; background: var(--ep-track); position: relative; overflow: hidden; vertical-align: middle; }
 .ep-panel .ep-disk-bar i { position: absolute; inset: 0 auto 0 0; background: var(--ep-disk); }
 .ep-panel .ep-disk-line.ep-warn .ep-disk-bar i { background: var(--ep-warn); } .ep-panel .ep-disk-line.ep-high .ep-disk-bar i { background: var(--ep-high); }
 .ep-panel .ep-disk-line.ep-warn b { color: var(--ep-warn); } .ep-panel .ep-disk-line.ep-high b { color: var(--ep-high); }
@@ -134,12 +150,10 @@
 .ep-panel .ep-seg .ep-pbtn:last-child { border-radius: 0 3px 3px 0 !important; border-left: 0 !important; }
 .ep-panel .ep-seg .ep-pbtn[aria-pressed="true"] { background: var(--ep-sel-bg) !important; color: var(--ep-strong) !important; border-color: var(--ep-sel-line) !important; }
 .ep-panel .ep-disk-line b { font-weight: 500; }
-/* Table settings: fullest disk only, and server columns a viewer has hidden. */
-.ep-panel.ep-disks-fullest .ep-disk-line:not(.ep-disk-max) { display: none; }
+/* Table settings: server columns a viewer has hidden. */
 .ep-panel.ep-hide-role [data-sc="role"], .ep-panel.ep-hide-host [data-sc="host"], .ep-panel.ep-hide-ip [data-sc="ip"],
 .ep-panel.ep-hide-status [data-sc="status"], .ep-panel.ep-hide-cores [data-sc="cores"], .ep-panel.ep-hide-cpu [data-sc="cpu"],
-.ep-panel.ep-hide-mem [data-sc="mem"], .ep-panel.ep-hide-memu [data-sc="memu"], .ep-panel.ep-hide-disks [data-sc="disks"],
-.ep-panel.ep-hide-fullest [data-sc="fullest"] { display: none; }
+.ep-panel.ep-hide-mem [data-sc="mem"], .ep-panel.ep-hide-memu [data-sc="memu"], .ep-panel.ep-hide-disks [data-sc="disks"] { display: none; }
 
 /* Row height: compact is the default; comfortable gives every row more air. */
 .ep-panel.ep-comfortable .ep-res-table td, .ep-panel.ep-comfortable .ep-cap-table td { padding: 8px 10px; }

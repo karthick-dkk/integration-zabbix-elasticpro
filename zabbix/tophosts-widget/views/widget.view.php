@@ -1,6 +1,6 @@
 <?php declare(strict_types = 0);
 /**
- * Top hosts view: the panel, its CPU / Memory / Fullest disk switch and an empty list that
+ * Top hosts view: the panel, its CPU / Memory switch and an empty list that
  * class.widget.js fills from `ep_tophosts`, so switching the ranking costs no trip to Zabbix.
  *
  * @var CView $this
@@ -16,7 +16,7 @@ $body = $data['error'] !== null
 $switch = (new CDiv(array_map(
 	fn($k, $label) => (new CSimpleButton($label))->addClass('ep-pbtn')->setAttribute('data-ep-rank', $k)
 		->setAttribute('aria-pressed', $k === $data['rank'] ? 'true' : 'false'),
-	['cpu', 'mem', 'disk'], [_('CPU'), _('Memory'), _('Fullest disk')]
+	['cpu', 'mem'], [_('CPU'), _('Memory')]
 )))->addClass('ep-seg')->setAttribute('role', 'group')->setAttribute('aria-label', _('Rank by'));
 
 $view

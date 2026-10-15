@@ -77,15 +77,6 @@ class WidgetView extends CControllerDashboardWidgetView {
 				}
 			}
 		}
-		// The overview's figures: every family's servers, CPU and memory, whether or not the
-		// Columns dialog shows them in the table.
-		foreach ($roles['families'] as $f) {
-			foreach (['servers', 'cpu', 'mem'] as $res) {
-				foreach (['requested', 'allocated', 'usage'] as $kind) {
-					$keys['ep.'.$f['id'].'.'.$res.'.'.$kind] = true;
-				}
-			}
-		}
 		$values = [];
 		$units = [];
 		if ($masters) {
@@ -120,21 +111,16 @@ class WidgetView extends CControllerDashboardWidgetView {
 				$div = Settings::sizeDivisor($this->cfg);
 				$serverRows[$client['name']][] = [$client['name'], $client['type'], $s['role'], implode(', ', $s['services'] ?? []), $s['host'], $s['ip'], $s['status'],
 					$s['cpu_cores'], self::r1($s['cpu_used']), $s['mem_total'] !== null ? round($s['mem_total'] / $div, 2) : null, self::r1($s['mem_used']),
-					$s['mount'], $s['disk_total'] !== null ? round($s['disk_total'] / $div, 2) : null, self::r1($s['disk_used'])];
+					$s['mount'], $s['disk_total'] !== null ? round($s['disk_total'] / $div, 2) : null];
 			}
 			unset($s);
-			$data['rows'][] = ['client' => $client['name'], 'type' => $client['type'], 'cells' => $cells, 'servers' => $srv,
-				'overview' => $this->overview($roles, $client, $values[$hostid] ?? [], $srv, $warn, $high)];
+			$data['rows'][] = ['client' => $client['name'], 'type' => $client['type'], 'cells' => $cells, 'servers' => $srv];
 			$exportRows[] = $export;
 			$exportTypes[] = $client['type'];
 		}
 		$order = array_keys($data['rows']);
 		usort($order, fn($a, $b) => strnatcasecmp($data['rows'][$a]['client'], $data['rows'][$b]['client']));
 		$data['rows'] = array_map(fn($i) => $data['rows'][$i], $order);
-		$data['overview'] = [
-			'families' => array_map(fn($f) => ['id' => $f['id'], 'label' => $f['label']], $roles['families']),
-			'clients' => array_column($data['rows'], 'overview')
-		];
 		$servers_out = [];
 		foreach ($data['rows'] as $row) {
 			$servers_out = array_merge($servers_out, $serverRows[$row['client']] ?? []);
@@ -144,8 +130,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'rows' => array_map(fn($i) => $exportRows[$i], $order),
 			'types' => array_map(fn($i) => $exportTypes[$i], $order),
 			'servers' => ['headers' => ['Client', 'Type', 'Roles', 'Services', 'Host', 'IP', 'Status', 'CPU cores', 'CPU used (%)',
-				'Memory ('.Settings::sizeLabel($this->cfg).')', 'Memory used (%)', 'Disks', 'Disk ('.Settings::sizeLabel($this->cfg).')',
-				'Fullest disk (%)'], 'rows' => $servers_out, 'types' => array_column($servers_out, 1)]
+				'Memory ('.Settings::sizeLabel($this->cfg).')', 'Memory used (%)', 'Disks', 'Disk ('.Settings::sizeLabel($this->cfg).')'],
+				'rows' => $servers_out, 'types' => array_column($servers_out, 1)]
 		];
 		$this->setResponse(new CControllerResponseData($data));
 	}
@@ -225,37 +211,6 @@ class WidgetView extends CControllerDashboardWidgetView {
 			}
 		}
 		return [$cell, $this->exportValue($value, $unit)];
-	}
-
-	/**
-	 * One client for the overview panels: devices, ES storage, every family's servers, CPU and
-	 * memory, and its servers' status and use. Raw figures with their colour class, decided here
-	 * with the same thresholds as the table, so a panel and the table can never disagree.
-	 */
-	private function overview(array $roles, array $client, array $v, array $srv, float $warn, float $high): array {
-		$req = fn($k) => isset($v[$k]) && $v[$k] !== null && $v[$k] > 0 ? $v[$k] : null;
-		$num = fn($k) => $v[$k] ?? null;
-		$fam = [];
-		foreach ($roles['families'] as $f) {
-			$k = fn($res, $kind) => 'ep.'.$f['id'].'.'.$res.'.'.$kind;
-			$fam[$f['id']] = [
-				'servers' => ['requested' => $req($k('servers', 'requested')), 'allocated' => $num($k('servers', 'allocated'))],
-				'cpu' => ['requested' => $req($k('cpu', 'requested')), 'allocated' => $num($k('cpu', 'allocated')), 'usage' => $num($k('cpu', 'usage')),
-					'class' => self::usageClass($num($k('cpu', 'usage')), $warn, $high)],
-				'mem' => ['requested' => $req($k('mem', 'requested')), 'allocated' => $num($k('mem', 'allocated')), 'usage' => $num($k('mem', 'usage')),
-					'class' => self::usageClass($num($k('mem', 'usage')), $warn, $high)]
-			];
-		}
-		return [
-			'name' => $client['name'], 'type' => $client['type'], 'badge' => $client['badge'], 'warn' => $warn, 'high' => $high,
-			'devices' => ['purchased' => $req('ep.devices.purchased'), 'seen' => $num('ep.devices.seen')],
-			'storage' => ['purchased' => $req('ep.es.storage.purchased'), 'allocated' => $num('ep.es.storage.allocated'),
-				'used' => $num('ep.es.storage.used'), 'usage' => $num('ep.es.storage.usage'),
-				'class' => self::usageClass($num('ep.es.storage.usage'), $warn, $high)],
-			'families' => $fam,
-			'servers' => array_map(fn($s) => ['host' => $s['host'], 'hostid' => $s['hostid'], 'roles' => array_values(array_filter(array_map('trim', explode('+', $s['role'])))),
-				'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'], 'disk' => $s['disk_used'], 'classes' => $s['classes']], $srv)
-		];
 	}
 
 	public static function usageClass(?float $v, float $warn, float $high): string {
