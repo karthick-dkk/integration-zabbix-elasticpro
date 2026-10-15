@@ -1,0 +1,32 @@
+{
+	"manifest_version": 2.0,
+	"id": "ep_tophosts",
+	"type": "widget",
+	"name": "ElasticPro top hosts",
+	"namespace": "EpTophosts",
+	"version": "2.0",
+	"author": "ElasticPro",
+	"description": "The busiest client servers, ranked by CPU, memory or fullest disk, coloured at each client's thresholds. Settings choose the host groups, the client and the client type; the ranking can be switched on the widget.",
+	"widget": {
+		"js_class": "WidgetEpTophosts",
+		"size": {
+			"width": 24,
+			"height": 6
+		},
+		"refresh_rate": 60
+	},
+	"actions": {
+		"widget.ep_tophosts.view": {
+			"class": "WidgetView"
+		}
+	},
+	"assets": {
+		"js": [
+			"class.widget.js"
+		],
+		"css": [
+			"ep-panel.css",
+			"widget.css"
+		]
+	}
+}

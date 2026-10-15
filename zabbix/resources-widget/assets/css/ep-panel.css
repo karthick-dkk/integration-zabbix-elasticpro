@@ -9,14 +9,27 @@
  *
  * Shared: sync-assets.mjs copies this into the two widgets that use it. Edit it here.
  */
+/* The colours follow the Zabbix theme the user chose: light under Blue and high-contrast light,
+   dark under Dark and high-contrast dark. Zabbix names it on <html theme="…">. */
 .ep-panel {
+	--ep-ok: #3e9b3a; --ep-warn: #e5860b; --ep-high: #e0314a;
+	--ep-bg: #ffffff; --ep-bg-2: #f5f6f8; --ep-bg-3: #f8f9fb; --ep-line: #d8dce1; --ep-line-2: #e8eaee; --ep-line-hover: #a9b4c2;
+	--ep-fg: #24292e; --ep-strong: #111217; --ep-muted: #646a73; --ep-faint: #9aa0aa; --ep-blue: #1f62e0; --ep-input: #ffffff;
+	--ep-track: #e3e6ea; --ep-pop: #ffffff; --ep-pop-hover: #eef1f5; --ep-sel-bg: #e3ecfc; --ep-sel-line: #9db8ee;
+	--ep-chip-fg: #1f62e0; --ep-purple: #8a4fc1; --ep-disk: #5794f2; --ep-scheme: light;
+}
+[theme="dark-theme"] .ep-panel, [theme="hc-dark"] .ep-panel {
 	--ep-ok: #73bf69; --ep-warn: #ff9830; --ep-high: #f2495c;
-	--ep-bg: #181b1f; --ep-bg-2: #1f2227; --ep-bg-3: #14161a; --ep-line: #2a2f35; --ep-line-2: #22262b;
+	--ep-bg: #181b1f; --ep-bg-2: #1f2227; --ep-bg-3: #14161a; --ep-line: #2a2f35; --ep-line-2: #22262b; --ep-line-hover: #3d4651;
 	--ep-fg: #ccccdc; --ep-strong: #f0f0f5; --ep-muted: #8e8e9f; --ep-faint: #6b6f7c; --ep-blue: #6e9fff; --ep-input: #0b0c0e;
+	--ep-track: #22252b; --ep-pop: #22252b; --ep-pop-hover: #2c3036; --ep-sel-bg: #1f2b3d; --ep-sel-line: #2f4a70;
+	--ep-chip-fg: #8ab8ff; --ep-purple: #b877d9; --ep-disk: #5794f2; --ep-scheme: dark;
+}
+.ep-panel {
 	position: relative; display: flex; flex-direction: column; height: 100%; box-sizing: border-box;
 	background: var(--ep-bg); color: var(--ep-fg); padding: 6px 10px 8px; border-radius: 2px;
 	font: 12.5px/1.4 Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
-	color-scheme: dark;
+	color-scheme: var(--ep-scheme);
 }
 .ep-panel *, .ep-panel *::before, .ep-panel *::after { box-sizing: border-box; }
 
@@ -28,13 +41,13 @@
 .ep-panel .ep-pt label { color: var(--ep-muted); }
 .ep-panel .ep-pt select { background: var(--ep-input); color: var(--ep-fg); border: 1px solid var(--ep-line); border-radius: 3px; padding: 3px 6px; font: inherit; }
 .ep-panel .ep-pbtn, .ep-panel .ep-pt .btn-alt { background: var(--ep-input) !important; color: var(--ep-fg) !important; border: 1px solid var(--ep-line) !important; border-radius: 3px; padding: 3px 10px; cursor: pointer; font: inherit; height: auto; line-height: 1.5; }
-.ep-panel .ep-pbtn:hover, .ep-panel .ep-pt .btn-alt:hover { color: var(--ep-strong) !important; border-color: #3d4651 !important; }
+.ep-panel .ep-pbtn:hover, .ep-panel .ep-pt .btn-alt:hover { color: var(--ep-strong) !important; border-color: var(--ep-line-hover) !important; }
 .ep-panel :focus-visible { outline: 2px solid var(--ep-blue); outline-offset: 1px; }
 .ep-panel .ep-menu { position: relative; }
-.ep-panel .ep-menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; background: #22252b; border: 1px solid var(--ep-line); border-radius: 3px; padding: 4px; display: grid; min-width: 180px; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+.ep-panel .ep-menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; background: var(--ep-pop); border: 1px solid var(--ep-line); border-radius: 3px; padding: 4px; display: grid; min-width: 180px; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
 .ep-panel .ep-menu-pop[hidden] { display: none; }
 .ep-panel .ep-menu-pop button { background: none !important; border: 0 !important; color: var(--ep-fg) !important; text-align: left; padding: 6px 10px; border-radius: 3px; cursor: pointer; font: inherit; height: auto; }
-.ep-panel .ep-menu-pop button:hover { background: #2c3036 !important; }
+.ep-panel .ep-menu-pop button:hover { background: var(--ep-pop-hover) !important; }
 .ep-panel .ep-menu-pop button[hidden] { display: none; }
 
 /* ---- the table ---- */
@@ -57,7 +70,7 @@
 .ep-panel .ep-res-sub { color: var(--ep-muted); font-size: 11px; }
 .ep-panel tbody tr[data-type]:hover > td { background: var(--ep-bg-2); }
 .ep-panel tbody tr[data-type]:hover > td.ep-res-first, .ep-panel tbody tr[data-type]:hover > td.ep-cap-first { background: var(--ep-bg-2) !important; }
-.ep-panel .ep-expand { color: var(--ep-muted); }
+.ep-panel .ep-expand, .ep-panel .ep-expand:focus, .ep-panel .ep-expand:hover { color: var(--ep-muted); background: none !important; border: 0 !important; box-shadow: none !important; }
 .ep-panel .ep-expand[aria-expanded="true"] { color: var(--ep-blue); }
 
 /* Sorting: the header says which column and which way. */
@@ -74,20 +87,20 @@
 .ep-panel td.ep-short { outline: 0 !important; color: var(--ep-high) !important; font-weight: 500; }
 .ep-panel td.ep-short::after { content: " \25BC"; color: var(--ep-high) !important; font-size: 10px; }
 .ep-panel td.ep-unset { opacity: 1 !important; color: var(--ep-faint) !important; font-style: italic; }
-.ep-panel td.ep-di { color: var(--ep-blue) !important; } .ep-panel td.ep-op { color: #b877d9 !important; }
+.ep-panel td.ep-di { color: var(--ep-blue) !important; } .ep-panel td.ep-op { color: var(--ep-purple) !important; }
 .ep-panel .ep-pill { border: 1px solid var(--ep-line); border-radius: 3px; padding: 0 6px; font-size: 10.5px; font-weight: 500; background: none; }
 
 /* Bars in the panel's colours. */
 .ep-panel .ep-barcell { --ep-bar: var(--ep-ok); }
 .ep-panel .ep-barcell.ep-warn { --ep-bar: var(--ep-warn); }
 .ep-panel .ep-barcell.ep-high { --ep-bar: var(--ep-high); }
-.ep-panel .ep-bar-track { background: #22252b; border-radius: 2px; }
+.ep-panel .ep-bar-track { background: var(--ep-track); border-radius: 2px; }
 .ep-panel .ep-bar-under { display: inline-grid; grid-template-columns: 56px auto; gap: 6px; align-items: center; }
 .ep-panel .ep-bar-under .ep-bar-line { grid-column: 2; grid-row: 1; text-align: right; min-width: 44px; }
 .ep-panel .ep-bar-under .ep-bar-track { grid-column: 1; grid-row: 1; height: 8px; margin: 0; }
 .ep-panel .ep-bar-under .ep-bar-fill { background: linear-gradient(90deg, var(--ep-ok), var(--ep-bar)); }
 .ep-panel .ep-bar-incell .ep-bar-fill { opacity: .55; }
-.ep-panel .ep-bar-segs i { background: #22252b; }
+.ep-panel .ep-bar-segs i { background: var(--ep-track); }
 
 /* ---- a client's servers ---- */
 .ep-panel .ep-sub > td { background: var(--ep-bg-3) !important; padding: 0 !important; border-bottom: 1px solid var(--ep-line); }
@@ -100,7 +113,7 @@
 .ep-panel .ep-servers td[data-sc="ip"] { color: var(--ep-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
 .ep-panel .ep-servers a { color: var(--ep-blue); }
 .ep-panel .ep-servers td.ep-warn, .ep-panel .ep-servers td.ep-high { font-weight: 500; }
-.ep-panel .ep-role-chip { font-size: 11px; padding: 0 6px; border-radius: 3px; background: #1f2b3d; color: #8ab8ff; }
+.ep-panel .ep-role-chip { font-size: 11px; padding: 0 6px; border-radius: 3px; background: var(--ep-sel-bg); color: var(--ep-chip-fg); }
 .ep-panel .ep-servers .ep-svc { font-style: normal; color: var(--ep-muted); border: 1px solid var(--ep-line); border-radius: 3px; padding: 0 5px; opacity: 1; }
 .ep-panel .ep-servers .ep-mark { color: var(--ep-muted); background: none; border: 1px solid var(--ep-line); border-radius: 3px; padding: 0 5px; font-weight: 400; }
 .ep-panel .ep-st-up, .ep-panel .ep-st-down, .ep-panel .ep-st-unknown { font-weight: 400; font-size: 12px; }
@@ -110,10 +123,16 @@
 .ep-panel .ep-disks { display: inline-flex; gap: 10px; white-space: nowrap; }
 .ep-panel .ep-servers .ep-disk-line { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
 .ep-panel .ep-servers .ep-disk-line .ep-mount { min-width: 0; color: var(--ep-muted); opacity: 1; }
-.ep-panel .ep-disk-bar { display: inline-block; width: 30px; height: 5px; border-radius: 2px; background: #22252b; position: relative; overflow: hidden; vertical-align: middle; }
-.ep-panel .ep-disk-bar i { position: absolute; inset: 0 auto 0 0; background: #5794f2; }
-.ep-panel .ep-disk-max.ep-warn .ep-disk-bar i { background: var(--ep-warn); } .ep-panel .ep-disk-max.ep-high .ep-disk-bar i { background: var(--ep-high); }
-.ep-panel .ep-disk-max.ep-warn b { color: var(--ep-warn); } .ep-panel .ep-disk-max.ep-high b { color: var(--ep-high); }
+.ep-panel .ep-disk-bar { display: inline-block; width: 30px; height: 5px; border-radius: 2px; background: var(--ep-track); position: relative; overflow: hidden; vertical-align: middle; }
+.ep-panel .ep-disk-bar i { position: absolute; inset: 0 auto 0 0; background: var(--ep-disk); }
+.ep-panel .ep-disk-line.ep-warn .ep-disk-bar i { background: var(--ep-warn); } .ep-panel .ep-disk-line.ep-high .ep-disk-bar i { background: var(--ep-high); }
+.ep-panel .ep-disk-line.ep-warn b { color: var(--ep-warn); } .ep-panel .ep-disk-line.ep-high b { color: var(--ep-high); }
+/* A two-way switch in the toolbar (Table / Overview). */
+.ep-panel .ep-seg { display: inline-flex; }
+.ep-panel .ep-seg .ep-pbtn { border-radius: 0 !important; }
+.ep-panel .ep-seg .ep-pbtn:first-child { border-radius: 3px 0 0 3px !important; }
+.ep-panel .ep-seg .ep-pbtn:last-child { border-radius: 0 3px 3px 0 !important; border-left: 0 !important; }
+.ep-panel .ep-seg .ep-pbtn[aria-pressed="true"] { background: var(--ep-sel-bg) !important; color: var(--ep-strong) !important; border-color: var(--ep-sel-line) !important; }
 .ep-panel .ep-disk-line b { font-weight: 500; }
 /* Table settings: fullest disk only, and server columns a viewer has hidden. */
 .ep-panel.ep-disks-fullest .ep-disk-line:not(.ep-disk-max) { display: none; }
@@ -135,7 +154,7 @@
 
 /* ---- Table settings drawer ---- */
 .ep-panel .ep-set { position: absolute; top: 36px; right: 8px; bottom: 8px; width: min(320px, calc(100% - 16px)); z-index: 30; overflow: auto;
-	background: #1b1e23; border: 1px solid var(--ep-line); border-radius: 3px; padding: 10px 12px; display: grid; gap: 10px; align-content: start; box-shadow: -8px 0 24px rgba(0, 0, 0, .45); }
+	background: var(--ep-pop); border: 1px solid var(--ep-line); border-radius: 3px; padding: 10px 12px; display: grid; gap: 10px; align-content: start; box-shadow: -8px 0 24px rgba(0, 0, 0, .45); }
 .ep-panel .ep-set[hidden] { display: none; }
 .ep-panel .ep-set-h { display: flex; justify-content: space-between; align-items: center; color: var(--ep-strong); font-weight: 500; }
 .ep-panel .ep-set fieldset { border: 1px solid var(--ep-line-2); border-radius: 2px; padding: 6px 10px 8px; margin: 0; display: grid; gap: 4px; }

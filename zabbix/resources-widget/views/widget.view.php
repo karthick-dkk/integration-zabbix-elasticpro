@@ -28,6 +28,10 @@ $toolbar = (new CDiv([
 	(new CTag('select', true, array_merge([(new CTag('option', true, _('All')))->setAttribute('value', '')],
 		array_map(fn($t) => (new CTag('option', true, $t))->setAttribute('value', $t), $data['meta']['types'])
 	)))->setAttribute('data-ep-type-filter', '')->setAttribute('aria-label', _('Client type')),
+	(new CDiv([
+		(new CSimpleButton(_('Table')))->addClass('ep-pbtn')->setAttribute('data-ep-view', 'table')->setAttribute('aria-pressed', 'true'),
+		(new CSimpleButton(_('Overview')))->addClass('ep-pbtn')->setAttribute('data-ep-view', 'overview')->setAttribute('aria-pressed', 'false')
+	]))->addClass('ep-seg')->setAttribute('role', 'group')->setAttribute('aria-label', _('View')),
 	(new CSimpleButton(_('Expand all')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('data-ep-expand-all', ''),
 	(new CSimpleButton('⚙ '._('Table settings')))->addClass('ep-pbtn')->setAttribute('data-ep-settings', '')->setAttribute('aria-expanded', 'false'),
 	// The report's Columns and its exports, in the panel menu.
@@ -123,7 +127,7 @@ foreach ($data['rows'] as $n => $row) {
 			elseif (!empty($s['shared'])) {
 				$roleCell[] = (new CSpan(_('shared')))->addClass('ep-mark');
 			}
-			// The fullest disk is the one the server's disk class was decided on; it alone takes the colour.
+			// Every disk takes the colour of its own figure; the fullest is marked, for "fullest disk only".
 			$max = null;
 			foreach ($s['disks'] ?? [] as $k => $d) {
 				if ($d['used'] !== null && ($max === null || $d['used'] > $s['disks'][$max]['used'])) {
@@ -138,7 +142,7 @@ foreach ($data['rows'] as $n => $row) {
 					$d['total'] === null ? '—' : convertUnits(['value' => $d['total'], 'units' => 'B']),
 					$d['used'] === null ? '' : [' · ', new CTag('b', true, round($d['used']).' %')]
 				]))->addClass('ep-disk-line')->addClass($k === $max ? 'ep-disk-max' : null)
-					->addClass($k === $max && $s['classes']['disk'] !== '' ? $s['classes']['disk'] : null);
+					->addClass(($d['class'] ?? '') !== '' ? $d['class'] : null);
 			}
 			$bar = fn($v, $cls) => \Modules\EpResources\Lib\Bars::cell($pct($v), $v, $data['bars'] ?? 'under', $cls);
 			$scell = fn($sc, $content, $cls = '') => (new CTag('td', true, $content))->setAttribute('data-sc', $sc)
@@ -172,8 +176,11 @@ $table = (new CTag('table', true))
 	->addItem($body);
 
 $view
-	->addItem((new CDiv([$toolbar, (new CDiv($table))->addClass('ep-res-scroll ep-pscroll')]))
+	->addItem((new CDiv([$toolbar, (new CDiv($table))->addClass('ep-res-scroll ep-pscroll'),
+		// The overview panels, drawn by ep-overview.js from ep_overview when Overview is chosen.
+		(new CDiv(''))->addClass('ep-ov ep-pscroll')->setAttribute('hidden', 'hidden')]))
 		->addClass('ep-panel')->setAttribute('data-ep-panel', 'resources'))
+	->setVar('ep_overview', $data['overview'])
 	->setVar('export', $data['export'])
 	->setVar('ep_meta', $data['meta'])
 	->show();

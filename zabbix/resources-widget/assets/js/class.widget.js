@@ -12,5 +12,7 @@ class WidgetEpResources extends CWidget {
 		// Search, sorting, widths, the ⋮ menu and Table settings; after EpColumns, so the search
 		// and the Type filter decide together which clients show.
 		window.EpPanel.init(this, this._body, 'resources');
+		// The Overview view: the summary, gauges, used-of-allocated and role panels.
+		window.EpOverview.init(this, this._body, response.ep_overview || null);
 	}
 }

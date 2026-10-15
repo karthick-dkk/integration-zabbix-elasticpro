@@ -30,6 +30,7 @@
 			"ep-export.js",
 			"ep-columns.js",
 			"ep-panel.js",
+			"ep-overview.js",
 			"class.widget.js"
 		],
 		"css": [

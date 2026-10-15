@@ -157,7 +157,8 @@ for page in ["ep_clients"]:
         print(f"{page}: enabled")
 
 WIDGETS = [("ep_capacity", "ElasticPro — Client capacity", "Client capacity"),
-           ("ep_resources", "ElasticPro — Client resources", "Client resources")]
+           ("ep_resources", "ElasticPro — Client resources", "Client resources"),
+           ("ep_tophosts", "ElasticPro — Top hosts", "Top hosts")]
 # The groups the widgets look in: the one master hosts are made in, plus every group that
 # already holds a host carrying the master template. A site whose clients predate the
 # current group name (or that keeps them under its own) otherwise got a widget pinned to

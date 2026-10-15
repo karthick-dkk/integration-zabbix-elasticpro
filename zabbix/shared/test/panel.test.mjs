@@ -28,7 +28,8 @@ test('the panel files are copied to the two client reports, loaded after the sha
     for (const f of PANEL_JS) assert.equal(fs.readFileSync(path.join(ROOT, w, 'assets/js', f), 'utf8'), fs.readFileSync(path.join(HERE, f), 'utf8'), `${w}/${f} differs: node sync-assets.mjs`);
     for (const f of PANEL_CSS) assert.equal(fs.readFileSync(path.join(ROOT, w, 'assets/css', f), 'utf8'), fs.readFileSync(path.join(HERE, f), 'utf8'), `${w}/${f} differs: node sync-assets.mjs`);
     const m = JSON.parse(fs.readFileSync(path.join(ROOT, w, 'manifest.json'), 'utf8'));
-    assert.deepEqual(m.assets.js, [...SHARED, ...PANEL_JS, 'class.widget.js'], `${w}: shared, then the panel, then the widget`);
+    assert.deepEqual(m.assets.js.slice(0, SHARED.length + PANEL_JS.length), [...SHARED, ...PANEL_JS], `${w}: shared, then the panel`);
+    assert.equal(m.assets.js[m.assets.js.length - 1], 'class.widget.js', `${w}: the widget's own class last`);
     assert.equal(m.assets.css[m.assets.css.length - 1], 'ep-panel.css', `${w}: the panel sheet loads last, so it decides the look`);
     const js = fs.readFileSync(path.join(ROOT, w, 'assets/js/class.widget.js'), 'utf8');
     assert.ok(js.indexOf('EpPanel.init') > js.indexOf('EpColumns.init'), `${w}: the panel starts after EpColumns`);
@@ -38,6 +39,17 @@ test('the panel files are copied to the two client reports, loaded after the sha
   // The Volume report keeps its own look.
   const vol = JSON.parse(fs.readFileSync(path.join(ROOT, 'volume-widget/manifest.json'), 'utf8'));
   assert.ok(!vol.assets.js.includes('ep-panel.js') && !vol.assets.css.includes('ep-panel.css'));
+});
+
+test('the panel follows the Zabbix theme: light by default, dark under Dark and high-contrast dark', () => {
+  const css = fs.readFileSync(path.join(HERE, 'ep-panel.css'), 'utf8');
+  assert.match(css, /\[theme="dark-theme"\] \.ep-panel, \[theme="hc-dark"\] \.ep-panel \{/);
+  const block = (sel) => css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+  const light = block('.ep-panel {\n\t--ep-ok'), dark = block('[theme="dark-theme"] .ep-panel');
+  const names = (b) => [...b.matchAll(/(--ep-[a-z0-9-]+):/g)].map((m) => m[1]).sort();
+  assert.deepEqual(names(dark), names(light), 'every colour has a value in both themes');
+  const rules = css.slice(css.indexOf('/* ---- toolbar ---- */')).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.deepEqual(rules.match(/#[0-9a-f]{6}\b/gi) || [], [], 'no colour outside the two theme blocks');
 });
 
 test('the panel colours a status by the class WidgetView chose, never by a figure of its own', () => {

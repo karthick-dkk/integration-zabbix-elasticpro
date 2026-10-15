@@ -107,8 +107,8 @@ test('each widget manifest starts at the refresh its settings default names', ()
   }
 });
 
-test('the four modules agree on their version and author', () => {
-  const dirs = ['clients-module', 'capacity-widget', 'resources-widget', 'volume-widget'];
+test('the modules agree on their version and author', () => {
+  const dirs = ['clients-module', 'capacity-widget', 'resources-widget', 'volume-widget', 'tophosts-widget'];
   const seen = dirs.map((d) => {
     const m = JSON.parse(read(`${d}/manifest.json`));
     return {dir: d, version: m.version, author: m.author, manifest_version: m.manifest_version};
