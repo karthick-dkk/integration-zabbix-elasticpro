@@ -112,8 +112,14 @@
 .ep-panel .ep-servers .ep-disk-line .ep-mount { min-width: 0; color: var(--ep-muted); opacity: 1; }
 .ep-panel .ep-disk-bar { display: inline-block; width: 30px; height: 5px; border-radius: 2px; background: #22252b; position: relative; overflow: hidden; vertical-align: middle; }
 .ep-panel .ep-disk-bar i { position: absolute; inset: 0 auto 0 0; background: #5794f2; }
-.ep-panel .ep-disk-max.ep-warn .ep-disk-bar i { background: var(--ep-warn); } .ep-panel .ep-disk-max.ep-high .ep-disk-bar i { background: var(--ep-high); }
-.ep-panel .ep-disk-max.ep-warn b { color: var(--ep-warn); } .ep-panel .ep-disk-max.ep-high b { color: var(--ep-high); }
+.ep-panel .ep-disk-line.ep-warn .ep-disk-bar i { background: var(--ep-warn); } .ep-panel .ep-disk-line.ep-high .ep-disk-bar i { background: var(--ep-high); }
+.ep-panel .ep-disk-line.ep-warn b { color: var(--ep-warn); } .ep-panel .ep-disk-line.ep-high b { color: var(--ep-high); }
+/* A two-way switch in the toolbar (Table / Overview). */
+.ep-panel .ep-seg { display: inline-flex; }
+.ep-panel .ep-seg .ep-pbtn { border-radius: 0 !important; }
+.ep-panel .ep-seg .ep-pbtn:first-child { border-radius: 3px 0 0 3px !important; }
+.ep-panel .ep-seg .ep-pbtn:last-child { border-radius: 0 3px 3px 0 !important; border-left: 0 !important; }
+.ep-panel .ep-seg .ep-pbtn[aria-pressed="true"] { background: #1f2b3d !important; color: var(--ep-strong) !important; border-color: #2f4a70 !important; }
 .ep-panel .ep-disk-line b { font-weight: 500; }
 /* Table settings: fullest disk only, and server columns a viewer has hidden. */
 .ep-panel.ep-disks-fullest .ep-disk-line:not(.ep-disk-max) { display: none; }

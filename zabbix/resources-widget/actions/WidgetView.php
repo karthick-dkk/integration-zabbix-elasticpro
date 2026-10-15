@@ -2,7 +2,7 @@
 
 namespace Modules\EpResources\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ColumnSettings'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'ClientData'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 
@@ -10,7 +10,7 @@ use API,
 	CControllerDashboardWidgetView,
 	CControllerResponseData,
 	CCsrfTokenHelper;
-use Modules\EpResources\Lib\{Bars, ColumnSettings, Roles, Settings, Store};
+use Modules\EpResources\Lib\{Bars, ClientData, ColumnSettings, Roles, Settings, Store};
 
 /**
  * Client resources: one row per client master host; per family (or per role, where the Columns
@@ -61,21 +61,13 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'user' => ['debug_mode' => $this->getDebugMode()]
 		];
 
-		$names = Roles::templateNamesFor('master');
-		$templates = API::Template()->get(['output' => ['templateid'], 'filter' => ['host' => $names]]);
-		if (!$templates) {
-			$data['error'] = _s('Template "%1$s" is not in Zabbix yet — write it from ElasticPro → Clients.', $names[0]);
+		// The clients, and below their servers, read by the one shared reading Top hosts uses too.
+		[$masters, $clients, $error] = ClientData::clients($this->cfg, $this->fields_values['groupids'] ?: []);
+		if ($error !== null) {
+			$data['error'] = $error;
 			$this->setResponse(new CControllerResponseData($data));
 			return;
 		}
-		// Disabled clients stay in the report (with a badge), so not only monitored hosts. Every
-		// template the mapping answers to counts: a site that renamed it and has hosts on both
-		// the old name and the new one sees all of its clients, not whichever sorted first.
-		$options = ['output' => ['hostid', 'name', 'maintenance_status'], 'templateids' => array_column($templates, 'templateid'), 'preservekeys' => true];
-		if ($this->fields_values['groupids']) {
-			$options['groupids'] = getSubGroups($this->fields_values['groupids']);
-		}
-		$masters = API::Host()->get($options);
 
 		$keys = [];
 		foreach ($all as $c) {
@@ -85,36 +77,26 @@ class WidgetView extends CControllerDashboardWidgetView {
 				}
 			}
 		}
+		// The overview's figures: every family's servers, CPU and memory, whether or not the
+		// Columns dialog shows them in the table.
+		foreach ($roles['families'] as $f) {
+			foreach (['servers', 'cpu', 'mem'] as $res) {
+				foreach (['requested', 'allocated', 'usage'] as $kind) {
+					$keys['ep.'.$f['id'].'.'.$res.'.'.$kind] = true;
+				}
+			}
+		}
 		$values = [];
 		$units = [];
-		$macros = [];
 		if ($masters) {
 			foreach (API::Item()->get(['output' => ['hostid', 'key_', 'lastvalue', 'lastclock', 'units', 'state'],
 					'hostids' => array_keys($masters), 'filter' => ['key_' => array_keys($keys)]]) as $it) {
 				$units[$it['key_']] = $it['units'];
-				$values[$it['hostid']][$it['key_']] = self::known($it) ? (float) $it['lastvalue'] : null;
-			}
-			foreach (API::UserMacro()->get(['output' => ['hostid', 'macro', 'value'], 'hostids' => array_keys($masters)]) ?: [] as $m) {
-				$macros[$m['hostid']][$m['macro']] = (string) ($m['value'] ?? '');
+				$values[$it['hostid']][$it['key_']] = ClientData::known($it) ? (float) $it['lastvalue'] : null;
 			}
 		}
 
-		$clients = [];
-		foreach ($masters as $hostid => $master) {
-			$m = $macros[$hostid] ?? [];
-			// Decommissioned clients leave the report.
-			if (($m['{$EP.CLIENT.STATUS}'] ?? 'active') === 'decommissioned') {
-				unset($masters[$hostid]);
-				continue;
-			}
-			$clients[$hostid] = [
-				'name' => ($m['{$GRP.CLIENT}'] ?? '') !== '' ? $m['{$GRP.CLIENT}'] : $master['name'],
-				'type' => ($m['{$EP.CLIENT.TYPE}'] ?? '') !== '' ? $m['{$EP.CLIENT.TYPE}'] : Settings::defaultType($this->cfg),
-				'badge' => ($m['{$EP.CLIENT.STATUS}'] ?? 'active') === 'disabled' ? _('disabled') : ((int) ($master['maintenance_status'] ?? 0) === 1 ? _('maintenance') : ''),
-				'macros' => $m
-			];
-		}
-		$servers = $this->servers($roles, $clients);
+		$servers = ClientData::servers($roles, $clients);
 
 		$headers = array_map(fn($c) => ($c['group'] === 'Client' ? '' : $c['group'].' ').$c['label'].$this->suffix(isset($c['key']) ? ($units[$c['key']] ?? '') : ''), $columns);
 		$exportRows = [];
@@ -134,24 +116,25 @@ class WidgetView extends CControllerDashboardWidgetView {
 			}
 			$srv = $servers[$client['name']] ?? [];
 			foreach ($srv as &$s) {
-				$s['classes'] = [
-					'cpu' => self::usageClass($s['cpu_used'], $warn, $high),
-					'mem' => self::usageClass($s['mem_used'], $warn, $high),
-					'disk' => self::usageClass($s['disk_used'], $warn, $high)
-				];
+				$s = ClientData::classify($s, $warn, $high);
 				$div = Settings::sizeDivisor($this->cfg);
 				$serverRows[$client['name']][] = [$client['name'], $client['type'], $s['role'], implode(', ', $s['services'] ?? []), $s['host'], $s['ip'], $s['status'],
 					$s['cpu_cores'], self::r1($s['cpu_used']), $s['mem_total'] !== null ? round($s['mem_total'] / $div, 2) : null, self::r1($s['mem_used']),
 					$s['mount'], $s['disk_total'] !== null ? round($s['disk_total'] / $div, 2) : null, self::r1($s['disk_used'])];
 			}
 			unset($s);
-			$data['rows'][] = ['client' => $client['name'], 'type' => $client['type'], 'cells' => $cells, 'servers' => $srv];
+			$data['rows'][] = ['client' => $client['name'], 'type' => $client['type'], 'cells' => $cells, 'servers' => $srv,
+				'overview' => $this->overview($roles, $client, $values[$hostid] ?? [], $srv, $warn, $high)];
 			$exportRows[] = $export;
 			$exportTypes[] = $client['type'];
 		}
 		$order = array_keys($data['rows']);
 		usort($order, fn($a, $b) => strnatcasecmp($data['rows'][$a]['client'], $data['rows'][$b]['client']));
 		$data['rows'] = array_map(fn($i) => $data['rows'][$i], $order);
+		$data['overview'] = [
+			'families' => array_map(fn($f) => ['id' => $f['id'], 'label' => $f['label']], $roles['families']),
+			'clients' => array_column($data['rows'], 'overview')
+		];
 		$servers_out = [];
 		foreach ($data['rows'] as $row) {
 			$servers_out = array_merge($servers_out, $serverRows[$row['client']] ?? []);
@@ -244,118 +227,39 @@ class WidgetView extends CControllerDashboardWidgetView {
 		return [$cell, $this->exportValue($value, $unit)];
 	}
 
-	/** Every client's machines, each with its role, IP, status and CPU, memory and disk. */
-	private function servers(array $roles, array $clients): array {
-		if (!$clients) {
-			return [];
+	/**
+	 * One client for the overview panels: devices, ES storage, every family's servers, CPU and
+	 * memory, and its servers' status and use. Raw figures with their colour class, decided here
+	 * with the same thresholds as the table, so a panel and the table can never disagree.
+	 */
+	private function overview(array $roles, array $client, array $v, array $srv, float $warn, float $high): array {
+		$req = fn($k) => isset($v[$k]) && $v[$k] !== null && $v[$k] > 0 ? $v[$k] : null;
+		$num = fn($k) => $v[$k] ?? null;
+		$fam = [];
+		foreach ($roles['families'] as $f) {
+			$k = fn($res, $kind) => 'ep.'.$f['id'].'.'.$res.'.'.$kind;
+			$fam[$f['id']] = [
+				'servers' => ['requested' => $req($k('servers', 'requested')), 'allocated' => $num($k('servers', 'allocated'))],
+				'cpu' => ['requested' => $req($k('cpu', 'requested')), 'allocated' => $num($k('cpu', 'allocated')), 'usage' => $num($k('cpu', 'usage')),
+					'class' => self::usageClass($num($k('cpu', 'usage')), $warn, $high)],
+				'mem' => ['requested' => $req($k('mem', 'requested')), 'allocated' => $num($k('mem', 'allocated')), 'usage' => $num($k('mem', 'usage')),
+					'class' => self::usageClass($num($k('mem', 'usage')), $warn, $high)]
+			];
 		}
-		$names = array_column($clients, 'name');
-		$groups = array_column(API::HostGroup()->get(['output' => ['groupid', 'name'], 'filter' => ['name' => $names]]), 'groupid', 'name');
-		if (!$groups) {
-			return [];
-		}
-		$hosts = API::Host()->get(['output' => ['hostid', 'name'], 'groupids' => array_values($groups), 'selectHostGroups' => ['name'],
-			'selectInterfaces' => ['ip', 'type', 'main', 'available'], 'selectTags' => ['tag', 'value'], 'preservekeys' => true]);
-		// Each role's disks: / and its extra mounts, from the client's master host.
-		$mounts = [];
-		foreach ($clients as $c) {
-			foreach (Roles::allRoles($roles) as $r) {
-				$mounts[$c['name']][$r['id']] = Roles::diskMounts($c['macros'], $r['id']);
-			}
-		}
-		$out = [];
-		$want = [];
-		foreach ($hosts as $hostid => $h) {
-			$gn = array_column($h['hostgroups'], 'name');
-			$client = array_values(array_intersect($names, $gn))[0] ?? null;
-			if ($client === null) {
-				continue;
-			}
-			// The same reading of roles as the Clients page: every role whose group the host is in.
-			$held = Roles::rolesOfGroups($roles, $gn);
-			if (!$held) {
-				continue;
-			}
-			$role = $held[0];
-			$ids = array_column($held, 'id');
-			$services = [];
-			foreach ($h['tags'] ?? [] as $t) {
-				if ($t['tag'] === 'ep-service' && !in_array($t['value'], $ids, true)) {
-					$services[] = $t['value'];
-				}
-			}
-			$ip = null;
-			$avail = 0;
-			foreach ($h['interfaces'] as $if) {
-				if ($if['type'] == INTERFACE_TYPE_AGENT && $if['main'] == INTERFACE_PRIMARY) {
-					$ip = $if['ip'];
-					$avail = (int) $if['available'];
-				}
-			}
-			$mine = [];
-			foreach ($ids as $rid) {
-				foreach ($mounts[$client][$rid] as $m) {
-					if (!in_array($m, $mine, true)) {
-						$mine[] = $m;
-					}
-				}
-			}
-			$out[$client][$hostid] = ['role' => implode(' + ', array_column($held, 'label')), 'roles' => $ids, 'services' => $services,
-				'shared' => count($held) > 1, 'single' => (bool) array_filter($held, fn($r) => !empty($r['exclusive'])), 'host' => $h['name'], 'hostid' => $hostid, 'ip' => $ip ?? '',
-				'status' => $avail === 1 ? 'up' : ($avail === 2 ? 'down' : 'unknown'), 'mount' => implode(', ', $mine),
-				'disks' => array_map(fn($m) => ['mount' => $m, 'total' => null, 'used' => null], $mine),
-				'cpu_cores' => null, 'cpu_used' => null, 'mem_total' => null, 'mem_used' => null, 'disk_total' => null, 'disk_used' => null];
-			$want[$hostid] = ['system.cpu.num' => 'cpu_cores', 'system.cpu.util' => 'cpu_used', 'vm.memory.size[total]' => 'mem_total',
-				'vm.memory.utilization' => 'mem_used'];
-			foreach ($mine as $i => $m) {
-				$want[$hostid]['vfs.fs.dependent.size['.$m.',total]'] = 'disk.'.$i.'.total';
-				$want[$hostid]['vfs.fs.dependent.size['.$m.',pused]'] = 'disk.'.$i.'.used';
-			}
-		}
-		if ($want) {
-			$keys = array_unique(array_merge(...array_map('array_keys', array_values($want))));
-			foreach (API::Item()->get(['output' => ['hostid', 'key_', 'lastvalue', 'lastclock', 'state'], 'hostids' => array_keys($want),
-					'filter' => ['key_' => $keys]]) as $it) {
-				$field = $want[$it['hostid']][$it['key_']] ?? null;
-				if ($field === null || !self::known($it)) {
-					continue;
-				}
-				foreach ($out as $client => $list) {
-					if (!isset($list[$it['hostid']])) {
-						continue;
-					}
-					if (preg_match('/^disk\.(\d+)\.(total|used)$/', $field, $m)) {
-						$out[$client][$it['hostid']]['disks'][(int) $m[1]][$m[2]] = (float) $it['lastvalue'];
-					}
-					else {
-						$out[$client][$it['hostid']][$field] = (float) $it['lastvalue'];
-					}
-				}
-			}
-		}
-		// A server's disk: the sum of the sizes known, and its fullest disk — each only when measured.
-		foreach ($out as $client => $list) {
-			foreach ($list as $hid => $s) {
-				$totals = array_filter(array_column($s['disks'], 'total'), fn($v) => $v !== null);
-				$used = array_filter(array_column($s['disks'], 'used'), fn($v) => $v !== null);
-				$out[$client][$hid]['disk_total'] = $totals ? array_sum($totals) : null;
-				$out[$client][$hid]['disk_used'] = $used ? max($used) : null;
-			}
-		}
-		foreach ($out as $client => $list) {
-			$list = array_values($list);
-			usort($list, fn($a, $b) => [$a['role'], $a['host']] <=> [$b['role'], $b['host']]);
-			$out[$client] = $list;
-		}
-		return $out;
-	}
-
-	private static function known(array $it): bool {
-		return $it['state'] == ITEM_STATE_NORMAL && $it['lastclock'] != 0 && $it['lastvalue'] !== '';
+		return [
+			'name' => $client['name'], 'type' => $client['type'], 'badge' => $client['badge'], 'warn' => $warn, 'high' => $high,
+			'devices' => ['purchased' => $req('ep.devices.purchased'), 'seen' => $num('ep.devices.seen')],
+			'storage' => ['purchased' => $req('ep.es.storage.purchased'), 'allocated' => $num('ep.es.storage.allocated'),
+				'used' => $num('ep.es.storage.used'), 'usage' => $num('ep.es.storage.usage'),
+				'class' => self::usageClass($num('ep.es.storage.usage'), $warn, $high)],
+			'families' => $fam,
+			'servers' => array_map(fn($s) => ['host' => $s['host'], 'hostid' => $s['hostid'], 'roles' => array_values(array_filter(array_map('trim', explode('+', $s['role'])))),
+				'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'], 'disk' => $s['disk_used'], 'classes' => $s['classes']], $srv)
+		];
 	}
 
 	public static function usageClass(?float $v, float $warn, float $high): string {
-		return $v === null ? '' : ($v >= $high ? 'ep-high' : ($v >= $warn ? 'ep-warn' : ''));
+		return ClientData::usageClass($v, $warn, $high);
 	}
 
 	private static function r1(?float $v): ?float {

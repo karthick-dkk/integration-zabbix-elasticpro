@@ -21,9 +21,11 @@ export const WIDGETS = ['capacity-widget', 'volume-widget', 'resources-widget'];
 export const PANEL_JS = ['ep-panel.js'];
 export const PANEL_CSS = ['ep-panel.css'];
 export const PANEL_WIDGETS = ['capacity-widget', 'resources-widget'];
-export const SHARED_PHP = ['Store.php', 'Settings.php', 'Roles.php', 'ColumnSettings.php', 'Forecast.php', 'ClientTypes.php', 'Bars.php'];
+/** The panel look alone, without the table controls: Top hosts is a list, not a table. */
+export const PANEL_CSS_ONLY = ['tophosts-widget'];
+export const SHARED_PHP = ['Store.php', 'Settings.php', 'Roles.php', 'ColumnSettings.php', 'Forecast.php', 'ClientTypes.php', 'Bars.php', 'ClientData.php'];
 export const SHARED_ACTIONS = { 'ColumnsSave.php': ['resources-widget', 'capacity-widget', 'volume-widget'] };
-export const PHP_MODULES = { 'clients-module': 'EpClients', 'resources-widget': 'EpResources', 'capacity-widget': 'EpCapacity', 'volume-widget': 'EpVolume' };
+export const PHP_MODULES = { 'clients-module': 'EpClients', 'resources-widget': 'EpResources', 'capacity-widget': 'EpCapacity', 'volume-widget': 'EpVolume', 'tophosts-widget': 'EpTophosts' };
 
 /** The shared PHP file as it sits in a module. */
 export function phpFor(source, namespace) {
@@ -44,6 +46,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   for (const w of PANEL_WIDGETS) {
     for (const f of PANEL_JS) fs.copyFileSync(path.join(HERE, 'shared', f), path.join(HERE, w, 'assets', 'js', f));
+    for (const f of PANEL_CSS) fs.copyFileSync(path.join(HERE, 'shared', f), path.join(HERE, w, 'assets', 'css', f));
+  }
+  for (const w of PANEL_CSS_ONLY) {
     for (const f of PANEL_CSS) fs.copyFileSync(path.join(HERE, 'shared', f), path.join(HERE, w, 'assets', 'css', f));
   }
   for (const [dir, ns] of Object.entries(PHP_MODULES)) {
