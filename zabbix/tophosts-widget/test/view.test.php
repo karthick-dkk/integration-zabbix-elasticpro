@@ -135,6 +135,13 @@ namespace Modules\EpTophosts\Test {
 	check('the stored type number comes from the name, so reordering the site\'s types keeps it',
 		WidgetForm::typeKey('DI') === WidgetForm::typeKey('DI') && WidgetForm::typeKey('DI') !== WidgetForm::typeKey('On-Prem') && WidgetForm::typeKey('DI') > 0);
 
+	/* ---------------- a single node: ES, Parser, Forwarder and Engine on one box ---------------- */
+	$r = fn($fam, $extra = []) => ['id' => $fam, 'family' => $fam] + $extra;
+	check('ES, Parser, Forwarder and Engine on one machine is a single node',
+		\Modules\EpTophosts\Lib\ClientData::isSingleNode([$r('es'), $r('parser'), $r('fwd'), $r('engine')]));
+	check('three of the four is not', !\Modules\EpTophosts\Lib\ClientData::isSingleNode([$r('es'), $r('parser'), $r('engine')]));
+	check('the all-in-one role still is', \Modules\EpTophosts\Lib\ClientData::isSingleNode([$r('single', ['exclusive' => true])]));
+
 	foreach (array_diff(scandir($dir), ['.', '..']) as $f) {
 		unlink($dir.'/'.$f);
 	}

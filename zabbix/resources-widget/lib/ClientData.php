@@ -113,7 +113,7 @@ class ClientData {
 				}
 			}
 			$out[$client][$hostid] = ['role' => implode(' + ', array_column($held, 'label')), 'roles' => $ids, 'services' => $services,
-				'shared' => count($held) > 1, 'single' => (bool) array_filter($held, fn($r) => !empty($r['exclusive'])), 'host' => $h['name'], 'hostid' => $hostid, 'ip' => $ip ?? '',
+				'shared' => count($held) > 1 && !self::isSingleNode($held), 'single' => self::isSingleNode($held), 'host' => $h['name'], 'hostid' => $hostid, 'ip' => $ip ?? '',
 				'status' => $avail === 1 ? 'up' : ($avail === 2 ? 'down' : 'unknown'), 'mount' => implode(', ', $mine),
 				'disks' => array_map(fn($m) => ['mount' => $m, 'total' => null, 'used' => null], $mine),
 				'cpu_cores' => null, 'cpu_used' => null, 'mem_total' => null, 'mem_used' => null, 'disk_total' => null, 'disk_used' => null];
@@ -177,6 +177,21 @@ class ClientData {
 			$s['disks'][$i]['class'] = self::usageClass($d['used'], $warn, $high);
 		}
 		return $s;
+	}
+
+	/** The families a single node stands for: ES, Parser, Forwarder and Engine on one machine. */
+	public const SINGLE_NODE_FAMILIES = ['es', 'parser', 'fwd', 'engine'];
+
+	/**
+	 * A server is a single node when it carries the all-in-one role, or when its roles cover ES,
+	 * Parser, Forwarder and Engine together — one box doing all four, whatever roles name it.
+	 */
+	public static function isSingleNode(array $held): bool {
+		if (array_filter($held, fn($r) => !empty($r['exclusive']))) {
+			return true;
+		}
+		$families = array_unique(array_merge(...array_map(fn($r) => Roles::familiesOf($r), $held ?: [['family' => '']])));
+		return !array_diff(self::SINGLE_NODE_FAMILIES, $families);
 	}
 
 	public static function known(array $it): bool {
