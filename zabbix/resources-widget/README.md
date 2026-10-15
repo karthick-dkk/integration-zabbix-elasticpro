@@ -7,7 +7,7 @@ CPU (cores), memory, disk.
 
 - **Expand** a client (▸, or *Expand all*) for its servers: roles (a server with several reads
   "ES Data + Parser + Engine", marked shared or single node), extra services, host, IP, agent
-  status, CPU cores and use, memory and use, disk (on its first role's mount) and use.
+  status, CPU cores and use, memory and use, one column per disk mount (Disk /, Disk /data …) with its size and use, and **Fullest disk**: the disk on that server closest to full (its highest used %), which the server's disk colour is decided on.
 - **Type** filter: DI / On-Prem — the table, the count and the export follow it.
 - **Columns** (Super admins): rename, show / hide, reorder; show a family's roles as their own
   sections (ES Data Hot, ES Master …). One setting for everyone; the export follows it.
