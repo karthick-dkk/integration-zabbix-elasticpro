@@ -23,3 +23,4 @@ html[color-scheme="dark"] .ep-dialog, [theme="dark-theme"] .ep-dialog, [theme="h
 .ep-dialog .ep-btn-alt { background: rgba(128, 128, 128, .18); color: inherit; border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
 .ep-dialog .ep-danger-btn { background: #c0352c; color: #fff; }
 .ep-dialog .ep-danger-btn:disabled { opacity: .45; }
+.ep-dialog .ep-choices { margin: 0 0 10px; padding-left: 18px; display: grid; gap: 4px; }

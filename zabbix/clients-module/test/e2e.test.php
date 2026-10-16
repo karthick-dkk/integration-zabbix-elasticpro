@@ -472,6 +472,11 @@ namespace {
 			return ['hostmacroids' => array_map(fn($m) => (string) $m['hostmacroid'], $list)];
 		}
 
+		public static function macroDelete(array $ids): array {
+			foreach (self::vals($ids) as $id) { unset(self::$macros[(string) $id]); }
+			return ['hostmacroids' => array_values(self::vals($ids))];
+		}
+
 		public static function proxyGet(array $p): array {
 			$out = [];
 			foreach (self::$proxies as $name => $px) {
@@ -533,6 +538,7 @@ namespace {
 				case 'UserMacro.get': return \Zbx::macroGet((array) $p);
 				case 'UserMacro.create': return \Zbx::macroCreate((array) $p);
 				case 'UserMacro.update': return \Zbx::macroUpdate((array) $p);
+				case 'UserMacro.delete': return \Zbx::macroDelete((array) $p);
 				case 'Proxy.get': return \Zbx::proxyGet((array) $p);
 				case 'ProxyGroup.get': return \Zbx::proxyGroupGet((array) $p);
 				// Asked by SetupChecks on an install with no history yet. Empty is the honest
@@ -1592,6 +1598,62 @@ namespace Modules\EpClients\Test {
 		in_array('ACME cluster', $choices['names'], true) === false || $choices['names'] === array_values($choices['names']));
 	check('and says whether it listed them all', is_bool($choices['complete']));
 	Roles::saveTemplateNames([]);
+
+
+	/*
+	 * Remove only in ElasticPro: the master host leaves the master template (a plain unlink) and
+	 * loses the module's own macros, and nothing else in Zabbix is touched.
+	 */
+	$begin('a client released from ElasticPro');
+	$masterid = \Zbx::addHost(['host' => 'acme-Master', 'groups' => ['acme', Reconciler::MASTERS_GROUP], 'templates' => [MasterTemplate::NAME, 'Some other template'],
+		'tags' => [Reconciler::MANAGED, ['tag' => 'ep-kind', 'value' => 'master']],
+		'macros' => ['{$GRP.CLIENT}' => 'acme', '{$EP.CLIENT.TYPE}' => 'DI', '{$EP.LEAD}' => 'Asha Rao', '{$EP.CLIENT.STATUS}' => 'active',
+			'{$EVP.DL}' => 'old@example.com', '{$ES.URL}' => 'https://es:9200', '{$ULM.S3.BUCKET}' => 'b', '{$ES.VOLUME.CUS.PURCHASED}' => '500',
+			'{$EP.FAMILY.ES.DISK1.FS}' => '/', '{$EP.USAGE.WARN}' => '70', '{$MY.OWN}' => 'keep me', '{$SNMP_COMMUNITY}' => 'public']]);
+	$clusterid = \Zbx::addHost(['host' => 'acme-Cluster', 'groups' => ['acme', Reconciler::CLUSTER_GROUP], 'templates' => [Roles::clusterTemplate()],
+		'tags' => [Reconciler::MANAGED, ['tag' => 'ep-kind', 'value' => 'cluster']], 'macros' => ['{$GRP.CLIENT}' => 'acme', '{$ELASTICSEARCH.HOST}' => 'es']]);
+	$serverid = \Zbx::addHost(['host' => 'acme-Parser-1', 'ip' => '10.7.0.1', 'groups' => ['acme', 'Parser', 'Parsers'], 'templates' => [Reconciler::agentTemplate()],
+		'tags' => [Reconciler::MANAGED, ['tag' => 'ep-role', 'value' => 'parser']]]);
+	check('it is listed before', isset($state($rec())->clients()['acme']));
+	$before = ['cluster' => json_encode(\Zbx::$hosts[$clusterid]), 'server' => json_encode(\Zbx::$hosts[$serverid]), 'macros' => [$clusterid => \Zbx::macrosOf($clusterid)]];
+	$otherTpl = array_values(array_filter(\Zbx::$hosts[$masterid]['parentTemplates'], fn($t) => $t['host'] === 'Some other template'))[0]['templateid'];
+	$masterTpl = array_values(array_filter(\Zbx::$hosts[$masterid]['parentTemplates'], fn($t) => $t['host'] === MasterTemplate::NAME))[0]['templateid'];
+	\Zbx::$calls = []; \Zbx::$wrote = [];
+	$r = $rec();
+	[$unlinked, $removed] = $r->release('acme');
+	check('the master template is unlinked, by name', $unlinked === [MasterTemplate::NAME], $unlinked);
+	$mr = \Zbx::calls('Host.massRemove');
+	check('with one plain unlink of exactly the master template', count($mr) === 1 && $mr[0]['templateids'] === [$masterTpl] && $mr[0]['hostids'] === [$masterid], $mr);
+	check('never templates_clear: the master host keeps the items it got', !isset($mr[0]['templateids_clear']) && !isset($mr[0]['templates_clear']));
+	check('another template of the master host stays linked', array_column(\Zbx::$hosts[$masterid]['parentTemplates'], 'templateid') === [$otherTpl]);
+	$left = \Zbx::macrosOf($masterid);
+	check('every ElasticPro macro is gone, under either spelling, and {$GRP.CLIENT}, {$ES.*}, {$ULM.*}',
+		array_keys($left) === ['{$MY.OWN}', '{$SNMP_COMMUNITY}'], array_keys($left));
+	check('a macro that is not the module\'s own is untouched', $left['{$MY.OWN}'] === 'keep me' && $left['{$SNMP_COMMUNITY}'] === 'public');
+	$md = \Zbx::calls('UserMacro.delete');
+	check('one delete, for exactly those macros', count($md) === 1 && count($md[0]) === 10 && count($removed) === 10, [count($md), $removed]);
+	check('nothing is written but the unlink and the macro delete', array_values(array_unique(\Zbx::$wrote)) === ['Host.massRemove', 'UserMacro.delete'], \Zbx::$wrote);
+	check('no host is updated, disabled or deleted', !\Zbx::calls('Host.update') && !\Zbx::calls('Host.delete') && (int) \Zbx::$hosts[$masterid]['status'] === HOST_STATUS_MONITORED);
+	check('the cluster and server hosts are exactly as they were, with their template and macros',
+		json_encode(\Zbx::$hosts[$clusterid]) === $before['cluster'] && json_encode(\Zbx::$hosts[$serverid]) === $before['server']
+		&& \Zbx::macrosOf($clusterid) === $before['macros'][$clusterid]);
+	check('the master host is still in its groups and keeps its tags', count(\Zbx::$hosts[$masterid]['hostgroups']) === 2 && count(\Zbx::$hosts[$masterid]['tags']) === 2);
+	check('the client is no longer listed', !isset($state($rec())->clients()['acme']));
+	check('it says what it did', (bool) preg_grep('/no longer linked to/', $r->done()), $r->done());
+	\Zbx::$wrote = [];
+	$rec()->release('acme');
+	check('releasing it again changes nothing', \Zbx::$wrote === [], \Zbx::$wrote);
+	$begin('a refused unlink leaves the macros alone');
+	$m2 = \Zbx::addHost(['host' => 'beta-Master', 'groups' => ['beta', Reconciler::MASTERS_GROUP], 'templates' => [MasterTemplate::NAME],
+		'tags' => [Reconciler::MANAGED, ['tag' => 'ep-kind', 'value' => 'master']], 'macros' => ['{$GRP.CLIENT}' => 'beta', '{$EP.LEAD}' => 'x']]);
+	\Zbx::$deny['Host.massRemove'] = 'Cannot unlink.';
+	$refused = '';
+	try { $rec()->release('beta'); } catch (\Exception $e) { $refused = $e->getMessage(); }
+	check('the refusal is reported with Zabbix\'s reason', str_contains($refused, 'Cannot unlink.'), $refused);
+	check('and the macros are still there, so the client is not left listed and empty', count(\Zbx::macrosOf($m2)) === 2 && !\Zbx::calls('UserMacro.delete'));
+	$written = array_keys($spec->masterMacros($spec->fromForm($form('acme'))['client']));
+	check('the macro names released are the ones the master macros write',
+		count($written) > 20 && array_diff($written, $spec->masterMacroNames()) === [], array_diff($written, $spec->masterMacroNames()));
 
 	/* ---------------- tidy up ---------------- */
 	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }

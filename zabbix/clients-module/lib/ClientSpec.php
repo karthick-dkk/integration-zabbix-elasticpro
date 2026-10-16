@@ -756,6 +756,26 @@ class ClientSpec {
 	}
 
 	/**
+	 * Every macro name masterMacros() can write to a master host, under today's spelling and the
+	 * pre-rename one: the names that are this module's own on that host, and so the ones to take
+	 * off it when the client is released from ElasticPro. {$GRP.CLIENT}, {$ES.URL} and {$ULM.…}
+	 * do not carry the prefix but are written here all the same, so a scan for the prefix alone
+	 * would leave them behind. The two are kept in step by a test that compares them.
+	 */
+	public function masterMacroNames(): array {
+		$names = array_merge(['{$GRP.CLIENT}'], array_values($this->macroFields()));
+		foreach ($this->roles['families'] as $fam) {
+			$names = array_merge($names, MasterTemplate::familyMountMacros($fam['id']));
+		}
+		foreach ($names as $macro) {
+			if (($legacy = self::legacyMacro($macro)) !== null) {
+				$names[] = $legacy;
+			}
+		}
+		return array_values(array_unique($names));
+	}
+
+	/**
 	 * The master host's macros: macro => [value, type]. Family mounts follow the roles in use.
 	 *
 	 * A write path: every name here is today's, never the pre-rename spelling, so a host this

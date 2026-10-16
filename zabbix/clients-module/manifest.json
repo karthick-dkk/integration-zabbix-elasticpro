@@ -25,6 +25,9 @@
 		"ep.clients.remove": {
 			"class": "ClientRemove"
 		},
+		"ep.clients.release": {
+			"class": "ClientRelease"
+		},
 		"ep.clients.csv.template": {
 			"class": "CsvTemplate",
 			"layout": "layout.export"

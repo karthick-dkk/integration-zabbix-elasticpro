@@ -867,6 +867,21 @@ namespace Modules\EpClients\Test {
 		}
 	}
 
+	// Remove only in ElasticPro: its own action, Super admin only like Delete for good, with the typed name,
+	// and without noteChange(), which would sync the alert routing and delete the client's Zabbix action and report.
+	$rel_src = file_get_contents(__DIR__.'/../actions/ClientRelease.php');
+	check('the release action is in the manifest, with no view of its own', ($manifest['actions']['ep.clients.release']['class'] ?? '') === 'ClientRelease'
+		&& !isset($manifest['actions']['ep.clients.release']['view']) && is_file(__DIR__.'/../actions/ClientRelease.php'));
+	check('it keeps Zabbix\'s CSRF check and does not widen who may write', !str_contains($rel_src, 'disableCsrfValidation') && !str_contains($rel_src, 'READ_ONLY_OK'));
+	check('it asks for the client\'s name, takes a backup, and releases without deleting or disabling',
+		str_contains($rel_src, "!== \$client") && str_contains($rel_src, '$this->backup(') && str_contains($rel_src, '$rec->release($client)')
+		&& !str_contains($rel_src, '->remove(') && !str_contains($rel_src, 'lifecycle()') && !str_contains($rel_src, '$this->noteChange('));
+	check('it removes the module\'s own records and logs the change', str_contains($rel_src, 'Registry::forget($client)') && str_contains($rel_src, "changes.json")
+		&& str_contains($rel_src, 'History::add('));
+	check('and answers with the sentence the owner asked for', str_contains($rel_src, 'removed from ElasticPro — its hosts are untouched in Zabbix'));
+	$rec_src = file_get_contents(__DIR__.'/../lib/Reconciler.php');
+	check('the unlink is a plain one: no templates_clear in release()', !preg_match('/function release\(.*?\n\t}\n/s', $rec_src, $mm) || !str_contains($mm[0], 'templateids_clear'));
+
 	// A missing template says why it is missing. The log archive template is not in this
 	// repository, so a Zabbix without it must still be able to add clients that want no archive.
 	$msg = Reconciler::missingTemplatesMessage([Reconciler::ULM_TEMPLATE]);

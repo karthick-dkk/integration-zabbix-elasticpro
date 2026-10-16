@@ -150,6 +150,14 @@ namespace Modules\EpClients\Test {
 	$maint = render('ep.clients.edit', $edit(['maintenance' => ['since' => time() - 60, 'till' => time() + 3600, 'collect' => true, 'reason' => 'ES upgrade']]));
 	check('in maintenance: the badge says so, with when and why, and the button offers Extend and End', str_contains($maint, 'ep-st-maint') && str_contains($maint, 'In maintenance')
 		&& str_contains($maint, 'ES upgrade') && str_contains($maint, '>Extend…<') && str_contains($maint, '>End maintenance<'));
+	check('an existing client has "Remove only in ElasticPro…" in the header, and a dialog that names the three ways and what stays',
+		str_contains($head, 'data-open-release="acme"') && str_contains($head, '>Remove only in ElasticPro…<') && str_contains($pb, 'id="ep-release"')
+		&& str_contains($pb, 'action=ep.clients.release') && str_contains($pb, 'value="tok-ep.clients.release"') && str_contains($pb, 'name="confirm" id="r-confirm"')
+		&& str_contains($pb, '<b>Decommission</b>') && str_contains($pb, '<b>Delete for good</b>') && str_contains($pb, '<b>Remove only in ElasticPro</b>')
+		&& str_contains($pb, 'Stays in Zabbix') && str_contains($pb, 'id="r-go" class="ep-danger-btn" disabled'));
+	check('it is offered for every status', str_contains(render('ep.clients.edit', $edit(['status' => 'disabled'])), 'data-open-release="acme"')
+		&& str_contains(render('ep.clients.edit', $edit(['status' => 'decommissioned'])), 'data-open-release="acme"'));
+	check('the list does not offer it', !str_contains($lb, 'data-open-release') && !str_contains($lb, 'id="ep-release"'));
 	$off = render('ep.clients.edit', $edit(['status' => 'disabled']));
 	check('disabled: the badge, and Enable and Decommission instead of Disable', str_contains($off, 'ep-st-off') && str_contains($off, '>Disabled<') && str_contains($off, 'name="op" value="enable"')
 		&& str_contains($off, 'name="op" value="decommission"') && !str_contains(body($off), 'name="op" value="disable"'));
@@ -163,14 +171,15 @@ namespace Modules\EpClients\Test {
 	$dump('edit-ro', $view);
 	$vb = body($view);
 	check('read only: the status and the dashboard, nothing that changes anything', str_contains($vb, 'ep-st-on') && str_contains($vb, 'host.dashboard.view')
-		&& !str_contains($vb, 'name="op"') && !str_contains($vb, 'id="ep-maint"') && !str_contains($vb, 'data-open-maint'));
+		&& !str_contains($vb, 'name="op"') && !str_contains($vb, 'id="ep-maint"') && !str_contains($vb, 'data-open-maint')
+		&& !str_contains($vb, 'data-open-release') && !str_contains($vb, 'id="ep-release"'));
 
 	$add = render('ep.clients.edit', ['mode' => 'add', 'has_cluster' => false, 'status' => 'active', 'masterid' => null, 'form' => $form] + $base);
 	$dump('add', $add);
 	$ab = body($add);
 	check('a new client has no status badge, no actions and no dialogs',
 		!str_contains($ab, 'class="ep-head"') && !str_contains($ab, 'ep-st ') && !str_contains($ab, 'name="op"') && !str_contains($ab, 'data-open-maint')
-		&& !str_contains($ab, 'id="ep-maint"') && !str_contains($ab, 'host.dashboard.view'));
+		&& !str_contains($ab, 'id="ep-maint"') && !str_contains($ab, 'host.dashboard.view') && !str_contains($ab, 'data-open-release') && !str_contains($ab, 'id="ep-release"'));
 
 	// The form: the same action, token and fields as before.
 	foreach (['edit' => $pb, 'add' => $ab] as $which => $b) {

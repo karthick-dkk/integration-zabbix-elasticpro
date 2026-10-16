@@ -98,6 +98,9 @@ class ClientActions {
 			$acts[] = self::post('ep.clients.status', _('Restore'), $v + ['op' => 'restore'], '', $button);
 			$acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-delete="'.self::e($name).'">'.self::e(_('Delete for good…')).'</button>';
 		}
+		// Last, and for every status: taking the client out of ElasticPro does not depend on whether it is monitored.
+		$acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-release="'.self::e($name).'" title="'.self::e(_('Take it out of Cluster Management only; no host is touched in Zabbix')).'">'
+			.self::e(_('Remove only in ElasticPro…')).'</button>';
 		return $acts;
 	}
 
@@ -117,8 +120,11 @@ class ClientActions {
 		];
 	}
 
-	/** The maintenance dialog (one client, or the ticked ones on the list) and the delete-for-good dialog. */
-	public static function dialogs(): string {
+	/**
+	 * The maintenance dialog (one client, or the ticked ones on the list) and the delete-for-good
+	 * dialog; with $release, the dialog of "Remove only in ElasticPro" too (the client's page only).
+	 */
+	public static function dialogs(bool $release = false): string {
 		$e = fn($v) => self::e($v);
 		$h = '<dialog id="ep-maint" class="ep-dialog"><form method="post" action="'.$e(self::url('ep.clients.status')).'">'.self::csrf('ep.clients.status')
 			.'<input type="hidden" name="op" value="maintenance"><div id="ep-maint-who"></div>'
@@ -137,10 +143,25 @@ class ClientActions {
 			.'<div class="ep-dfoot"><button type="button" class="ep-btn-alt" data-close>'.$e(_('Cancel')).'</button><button type="submit">'.$e(_('Start maintenance')).'</button></div></form></dialog>';
 
 		// Delete for good: the name typed to confirm.
-		return $h.'<dialog id="ep-delete" class="ep-dialog"><form method="post" action="'.$e(self::url('ep.clients.remove')).'">'.self::csrf('ep.clients.remove')
+		$h .= '<dialog id="ep-delete" class="ep-dialog"><form method="post" action="'.$e(self::url('ep.clients.remove')).'">'.self::csrf('ep.clients.remove')
 			.'<input type="hidden" name="client" id="d-client"><h3>'.$e(_('Delete for good')).'</h3>'
 			.'<p>'.$e(_('The hosts this page made for this client are deleted, with their history. Hosts made by hand and the host group stay. A backup of the settings is taken first; the history cannot come back.')).'</p>'
 			.'<div class="ep-drow"><label for="d-confirm">'.$e(_('Type the client\'s name')).'</label><input type="text" name="confirm" id="d-confirm" autocomplete="off"></div>'
 			.'<div class="ep-dfoot"><button type="button" class="ep-btn-alt" data-close>'.$e(_('Cancel')).'</button><button type="submit" id="d-go" class="ep-danger-btn" disabled>'.$e(_('Delete for good')).'</button></div></form></dialog>';
+		if (!$release) {
+			return $h;
+		}
+		// Remove only in ElasticPro: the three ways of letting go of a client side by side, what
+		// this one leaves in Zabbix, and the name typed to confirm.
+		return $h.'<dialog id="ep-release" class="ep-dialog"><form method="post" action="'.$e(self::url('ep.clients.release')).'">'.self::csrf('ep.clients.release')
+			.'<input type="hidden" name="client" id="r-client"><h3>'.$e(_('Remove only in ElasticPro')).'</h3>'
+			.'<ul class="ep-choices">'
+			.'<li><b>'.$e(_('Decommission')).'</b> — '.$e(_('the hosts stay in Zabbix, Not monitored; the client leaves the main list and can be restored.')).'</li>'
+			.'<li><b>'.$e(_('Delete for good')).'</b> — '.$e(_('deletes the hosts this page made, with their history; only for a decommissioned client.')).'</li>'
+			.'<li><b>'.$e(_('Remove only in ElasticPro')).'</b> — '.$e(_('the client leaves Cluster Management and the reports; every host stays and keeps being monitored.')).'</li></ul>'
+			.'<p>'.$e(_('The master host is unlinked from the master template (its items and history stay) and loses its ElasticPro macros. ElasticPro\'s own records of the client are removed, and a backup is taken first.')).'</p>'
+			.'<p class="ep-sub">'.$e(_('Stays in Zabbix, to delete by hand if you want: the client\'s dashboard and weekly report, its alert action and DL user group, maintenance periods, the cluster and server hosts with their templates and groups.')).'</p>'
+			.'<div class="ep-drow"><label for="r-confirm">'.$e(_('Type the client\'s name')).'</label><input type="text" name="confirm" id="r-confirm" autocomplete="off"></div>'
+			.'<div class="ep-dfoot"><button type="button" class="ep-btn-alt" data-close>'.$e(_('Cancel')).'</button><button type="submit" id="r-go" class="ep-danger-btn" disabled>'.$e(_('Remove from ElasticPro')).'</button></div></form></dialog>';
 	}
 }

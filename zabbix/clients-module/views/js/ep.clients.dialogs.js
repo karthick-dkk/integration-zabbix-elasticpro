@@ -33,6 +33,18 @@ window.EpDialogs = {
       del.showModal();
     }));
     del.querySelector('#d-confirm').addEventListener('input', (e) => { del.querySelector('#d-go').disabled = e.target.value.trim() !== del.querySelector('#d-client').value; });
+    // Remove only in ElasticPro: the same typed-name gate, on the client's page only.
+    const rel = root.querySelector('#ep-release');
+    if (rel) {
+      root.querySelectorAll('[data-open-release]').forEach((b) => b.addEventListener('click', () => {
+        rel.querySelector('#r-client').value = b.dataset.openRelease;
+        rel.querySelector('#r-confirm').value = '';
+        rel.querySelector('#r-confirm').placeholder = b.dataset.openRelease;
+        rel.querySelector('#r-go').disabled = true;
+        rel.showModal();
+      }));
+      rel.querySelector('#r-confirm').addEventListener('input', (e) => { rel.querySelector('#r-go').disabled = e.target.value.trim() !== rel.querySelector('#r-client').value; });
+    }
     root.querySelectorAll('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
   }
 };
