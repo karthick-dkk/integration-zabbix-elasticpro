@@ -176,4 +176,4 @@ if (!$ro) {
 
 $page->addItem((new CDiv(array_merge($top, [$form])))->addClass('ep-set'))->show();
 ?>
-<style><?php readfile(__DIR__.'/css/ep.clients.settings.css'); ?></style>
+<style><?php readfile(__DIR__.'/css/ep.hint.css'); readfile(__DIR__.'/css/ep.clients.settings.css'); ?></style>

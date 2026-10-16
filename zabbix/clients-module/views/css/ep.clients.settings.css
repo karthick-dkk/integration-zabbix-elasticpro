@@ -57,19 +57,6 @@
 .ep-set .ep-row-wide textarea { width: 100%; max-width: 100%; resize: vertical; }
 .ep-set .ep-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 
-/* ---- the hint: a small (i) that opens on hover or keyboard focus ---- */
-.ep-set .ep-tipw { position: relative; display: inline-flex; justify-content: center; }
-.ep-set .ep-i { display: inline-flex; align-items: center; justify-content: center; width: 1.5em; height: 1.5em; border-radius: 50%;
-	color: var(--ep-muted); font-size: 12px; line-height: 1; cursor: help; user-select: none; }
-.ep-set .ep-i:hover, .ep-set .ep-i:focus { color: var(--ep-accent); outline: none; }
-.ep-set .ep-i:focus-visible { outline: 2px solid var(--ep-accent); outline-offset: 1px; }
-.ep-set .ep-tip { position: absolute; right: -4px; top: calc(100% + 4px); z-index: 30; width: min(300px, 70vw); padding: 7px 10px;
-	background: var(--ep-pop); color: var(--ep-fg); border: 1px solid var(--ep-line); border-radius: 4px; box-shadow: var(--ep-shadow);
-	font-size: 12px; line-height: 1.45; white-space: normal; text-align: left;
-	visibility: hidden; opacity: 0; transition: opacity .12s ease; pointer-events: none; }
-.ep-set .ep-tipw:hover .ep-tip, .ep-set .ep-tipw:focus-within .ep-tip { visibility: visible; opacity: 1; }
-.ep-set .ep-tipw:not(:hover):not(:focus-within) .ep-tip { transition: none; }
-
 /* ---- the one Save / Reset bar, sticky at the foot of the content ---- */
 .ep-set .ep-bar { position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 8px; margin-top: 0;
 	padding: 8px 12px; background: var(--ep-bar); border: 1px solid var(--ep-line); border-radius: 4px; box-shadow: var(--ep-shadow); }

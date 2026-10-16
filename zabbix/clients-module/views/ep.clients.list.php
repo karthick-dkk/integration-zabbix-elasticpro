@@ -2,7 +2,8 @@
 /**
  * Cluster Management: every client by status — In service (active and in maintenance),
  * Maintenance, Disabled, Decommissioned — with setup checks, open problems, days until storage is
- * full, hosts removed from Zabbix and the actions each status allows. Tick clients for bulk
+ * full and hosts removed from Zabbix. One pencil per row opens the client's own page, which holds
+ * what each status allows (Maintenance, Disable, Clone … — ClientActions). Tick clients for bulk
  * Maintenance, Disable or Enable. Follows Zabbix's light or dark theme.
  *
  * @var CView $this
@@ -13,14 +14,7 @@ $e = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $url = fn(string $action, array $args = []) => array_reduce(array_keys($args), fn($u, $k) => $u->setArgument($k, $args[$k]),
 	(new CUrl('zabbix.php'))->setArgument('action', $action))->getUrl();
 $csrf = fn(string $action) => '<input type="hidden" name="'.CSRF_TOKEN_NAME.'" value="'.$e(CCsrfTokenHelper::get($action)).'">';
-/** A one-button form posting to an action. */
-$post = function(string $action, string $label, array $vars, string $confirm = '', string $class = 'ep-link') use ($e, $url, $csrf): string {
-	$out = '<form method="post" action="'.$e($url($action)).'" class="ep-inline">'.$csrf($action);
-	foreach ($vars as $k => $v) {
-		$out .= '<input type="hidden" name="'.$e($k).'" value="'.$e($v).'">';
-	}
-	return $out.'<button type="submit" class="'.$class.'"'.($confirm !== '' ? ' onclick="return confirm('.$e(json_encode($confirm)).');"' : '').'>'.$e($label).'</button></form>';
-};
+$post = fn(string $action, string $label, array $vars, string $confirm = '', string $class = 'ep-link') => \Modules\EpClients\Lib\ClientActions::post($action, $label, $vars, $confirm, $class);
 
 $now = time();
 $tab = function(array $c): array {
@@ -169,77 +163,30 @@ foreach ($data['clients'] as $c) {
 		: '<span class="'.['bad' => 'ep-bad-t ep-strong', 'warn' => 'ep-warn-t ep-strong', 'ok' => ''][$fc['level']].'">'.$e($fc['text']).'</span>');
 	$change = $c['change'] ? date('d M H:i', $c['change']['at']).' · '.$c['change']['how'].' · '.$c['change']['by'] : '—';
 
-	// What each status allows.
+	// One pencil opens the client's page, where everything each status allows is offered
+	// (ClientActions::forClient). A client whose master host is gone has no page to open, so its
+	// two ways out stay here. Read only: the same pencil, to look.
 	$acts = [];
-	$v = ['client' => $name];
 	if ($c['master_missing']) {
-		$acts[] = $post('ep.clients.recreate', _('Re-create'), $v + ['op' => 'recreate'], _s('Re-create "%1$s" from what the page last recorded? Its hosts come back with new history. A backup is taken first.', $name));
-		$acts[] = $post('ep.clients.recreate', _('Forget'), $v + ['op' => 'accept'], _s('Forget "%1$s"? It leaves the list; nothing in Zabbix changes.', $name));
-	}
-	elseif ($c['status'] === 'active') {
-		$acts[] = '<a class="ep-link" href="'.$e($url('ep.clients.edit', ['client' => $name])).'">'.$e(_('Edit')).'</a>';
-		if ($c['removed']) {
-			$acts[] = $post('ep.clients.recreate', _n('Re-create %1$s', 'Re-create %1$s', count($c['removed'])), $v + ['op' => 'recreate']);
-			$acts[] = $post('ep.clients.recreate', _('Accept removal'), $v + ['op' => 'accept'], _s('Accept that these hosts are gone from "%1$s"? %2$s', $name, implode(', ', array_column($c['removed'], 'name'))));
-		}
-		if ($c['changed'] ?? []) {
-			$acts[] = $post('ep.clients.recreate', _('Put back'), $v + ['op' => 'putback'], _s('Rename and regroup the hosts of "%1$s" changed outside this page, as the page last saw them?', $name));
-		}
-		$acts[] = '<button type="button" class="ep-link" data-open-maint="'.$e($name).'">'.$e($c['maintenance'] !== null ? _('Extend…') : _('Maintenance…')).'</button>';
-		if ($c['maintenance'] !== null) {
-			$acts[] = $post('ep.clients.status', _('End maintenance'), $v + ['op' => 'end_maintenance']);
-		}
-		$acts[] = $post('ep.clients.status', _('Disable'), $v + ['op' => 'disable'], _s('Disable "%1$s"? Every host of it is set to Not monitored: no data and no problems until it is enabled. History is kept. A backup is taken first.', $name));
-		$acts[] = '<a class="ep-link" href="'.$e($url('host.dashboard.view', ['hostid' => $c['masterid']])).'">'.$e(_('Dashboard')).'</a>';
-		$acts[] = '<a class="ep-link" href="'.$e($url('ep.clients.edit', ['clone' => $name])).'" title="'.$e(_('A new client with the same roles, capacity and settings')).'">'.$e(_('Clone')).'</a>';
-	}
-	elseif ($c['status'] === 'disabled') {
-		$acts[] = $post('ep.clients.status', _('Enable'), $v + ['op' => 'enable']);
-		$acts[] = '<a class="ep-link" href="'.$e($url('ep.clients.edit', ['client' => $name])).'">'.$e(_('Edit')).'</a>';
-		$acts[] = $post('ep.clients.status', _('Decommission'), $v + ['op' => 'decommission'], _s('Decommission "%1$s"? It leaves the main list and the reports; its hosts stay, not monitored, with their history. You can restore it later. A backup is taken first.', $name), 'ep-link ep-danger');
+		$acts = \Modules\EpClients\Lib\ClientActions::forMissing($name);
 	}
 	else {
-		$acts[] = $post('ep.clients.status', _('Restore'), $v + ['op' => 'restore']);
-		$acts[] = '<button type="button" class="ep-link ep-danger" data-open-delete="'.$e($name).'">'.$e(_('Delete for good…')).'</button>';
-	}
-
-	if ($ro) {
-		// Read only: where to look, nothing that changes anything.
-		$acts = $c['masterid'] !== null ? ['<a class="ep-link" href="'.$e($url('ep.clients.edit', ['client' => $name])).'">'.$e(_('View')).'</a>',
-			'<a class="ep-link" href="'.$e($url('host.dashboard.view', ['hostid' => $c['masterid']])).'">'.$e(_('Dashboard')).'</a>'] : [];
+		$label = $ro ? _s('View %1$s', $name) : _s('Edit %1$s', $name);
+		$acts[] = '<a class="ep-edit" href="'.$e($url('ep.clients.edit', ['client' => $name])).'" title="'.$e($label).'" aria-label="'.$e($label).'">'
+			.($ro ? '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
+				: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M11 2.5l2.5 2.5L5.5 13 2 14l1-3.5z"/></svg>')
+			.'</a>';
 	}
 	$html[] = '<tr data-tabs="'.$e(implode(' ', $tab($c))).'" data-search="'.$e($c['search']).'"'.(in_array('live', $tab($c), true) ? '' : ' hidden').'>'
 		.'<td class="ep-tick">'.($c['master_missing'] || $ro ? '' : '<input type="checkbox" class="ep-sel" value="'.$e($name).'" aria-label="'.$e(_s('Tick %1$s', $name)).'">').'</td>'
 		.'<td>'.$clientCell.'</td><td>'.$statusCell.'</td><td>'.$setup.'</td><td>'.$e($c['machines'])
 		.($c['unassigned'] ? '<div class="ep-flag ep-warn-t">'.$e(_n('%1$s without a role', '%1$s without a role', $c['unassigned'])).'</div>' : '').'</td>'
-		.'<td>'.$problems.'</td><td>'.$full.'</td><td class="ep-sub">'.$e($change).'</td><td><div class="ep-acts">'.implode('', $acts).'</div></td></tr>';
+		.'<td>'.$problems.'</td><td>'.$full.'</td><td class="ep-sub">'.$e($change).'</td><td class="ep-act"><div class="ep-acts">'.implode('', $acts).'</div></td></tr>';
 }
 $html[] = '</tbody></table></div>';
 
 if (!$ro) {
-	// The maintenance dialog: for one client, or for the ticked ones.
-	$html[] = '<dialog id="ep-maint" class="ep-dialog"><form method="post" action="'.$e($url('ep.clients.status')).'">'.$csrf('ep.clients.status')
-		.'<input type="hidden" name="op" value="maintenance"><div id="ep-maint-who"></div>'
-		.'<h3 id="ep-maint-title">'.$e(_('Maintenance')).'</h3>'
-		.'<div class="ep-drow"><label>'.$e(_('Starts')).'</label><div class="ep-seg"><input type="radio" name="when" id="m-now" value="now" checked><label for="m-now">'.$e(_('Now')).'</label>'
-		.'<input type="radio" name="when" id="m-at" value="at"><label for="m-at">'.$e(_('At')).'</label></div><input type="datetime-local" name="start" id="m-start" hidden></div>'
-		.'<div class="ep-drow"><label>'.$e(_('Lasts')).'</label><div class="ep-seg">';
-	foreach (['1' => '1 h', '4' => '4 h', '8' => '8 h', '24' => '24 h'] as $h => $l) {
-		$html[] = '<input type="radio" name="hours" id="m-h'.$h.'" value="'.$h.'"'.($h === '4' ? ' checked' : '').'><label for="m-h'.$h.'">'.$l.'</label>';
-	}
-	$html[] = '</div></div>'
-		.'<div class="ep-drow"><label>'.$e(_('Data')).'</label><div class="ep-seg"><input type="radio" name="collect" id="m-c1" value="1" checked><label for="m-c1">'.$e(_('Keep collecting')).'</label>'
-		.'<input type="radio" name="collect" id="m-c0" value="0"><label for="m-c0">'.$e(_('Stop collecting')).'</label></div></div>'
-		.'<div class="ep-drow"><label for="m-reason">'.$e(_('Reason')).'</label><input type="text" name="reason" id="m-reason" placeholder="'.$e(_('e.g. ES rolling upgrade')).'"></div>'
-		.'<p class="ep-sub">'.$e(_('Creates a Zabbix maintenance on the client\'s host group: every host, and any added during it. Problems stay visible, marked as in maintenance. It ends by itself.')).'</p>'
-		.'<div class="ep-dfoot"><button type="button" class="ep-btn-alt" data-close>'.$e(_('Cancel')).'</button><button type="submit">'.$e(_('Start maintenance')).'</button></div></form></dialog>';
-
-	// Delete for good: the name typed to confirm.
-	$html[] = '<dialog id="ep-delete" class="ep-dialog"><form method="post" action="'.$e($url('ep.clients.remove')).'">'.$csrf('ep.clients.remove')
-		.'<input type="hidden" name="client" id="d-client"><h3>'.$e(_('Delete for good')).'</h3>'
-		.'<p>'.$e(_('The hosts this page made for this client are deleted, with their history. Hosts made by hand and the host group stay. A backup of the settings is taken first; the history cannot come back.')).'</p>'
-		.'<div class="ep-drow"><label for="d-confirm">'.$e(_('Type the client\'s name')).'</label><input type="text" name="confirm" id="d-confirm" autocomplete="off"></div>'
-		.'<div class="ep-dfoot"><button type="button" class="ep-btn-alt" data-close>'.$e(_('Cancel')).'</button><button type="submit" id="d-go" class="ep-danger-btn" disabled>'.$e(_('Delete for good')).'</button></div></form></dialog>';
+	$html[] = \Modules\EpClients\Lib\ClientActions::dialogs();
 }
 
 if ($data['candidates'] && !$ro) {
@@ -260,6 +207,7 @@ $controls = $ro ? new CList() : (new CList())
 (new CHtmlPage())->setTitle(_('Cluster Management'))->setControls((new CTag('nav', true, $controls))->setAttribute('aria-label', _('Content controls')))
 	->addItem(new CObject(implode("\n", $html)))->show();
 ?>
+<script><?php readfile(__DIR__.'/js/ep.clients.dialogs.js'); ?></script>
 <script>
 	(function () {
 		const root = document.querySelector('.ep-l');
@@ -301,41 +249,14 @@ $controls = $ro ? new CList() : (new CList())
 			ticks();
 		});
 
-		// Maintenance dialog: one client (data-open-maint="name") or the ticked ones (""). A read-only page has neither dialog.
-		const maint = root.querySelector('#ep-maint');
-		if (!maint) return;
-		root.querySelectorAll('[data-open-maint]').forEach((b) => b.addEventListener('click', () => {
-			const names = b.dataset.openMaint ? [b.dataset.openMaint] : ticked();
-			const who = maint.querySelector('#ep-maint-who');
-			who.textContent = '';
-			names.forEach((n) => { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'clients[' + n + ']'; i.value = '1'; who.appendChild(i); });
-			maint.querySelector('#ep-maint-title').textContent = 'Maintenance: ' + names.join(', ');
-			maint.showModal();
-		}));
-		maint.querySelectorAll('input[name="when"]').forEach((r) => r.addEventListener('change', () => {
-			maint.querySelector('#m-start').hidden = maint.querySelector('#m-at').checked === false;
-		}));
-		maint.querySelector('form').addEventListener('submit', () => {
-			if (!maint.querySelector('#m-at').checked) maint.querySelector('#m-start').value = '';
-		});
-
-		// Delete for good: enabled only once the name is typed.
-		const del = root.querySelector('#ep-delete');
-		root.querySelectorAll('[data-open-delete]').forEach((b) => b.addEventListener('click', () => {
-			del.querySelector('#d-client').value = b.dataset.openDelete;
-			del.querySelector('#d-confirm').value = '';
-			del.querySelector('#d-confirm').placeholder = b.dataset.openDelete;
-			del.querySelector('#d-go').disabled = true;
-			del.showModal();
-		}));
-		del.querySelector('#d-confirm').addEventListener('input', (e) => { del.querySelector('#d-go').disabled = e.target.value.trim() !== del.querySelector('#d-client').value; });
-		root.querySelectorAll('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
+		window.EpDialogs.init(root, ticked);
 	})();
 </script>
+<style><?php readfile(__DIR__.'/css/ep.clients.dialogs.css'); ?></style>
 <style>
 	.ep-l { --ep-card: #fff; --ep-line: #e3e6ea; --ep-muted: #6b7380; --ep-accent: #0a66d6; --ep-chip: #eef1f5; --ep-soft: #f6f8fa;
 		--ep-good: #1f7a36; --ep-bad: #c0352c; --ep-warn: #9a6400; display: grid; gap: 12px; font-size: 13px; }
-	html[color-scheme="dark"] .ep-l { --ep-card: #25282c; --ep-line: #383c42; --ep-muted: #9aa1ab; --ep-accent: #4d9bff; --ep-chip: #31353b;
+	html[color-scheme="dark"] .ep-l, [theme="dark-theme"] .ep-l, [theme="hc-dark"] .ep-l { --ep-card: #25282c; --ep-line: #383c42; --ep-muted: #9aa1ab; --ep-accent: #4d9bff; --ep-chip: #31353b;
 		--ep-soft: #2c3035; --ep-good: #5cc97a; --ep-bad: #ff7a70; --ep-warn: #f0b04a; }
 	.ep-l .ep-note { border: 1px solid var(--ep-line); background: var(--ep-card); border-radius: 10px; padding: 10px 14px; }
 	.ep-l .ep-bad { border-color: color-mix(in srgb, var(--ep-bad) 50%, transparent); } .ep-l .ep-warn { border-color: color-mix(in srgb, var(--ep-warn) 50%, transparent); }
@@ -373,29 +294,13 @@ $controls = $ro ? new CList() : (new CList())
 	.ep-l .ep-sev-warning { background: #d9a400; } .ep-l .ep-sev-info { background: #6f8fc9; }
 	.ep-l .ep-acts { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 	.ep-l .ep-inline { display: inline; }
+	.ep-l .ep-edit { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; color: var(--ep-accent); border: 1px solid transparent; text-decoration: none; }
+	.ep-l .ep-edit:hover, .ep-l .ep-edit:focus-visible { background: var(--ep-chip); border-color: var(--ep-line); outline: none; }
+	.ep-l td.ep-act { white-space: nowrap; width: 1%; }
+	.ep-l td.ep-act .ep-acts { flex-wrap: nowrap; }
 	.ep-l .ep-link { background: none; border: 0; color: var(--ep-accent); font: inherit; padding: 0; cursor: pointer; height: auto; line-height: 1.5; text-decoration: none; }
 	.ep-l .ep-danger { color: var(--ep-bad); }
 	.ep-l .ep-btn-alt { background: var(--ep-chip); color: inherit; border: 0; border-radius: 6px; padding: 4px 11px; cursor: pointer; font: inherit; height: auto; }
 	.ep-l .ep-empty { color: var(--ep-muted); padding: 16px; }
 	.ep-l .ep-h { margin: 12px 0 2px; } .ep-l .ep-cands { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 4px; }
-	.ep-dialog { border: 1px solid #c9ced6; border-radius: 12px; padding: 18px 20px; width: min(560px, 92vw); }
-	html[color-scheme="dark"] .ep-dialog { background: #25282c; color: #e6e8eb; border-color: #383c42; }
-	.ep-dialog::backdrop { background: rgba(0, 0, 0, .35); }
-	.ep-dialog h3 { margin: 0 0 12px; font-size: 15px; }
-	.ep-dialog .ep-drow { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; margin: 8px 0; }
-	.ep-dialog .ep-drow > input[type=text], .ep-dialog .ep-drow > input[type=datetime-local] { grid-column: 2; border-radius: 6px; padding: 5px 8px; height: auto; }
-	.ep-dialog .ep-seg { display: inline-flex; background: rgba(128, 128, 128, .15); border-radius: 7px; padding: 2px; justify-self: start; }
-	/* The maintenance dialog's segmented controls are the same radio-hidden-under-its-label pattern
-	   as the edit form's, and are clipped in place for the same reason: a hidden radio still takes
-	   focus when its label is clicked, and while it was positioned absolutely it was not where that
-	   label is, so the browser scrolled somewhere else to bring it into view. */
-	.ep-dialog .ep-seg input { flex: 0 0 auto; width: 1px; height: 1px; min-width: 0; margin: 0 -1px 0 0; padding: 0;
-		border: 0; background: none; appearance: none; clip-path: inset(50%); opacity: 0; pointer-events: none; }
-	.ep-dialog .ep-seg label { padding: 4px 12px; border-radius: 5px; cursor: pointer; }
-	.ep-dialog .ep-seg input:checked + label { background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .18); font-weight: 600; color: #1c1d21; }
-	.ep-dialog .ep-sub { color: #6b7380; font-size: 12px; }
-	.ep-dialog .ep-dfoot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
-	.ep-dialog .ep-btn-alt { background: rgba(128, 128, 128, .18); color: inherit; border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
-	.ep-dialog .ep-danger-btn { background: #c0352c; color: #fff; }
-	.ep-dialog .ep-danger-btn:disabled { opacity: .45; }
 </style>
