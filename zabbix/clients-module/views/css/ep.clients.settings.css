@@ -1,0 +1,75 @@
+/*
+ * ElasticPro -> Settings: cards in a grid, one compact row per setting.
+ *
+ * The colours are custom properties on .ep-set, light by default and dark under the Zabbix themes
+ * that are dark — the same approach as shared/ep-panel.css. Inputs, selects and buttons are left
+ * to Zabbix's own styling (which already knows every theme); this sheet only decides where they
+ * sit and how much room they take.
+ *
+ * Read into the page by ep.clients.settings.php, so the view itself carries no colour.
+ */
+.ep-set {
+	--ep-card: #ffffff; --ep-card-head: #f5f6f8; --ep-line: #d8dce1; --ep-line-2: #e8eaee;
+	--ep-fg: #24292e; --ep-muted: #646a73; --ep-accent: #1f62e0; --ep-pop: #ffffff; --ep-bar: #ffffff;
+	--ep-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+	font-size: 13px; line-height: 1.4; color: var(--ep-fg);
+}
+[theme="dark-theme"] .ep-set, [theme="hc-dark"] .ep-set, html[color-scheme="dark"] .ep-set {
+	--ep-card: #1f2227; --ep-card-head: #25292f; --ep-line: #383c42; --ep-line-2: #2c3035;
+	--ep-fg: #ccccdc; --ep-muted: #8e8e9f; --ep-accent: #6e9fff; --ep-pop: #2c3036; --ep-bar: #1f2227;
+	--ep-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+}
+.ep-set *, .ep-set *::before, .ep-set *::after { box-sizing: border-box; }
+
+.ep-set .ep-intro { color: var(--ep-muted); margin: 0 0 10px; }
+.ep-set .ep-box { margin: 0 0 10px; padding: 8px 12px; }
+.ep-set .ep-drift-form { display: inline; margin-left: 6px; }
+
+/* ---- the grid: 1 column narrow, 2 medium, 3 wide. Columns rather than grid rows, so a short card
+   sits under another instead of leaving a gap beside a tall one ---- */
+.ep-set .ep-grid { column-count: 1; column-gap: 12px; }
+@media (min-width: 900px) { .ep-set .ep-grid { column-count: 2; } }
+@media (min-width: 1400px) { .ep-set .ep-grid { column-count: 3; } }
+
+/* ---- a card ---- */
+.ep-set .ep-card { break-inside: avoid; margin: 0 0 12px; background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 4px; min-width: 0; }
+.ep-set .ep-card-head { background: var(--ep-card-head); border-bottom: 1px solid var(--ep-line); padding: 7px 12px; border-radius: 4px 4px 0 0; }
+.ep-set .ep-card-head h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ep-fg); }
+.ep-set .ep-card-head p { margin: 1px 0 0; color: var(--ep-muted); font-size: 12px; }
+.ep-set .ep-card-body { padding: 4px 12px; }
+.ep-set .ep-card-foot { border-top: 1px solid var(--ep-line-2); padding: 6px 12px; color: var(--ep-muted); font-size: 12px; }
+.ep-set .ep-card-foot code { font-size: 11.5px; word-break: break-all; }
+.ep-set .ep-card-foot details { margin: 0; }
+.ep-set .ep-card-foot summary { cursor: pointer; color: var(--ep-accent); }
+.ep-set .ep-card-foot details > div { margin-top: 4px; }
+
+/* ---- a setting: label | control (+ shipped value) | hint ---- */
+.ep-set .ep-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 1.6em; align-items: center; column-gap: 8px; padding: 4px 0; min-height: 32px; }
+.ep-set .ep-row + .ep-row { border-top: 1px solid var(--ep-line-2); }
+.ep-set .ep-row label { margin: 0; padding: 0; text-align: left; float: none; width: auto; color: var(--ep-fg); overflow-wrap: anywhere; }
+.ep-set .ep-ctl { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ep-set .ep-ctl input[type="text"] { width: 7.5ch; min-width: 0; padding-left: 6px; padding-right: 6px; text-align: right; font-variant-numeric: tabular-nums; }
+.ep-set .ep-ctl select, .ep-set .ep-ctl z-select { width: auto; max-width: 100%; }
+.ep-set .ep-def { color: var(--ep-muted); font-size: 11.5px; min-width: 6.5ch; }
+.ep-set .ep-def b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ep-set .ep-row-wide { grid-template-columns: minmax(0, 1fr) 1.6em; row-gap: 3px; }
+.ep-set .ep-row-wide .ep-ctl { grid-column: 1 / -1; grid-row: 2; display: block; white-space: normal; }
+.ep-set .ep-row-wide textarea { width: 100%; max-width: 100%; resize: vertical; }
+.ep-set .ep-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---- the hint: a small (i) that opens on hover or keyboard focus ---- */
+.ep-set .ep-tipw { position: relative; display: inline-flex; justify-content: center; }
+.ep-set .ep-i { display: inline-flex; align-items: center; justify-content: center; width: 1.5em; height: 1.5em; border-radius: 50%;
+	color: var(--ep-muted); font-size: 12px; line-height: 1; cursor: help; user-select: none; }
+.ep-set .ep-i:hover, .ep-set .ep-i:focus { color: var(--ep-accent); outline: none; }
+.ep-set .ep-i:focus-visible { outline: 2px solid var(--ep-accent); outline-offset: 1px; }
+.ep-set .ep-tip { position: absolute; right: -4px; top: calc(100% + 4px); z-index: 30; width: min(300px, 70vw); padding: 7px 10px;
+	background: var(--ep-pop); color: var(--ep-fg); border: 1px solid var(--ep-line); border-radius: 4px; box-shadow: var(--ep-shadow);
+	font-size: 12px; line-height: 1.45; white-space: normal; text-align: left;
+	visibility: hidden; opacity: 0; transition: opacity .12s ease; pointer-events: none; }
+.ep-set .ep-tipw:hover .ep-tip, .ep-set .ep-tipw:focus-within .ep-tip { visibility: visible; opacity: 1; }
+.ep-set .ep-tipw:not(:hover):not(:focus-within) .ep-tip { transition: none; }
+
+/* ---- the one Save / Reset bar, sticky at the foot of the content ---- */
+.ep-set .ep-bar { position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 8px; margin-top: 0;
+	padding: 8px 12px; background: var(--ep-bar); border: 1px solid var(--ep-line); border-radius: 4px; box-shadow: var(--ep-shadow); }
