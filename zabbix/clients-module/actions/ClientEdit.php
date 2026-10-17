@@ -80,6 +80,7 @@ class ClientEdit extends Base {
 			'has_cluster' => $now !== null && $now['cluster'] !== null,
 			'proxies' => $proxies,
 			'status' => $status,
+			'masterid' => $now['master']['hostid'] ?? null,
 			'maintenance' => $maintenance,
 			'removed' => $removed,
 			'changed' => $changed,

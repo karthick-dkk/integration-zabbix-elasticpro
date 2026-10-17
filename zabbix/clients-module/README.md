@@ -24,6 +24,7 @@ cluster DL and contract end date), **Elasticsearch** (URL, user, password, monit
 | **Weekly report** | "Mail a PDF … to the cluster DL every Monday": see below. |
 | **Test connection** | On a saved client: asks Zabbix to run the cluster check (HTTP, or SSH through the jump host) and each server's agent check now, and shows what they found. |
 | **Delete for good** | Only for a decommissioned client, and only after its name is typed. Deletes the hosts this page made, with their history. Hosts made by hand and host groups stay. |
+| **Remove only in ElasticPro** | On the client's page, any status, Super admin only, name typed to confirm. The client leaves Cluster Management and the reports: its master host is unlinked from the master template (plain unlink; items and history stay) and loses its `{$EP.*}`, `{$EVP.*}`, `{$GRP.CLIENT}`, `{$ES.*}` and `{$ULM.*}` macros, and the page's records of it (registry, last change) go; the history entry and a backup stay. No host is disabled, deleted or moved, and monitoring continues. Its dashboard and weekly report, alert action and DL user group, and maintenance periods stay in Zabbix. |
 
 A server joins the group of each of its roles and of each family they count in (a single node
 joins ESNodes, Parsers, Forwarders and Engines), so a shared server counts once per family and in

@@ -390,8 +390,22 @@ namespace Modules\EpClients\Test {
 	$view_src = file_get_contents(__DIR__.'/../views/ep.clients.settings.php');
 	check('the form carries a token for its own action', str_contains($view_src, "CCsrfTokenHelper::get('ep.clients.settings.save')"));
 	check('the page reads Zabbix admins a read-only form', str_contains($view_src, '$ro = !$data[\'can_write\']'));
-	// It is a form page, not a colour scheme: the Roles page carries no hex and neither does this.
+	// The view carries no colour: the tokens are in views/css/ep.clients.settings.css.
 	check('the settings page defines no colours of its own', preg_match('/#[0-9a-fA-F]{3,6}\b/', $view_src) !== 1, $view_src);
+	// The compact page: the same form, the same POST, one Save bar, and a sheet that carries the
+	// colours (light by default, dark under the dark themes) and the 1/2/3 column breakpoints.
+	check('the settings form still posts to the save action', str_contains($view_src, "new CForm('post', \$url('ep.clients.settings.save'))"));
+	check('the page has one Save and one Reset, in one bar',
+		substr_count($view_src, "new CSubmit('save'") === 1 && substr_count($view_src, "new CSubmit('reset'") === 1
+		&& str_contains($view_src, "addClass('ep-bar')"));
+	check('the hints are reachable by keyboard and named by the input (aria-describedby)',
+		str_contains($view_src, "'aria-describedby'") && str_contains($view_src, "'tabindex', '0'") && str_contains($view_src, "'role', 'tooltip'"));
+	$css_src = file_get_contents(__DIR__.'/../views/css/ep.clients.settings.css');
+	check('the page reads its sheet from views/css', str_contains($view_src, "readfile(__DIR__.'/css/ep.clients.settings.css')"));
+	check('the sheet is 1, 2 and 3 columns, from 900px and 1400px',
+		str_contains($css_src, 'min-width: 900px') && str_contains($css_src, 'min-width: 1400px') && str_contains($css_src, 'column-count: 3'));
+	check('and follows the Zabbix dark themes',
+		str_contains($css_src, '[theme="dark-theme"] .ep-set') && str_contains($css_src, '[theme="hc-dark"] .ep-set'));
 	foreach (['warn', 'high', 'bars', 'decimals_bytes', 'decimals_percent', 'decimals_plain', 'size_unit',
 			'bad_days', 'warn_days', 'flat_days', 'day_text_days', 'month_text_days', 'month_days', 'types', 'type_default'] as $field) {
 		check("the save accepts the field $field the page posts", str_contains($save_src, "'".$field."' => 'string'")
@@ -852,6 +866,21 @@ namespace Modules\EpClients\Test {
 			check("fetch of $action: reads only (no CSRF) or posts", str_contains($src, 'disableCsrfValidation') || str_contains(file_get_contents($view), "action=$action', { method: 'POST'"), basename($view));
 		}
 	}
+
+	// Remove only in ElasticPro: its own action, Super admin only like Delete for good, with the typed name,
+	// and without noteChange(), which would sync the alert routing and delete the client's Zabbix action and report.
+	$rel_src = file_get_contents(__DIR__.'/../actions/ClientRelease.php');
+	check('the release action is in the manifest, with no view of its own', ($manifest['actions']['ep.clients.release']['class'] ?? '') === 'ClientRelease'
+		&& !isset($manifest['actions']['ep.clients.release']['view']) && is_file(__DIR__.'/../actions/ClientRelease.php'));
+	check('it keeps Zabbix\'s CSRF check and does not widen who may write', !str_contains($rel_src, 'disableCsrfValidation') && !str_contains($rel_src, 'READ_ONLY_OK'));
+	check('it asks for the client\'s name, takes a backup, and releases without deleting or disabling',
+		str_contains($rel_src, "!== \$client") && str_contains($rel_src, '$this->backup(') && str_contains($rel_src, '$rec->release($client)')
+		&& !str_contains($rel_src, '->remove(') && !str_contains($rel_src, 'lifecycle()') && !str_contains($rel_src, '$this->noteChange('));
+	check('it removes the module\'s own records and logs the change', str_contains($rel_src, 'Registry::forget($client)') && str_contains($rel_src, "changes.json")
+		&& str_contains($rel_src, 'History::add('));
+	check('and answers with the sentence the owner asked for', str_contains($rel_src, 'removed from ElasticPro — its hosts are untouched in Zabbix'));
+	$rec_src = file_get_contents(__DIR__.'/../lib/Reconciler.php');
+	check('the unlink is a plain one: no templates_clear in release()', !preg_match('/function release\(.*?\n\t}\n/s', $rec_src, $mm) || !str_contains($mm[0], 'templateids_clear'));
 
 	// A missing template says why it is missing. The log archive template is not in this
 	// repository, so a Zabbix without it must still be able to add clients that want no archive.

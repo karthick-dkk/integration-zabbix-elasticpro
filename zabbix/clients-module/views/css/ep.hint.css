@@ -1,0 +1,20 @@
+/*
+ * The hint: a small (i) that opens its text on hover or keyboard focus. Shared by Settings and the
+ * client page, which each define --ep-pop, --ep-line, --ep-fg, --ep-muted, --ep-accent and
+ * --ep-shadow on their own wrapper, light and dark.
+ *
+ * Markup: <span class="ep-tipw"><span class="ep-i" tabindex="0">ⓘ</span><span class="ep-tip" role="tooltip" id="…">text</span></span>
+ * with the input's aria-describedby naming the tip.
+ */
+.ep-tipw { position: relative; display: inline-flex; justify-content: center; }
+.ep-i { display: inline-flex; align-items: center; justify-content: center; width: 1.5em; height: 1.5em; border-radius: 50%;
+	color: var(--ep-muted); font-size: 12px; line-height: 1; cursor: help; user-select: none; }
+.ep-i:hover, .ep-i:focus { color: var(--ep-accent); outline: none; }
+.ep-i:focus-visible { outline: 2px solid var(--ep-accent); outline-offset: 1px; }
+.ep-tip { position: absolute; right: -4px; top: calc(100% + 4px); z-index: 30; width: min(300px, 70vw); padding: 7px 10px;
+	background: var(--ep-pop); color: var(--ep-fg); border: 1px solid var(--ep-line); border-radius: 4px; box-shadow: var(--ep-shadow);
+	font-size: 12px; line-height: 1.45; white-space: normal; text-align: left;
+	visibility: hidden; opacity: 0; transition: opacity .12s ease; pointer-events: none; }
+.ep-tipw:hover .ep-tip, .ep-tipw:focus-within .ep-tip { visibility: visible; opacity: 1; }
+.ep-tipw:not(:hover):not(:focus-within) .ep-tip { transition: none; }
+

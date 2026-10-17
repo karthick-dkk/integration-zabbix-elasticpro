@@ -1,8 +1,11 @@
 <?php declare(strict_types = 0);
 /**
- * Add or edit a client: grouped cards — Client, Elasticsearch, Log archive, Servers, Requested
- * capacity. Servers are added one at a time in a sheet, each with one or more roles; the page's
- * behaviour is views/js/ep.clients.edit.js. Follows Zabbix's light or dark theme.
+ * Add or edit a client: a header with the client's status and its actions (an existing client
+ * only — ClientActions, what the list rows used to carry), then cards in a grid — Client,
+ * Elasticsearch, Log archive, Servers, More — and the requested capacity across the full width.
+ * Servers are added one at a time in a sheet, each with one or more roles; the page's behaviour
+ * is views/js/ep.clients.edit.js and its look views/css/ep.clients.edit.css. Follows Zabbix's
+ * light or dark theme.
  *
  * @var CView $this
  * @var array $data
@@ -16,10 +19,21 @@ $url = fn(string $action, array $args = []) => array_reduce(array_keys($args), f
 $field = fn(string $name) => (string) ($f[$name] ?? '');
 $num = fn(string $name) => in_array($field($name), ['', '0'], true) ? '' : $field($name);
 
-/** A labelled row inside a card. */
-$row = fn(string $label, string $control, string $for = '', string $hint = '') =>
-	'<div class="ep-row"><label'.($for !== '' ? ' for="'.$e($for).'"' : '').'>'.$e($label).'</label><div class="ep-ctl">'.$control
-	.($hint !== '' ? '<div class="ep-hint">'.$hint.'</div>' : '').'</div></div>';
+/**
+ * A labelled row inside a card: label | input | a hint (i). The hint is the explanation that used
+ * to sit under the input; the input names it with aria-describedby, so it is read out with it.
+ */
+$tips = 0;
+$row = function(string $label, string $control, string $for = '', string $hint = '') use ($e, &$tips): string {
+	$tip = '<span></span>';
+	if ($hint !== '') {
+		$id = 'ep-tip-'.(++$tips);
+		$control = preg_replace('/<(input|select|textarea)\b/', '<$1 aria-describedby="'.$id.'"', $control, 1);
+		$tip = '<span class="ep-tipw"><span class="ep-i" tabindex="0" role="img" aria-label="'.$e(_('Details')).'">ⓘ</span>'
+			.'<span class="ep-tip" role="tooltip" id="'.$id.'">'.$hint.'</span></span>';
+	}
+	return '<div class="ep-row"><label'.($for !== '' ? ' for="'.$e($for).'"' : '').'>'.$e($label).'</label><div class="ep-ctl">'.$control.'</div>'.$tip.'</div>';
+};
 $text = fn(string $name, string $placeholder = '', string $extra = '') =>
 	'<input type="text" id="'.$e($name).'" name="'.$e($name).'" value="'.$e($field($name)).'" placeholder="'.$e($placeholder).'" '.$extra.'>';
 /** A segmented control: radio inputs, one shown pressed. */
@@ -34,34 +48,52 @@ $seg = function(string $name, array $options, string $value) use ($e): string {
 };
 
 $ro = !($data['can_write'] ?? true);
-$html = [];
+$html = ['<div class="ep-edit">'];
+
+/* ---- header: the status, and what can be done to this client ---- */
+// An existing client only: a new one has no status and nothing to do to it yet. The actions are
+// the list row's, from the one place that defines them; they are forms of their own, so the
+// header sits above the client form rather than in it.
+if ($editing) {
+	$client = ['name' => $field('name'), 'status' => $data['status'], 'maintenance' => $data['maintenance'],
+		'removed' => $data['removed'], 'changed' => $data['changed'] ?? [], 'masterid' => $data['masterid'] ?? null];
+	[$badge_class, $badge_label] = \Modules\EpClients\Lib\ClientActions::badge($data['status'], $data['maintenance']);
+	$sub = '';
+	if ($data['maintenance'] !== null) {
+		$sub = _s('until %1$s', date('d M H:i', $data['maintenance']['till']))
+			.($data['maintenance']['reason'] !== '' ? ' — '.$data['maintenance']['reason'] : '');
+	}
+	$acts = $ro ? ($client['masterid'] !== null ? [\Modules\EpClients\Lib\ClientActions::dashboard($client, 'ep-abtn')] : [])
+		: \Modules\EpClients\Lib\ClientActions::forClient($client, 'ep-abtn');
+	$html[] = '<div class="ep-head"><div class="ep-head-id"><span class="ep-head-name">'.$e($field('name')).'</span>'
+		.'<span class="ep-st '.$badge_class.'" id="ep-status">'.$e($badge_label).'</span>'
+		.($sub !== '' ? '<span class="ep-head-sub">'.$e($sub).'</span>' : '').'</div>'
+		.'<div class="ep-acts" role="group" aria-label="'.$e(_('Client actions')).'">'.implode('', $acts).'</div></div>';
+}
 if ($ro) {
-	$html[] = '<div class="ep-note">'.$e(_('Read only: only Super admins change clients.')).'</div>';
+	$html[] = '<div class="ep-notes"><div class="ep-note">'.$e(_('Read only: only Super admins change clients.')).'</div></div>';
 }
 $html[] = '<form method="post" action="'.$e($url('ep.clients.save')).'" id="ep-client-form" class="ep-f" autocomplete="off">'.($ro ? '<fieldset disabled class="ep-ro">' : '');
 $html[] = '<input type="hidden" name="'.CSRF_TOKEN_NAME.'" value="'.$e(CCsrfTokenHelper::get('ep.clients.save')).'">';
 $html[] = '<input type="hidden" name="mode" value="'.$e($data['mode']).'">';
 $html[] = '<input type="hidden" name="servers" id="servers" value="'.$e($field('servers')).'">';
 
+$html[] = '<div class="ep-notes">';
 /* ---- status ---- */
 if ($data['status'] === 'disabled') {
-	$html[] = '<div class="ep-note ep-warn"><b>'.$e(_('Disabled.')).'</b> '.$e(_('Every host of this client is Not monitored. Changes saved here apply, and new hosts start not monitored. Enable it from Cluster Management.')).'</div>';
+	$html[] = '<div class="ep-note ep-warn"><b>'.$e(_('Disabled.')).'</b> '.$e(_('Every host of this client is Not monitored. Changes saved here apply, and new hosts start not monitored.').($ro ? '' : ' '._('Enable it with the button above.'))).'</div>';
 }
 elseif ($data['status'] === 'decommissioned') {
-	$html[] = '<div class="ep-note ep-warn"><b>'.$e(_('Decommissioned.')).'</b> '.$e(_('Its hosts are kept, not monitored, with their history. Restore it from Cluster Management to change it.')).'</div>';
-}
-if ($data['maintenance'] !== null) {
-	$html[] = '<div class="ep-note ep-warn"><b>'.$e(_('In maintenance')).'</b> '.$e(_s('until %1$s', date('d M H:i', $data['maintenance']['till']))
-		.($data['maintenance']['reason'] !== '' ? ' — '.$data['maintenance']['reason'] : '')).'</div>';
+	$html[] = '<div class="ep-note ep-warn"><b>'.$e(_('Decommissioned.')).'</b> '.$e(_('Its hosts are kept, not monitored, with their history. Restore it to change it.').($ro ? '' : ' '._('Use the button above.'))).'</div>';
 }
 if ($data['removed']) {
 	$html[] = '<div class="ep-note ep-bad"><b>'.$e(_('Removed from Zabbix:')).'</b> '.$e(implode(', ', array_map(fn($h) => $h['name'].($h['ip'] ? ' ('.$h['ip'].')' : ''), $data['removed'])))
-		.'. '.$e(_('Deleted in Zabbix, not by this page. Re-create them or accept the removal from Cluster Management.')).'</div>';
+		.'. '.$e(_('Deleted in Zabbix, not by this page. Re-create them or accept the removal with the buttons above.')).'</div>';
 }
 if ($data['changed'] ?? []) {
 	$html[] = '<div class="ep-note ep-warn"><b>'.$e(_('Changed outside this page:')).'</b> '.$e(implode('; ', array_map(fn($h) => $h['why'] === 'moved'
 		? _s('%1$s moved out of the client\'s group', $h['now']) : _s('%1$s renamed to %2$s', $h['name'], $h['now']), $data['changed'])))
-		.'. '.$e(_('"Put back" in Cluster Management restores the name and group.')).'</div>';
+		.'. '.$e(_('"Put back" above restores the name and group.')).'</div>';
 }
 
 /* ---- messages ---- */
@@ -98,6 +130,9 @@ if ($data['shared']) {
 	$html[] = '<div class="ep-note ep-warn"><b>'.$e(_('Several hosts share one IP.')).'</b> '
 		.$e(_('A server can hold several roles, so each IP should be one host. Tick to merge; a backup is taken first.')).'<ul class="ep-plain">'.$items.'</ul></div>';
 }
+
+$html[] = '</div>';
+$html[] = '<div class="ep-grid">';
 
 /* ---- Client ---- */
 $html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('Client')).'</div><div class="ep-group">';
@@ -172,6 +207,8 @@ if ($data['mode'] === 'edit' && !$ro) {
 }
 $html[] = '</div></div>';
 
+$html[] = '<div class="ep-stack">';
+
 /* ---- Log archive ---- */
 $html[] = '<div class="ep-card" id="ep-archive"><div class="ep-card-title">'.$e(_('Log archive (S3)')).'</div>';
 $html[] = '<button type="button" class="ep-link ep-open" id="ep-archive-open">'.$e(_('+ Add log archive')).'</button>';
@@ -208,8 +245,14 @@ $html[] = '<div class="ep-sheet" id="ep-sheet" hidden>'
 $html[] = '<div class="ep-group-foot"><button type="button" class="ep-link" id="ep-add-server">'.$e(_('+ Add server')).'</button></div>';
 $html[] = '</div></div>';
 
+/* ---- More ---- */
+$html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('More')).'</div><div class="ep-group">';
+$html[] = $row(_('Agent port'), $text('agent_port', '10050', 'class="ep-num"'), 'agent_port');
+$html[] = '</div></div>';
+$html[] = '</div></div>';
+
 /* ---- Requested capacity ---- */
-$html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('Requested capacity')).' <span class="ep-count">'.$e(_('empty = not set')).'</span></div><div class="ep-group">';
+$html[] = '<div class="ep-card ep-wide"><div class="ep-card-title">'.$e(_('Requested capacity')).' <span class="ep-count">'.$e(_('empty = not set')).'</span></div><div class="ep-group">';
 $html[] = '<div class="ep-table-wrap"><table class="ep-req"><thead><tr><th>'.$e(_('Role')).'</th><th>'.$e(_('Servers')).'</th><th>'.$e(_('CPU cores')).'</th>'
 	.'<th>'.$e(_('Memory GB')).'</th><th class="ep-disks-h">'.$e(_('Disks, GB')).'</th></tr></thead><tbody>';
 foreach ($data['roles']['families'] as $fam) {
@@ -233,10 +276,6 @@ $html[] = '</tbody></table></div>';
 $html[] = '<div class="ep-group-foot"><span class="ep-hint" id="ep-req-empty">'.$e(_('Rows appear for the roles your servers have.')).'</span> <select id="ep-request-role" aria-label="'.$e(_('Request another role')).'"></select></div>';
 $html[] = '</div></div>';
 
-/* ---- Agent, hosts now ---- */
-$html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('More')).'</div><div class="ep-group">';
-$html[] = $row(_('Agent port'), $text('agent_port', '10050', 'class="ep-num"'), 'agent_port');
-$html[] = '</div></div>';
 if ($data['existing']) {
 	$items = '';
 	foreach ($data['existing'] as $h) {
@@ -259,6 +298,11 @@ $html[] = '<div class="ep-foot"><span class="ep-hint">'.$e(_('A backup of every 
 	.'<a class="btn-alt ep-btn" href="'.$e($url('ep.clients.list')).'">'.$e(_('Cancel')).'</a>'
 	.($ro ? '' : '<button type="submit">'.$e($editing ? _('Save') : _('Add client')).'</button>').'</div>';
 $html[] = ($ro ? '</fieldset>' : '').'</form>';
+// The Maintenance and Delete dialogs the header's buttons open, outside the form: a dialog of its own, posting for itself.
+if ($editing && !$ro) {
+	$html[] = \Modules\EpClients\Lib\ClientActions::dialogs(true);
+}
+$html[] = '</div>';
 
 $byIp = [];
 foreach ((array) json_decode($field('servers'), true) as $s) {
@@ -300,9 +344,11 @@ $js = [
 	->addItem(new CObject(implode("\n", $html)))
 	->show();
 ?>
+<script><?php readfile(__DIR__.'/js/ep.clients.dialogs.js'); ?></script>
 <script><?php readfile(__DIR__.'/js/ep.clients.edit.js'); ?></script>
 <script>
 	window.EpClientForm.init(document.getElementById('ep-client-form'), <?= json_encode($js, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>);
+	window.EpDialogs.init(document.querySelector('.ep-edit'));
 </script>
 <script>
 	(function () {
@@ -346,121 +392,4 @@ $js = [
 		});
 	})();
 </script>
-<style>
-	.ep-f fieldset.ep-ro { border: 0; padding: 0; margin: 0; min-width: 0; }
-	.ep-f .ep-test { display: grid; gap: 3px; margin-top: 4px; }
-	.ep-f .ep-test-row.ok { color: var(--ep-good); } .ep-f .ep-test-row.bad { color: var(--ep-bad); } .ep-f .ep-test-row.wait { color: var(--ep-muted); }
-	.ep-f .ep-date { border-radius: 6px; padding: 4px 8px; height: auto; }
-	.ep-f .ep-history li { display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1.2fr); gap: 10px; }
-	.ep-f { --ep-card: #fff; --ep-line: #e3e6ea; --ep-muted: #6b7380; --ep-accent: #0a66d6; --ep-chip: #eef1f5; --ep-soft: #f6f8fa;
-		--ep-good: #1f7a36; --ep-bad: #c0352c; --ep-warn: #9a6400; --ep-shadow: 0 1px 2px rgba(20, 28, 40, .05);
-		max-width: 920px; display: grid; gap: 16px; padding: 4px 0 24px; font-size: 13px; }
-	html[color-scheme="dark"] .ep-f { --ep-card: #25282c; --ep-line: #383c42; --ep-muted: #9aa1ab; --ep-accent: #4d9bff; --ep-chip: #31353b;
-		--ep-soft: #2c3035; --ep-good: #5cc97a; --ep-bad: #ff7a70; --ep-warn: #f0b04a; --ep-shadow: none; }
-	.ep-f .ep-card-title { font-size: 13px; font-weight: 600; margin: 0 0 6px 4px; display: flex; gap: 8px; align-items: baseline; }
-	.ep-f .ep-card { display: grid; }
-	.ep-f .ep-group { background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 10px; box-shadow: var(--ep-shadow); overflow: hidden; }
-	.ep-f .ep-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 14px; align-items: center; padding: 9px 14px; min-height: 40px; }
-	.ep-f .ep-row + .ep-row, .ep-f #ep-archive-more .ep-row, .ep-f .ep-group-foot { border-top: 1px solid var(--ep-line); }
-	.ep-f .ep-row > label { color: var(--ep-muted); }
-	.ep-f .ep-ctl { display: grid; gap: 6px; justify-items: start; }
-	.ep-f .ep-ctl > input[type=text], .ep-f .ep-ctl > input[type=password], .ep-f .ep-ctl > select { width: 100%; max-width: 460px; }
-	.ep-f input[type=text], .ep-f input[type=password] { border-radius: 6px; padding: 5px 8px; box-sizing: border-box; height: auto; }
-	.ep-f select { border-radius: 6px; padding: 4px 6px; height: auto; min-height: 28px; box-sizing: border-box; }
-	.ep-f input[readonly] { opacity: .75; }
-	.ep-f .ep-num { width: 90px !important; text-align: right; }
-	.ep-f .ep-mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
-	.ep-f .ep-hint, .ep-f .ep-inline-hint, .ep-f .ep-count { color: var(--ep-muted); font-size: 12px; font-weight: normal; }
-	.ep-f .ep-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-	.ep-f .ep-seg { display: inline-flex; background: var(--ep-chip); border-radius: 7px; padding: 2px; }
-	/* A segmented control is a radio hidden under its label, and a hidden control still takes
-	   focus: clicking the label focuses the radio, and the browser then scrolls that radio into
-	   view. While the radio was position: absolute it was not where its label is, so picking
-	   "Zabbix secret" halfway down this form scrolled the page away from it — to the top, as
-	   reported. It is clipped where it sits instead, and the 1px it now occupies in the row is
-	   taken back by the negative right margin, so the control looks exactly as it did. */
-	.ep-f .ep-seg input { flex: 0 0 auto; width: 1px; height: 1px; min-width: 0; margin: 0 -1px 0 0; padding: 0;
-		border: 0; background: none; appearance: none; clip-path: inset(50%); opacity: 0; pointer-events: none; }
-	.ep-f .ep-seg label { padding: 4px 14px; border-radius: 5px; cursor: pointer; color: inherit; }
-	.ep-f .ep-seg input:checked + label { background: var(--ep-card); box-shadow: 0 1px 2px rgba(0, 0, 0, .18); font-weight: 600; }
-	.ep-f .ep-seg input:focus-visible + label { outline: 2px solid var(--ep-accent); }
-	.ep-f .ep-badge { font-size: 11px; font-weight: 600; color: var(--ep-good); background: color-mix(in srgb, var(--ep-good) 14%, transparent); padding: 1px 7px; border-radius: 5px; }
-	.ep-f .ep-required .ep-card-title::after { content: "required for DI"; font-size: 11px; font-weight: 600; color: var(--ep-accent); }
-	.ep-f .ep-link, .ep-f .ep-more, .ep-f .ep-open { background: none; border: 0; color: var(--ep-accent); cursor: pointer; padding: 0; font: inherit; height: auto; line-height: 1.5; }
-	.ep-f .ep-chip, .ep-f .ep-icon { height: auto; line-height: 1.5; }
-	.ep-f .ep-more { display: block; width: 100%; text-align: left; padding: 9px 14px; border-top: 1px solid var(--ep-line); }
-	.ep-f .ep-open { justify-self: start; padding: 10px 14px; background: var(--ep-card); border: 1px dashed var(--ep-line); border-radius: 10px; width: 100%; text-align: left; }
-	.ep-f .ep-group-foot { padding: 10px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-	.ep-f .ep-server { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; }
-	.ep-f .ep-server + .ep-server { border-top: 1px solid var(--ep-line); }
-	.ep-f .ep-ip { font-family: ui-monospace, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
-	.ep-f .ep-server-name { font-weight: 600; }
-	.ep-f .ep-rename { font-weight: normal; color: var(--ep-muted); font-size: 12px; }
-	.ep-f .ep-server-notes { color: var(--ep-muted); font-size: 12px; margin-top: 2px; }
-	.ep-f .ep-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
-	.ep-f .ep-pill { font-size: 11px; background: var(--ep-chip); border-radius: 999px; padding: 1px 8px; }
-	.ep-f .ep-pill-svc { font-style: italic; }
-	.ep-f .ep-pill-mark { color: var(--ep-accent); background: color-mix(in srgb, var(--ep-accent) 14%, transparent); }
-	.ep-f .ep-server-actions { display: flex; gap: 10px; align-items: center; }
-	.ep-f .ep-icon { background: none; border: 0; color: var(--ep-muted); font-size: 17px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 5px; }
-	.ep-f .ep-icon:hover { color: var(--ep-bad); background: color-mix(in srgb, var(--ep-bad) 12%, transparent); }
-	.ep-f .ep-empty { padding: 14px; color: var(--ep-muted); }
-	.ep-f .ep-server.ep-removed .ep-server-main { text-decoration: line-through; opacity: .55; }
-	.ep-f .ep-server .ep-del-note { color: var(--ep-bad); font-size: 12px; text-decoration: none; display: block; }
-	.ep-f .ep-server.ep-norole .ep-server-name { font-weight: normal; }
-	.ep-f .ep-confirm label { display: block; margin-top: 8px; font-weight: 600; }
-	.ep-f .ep-sheet { display: grid; gap: 10px; padding: 14px; border-top: 1px solid var(--ep-line); background: var(--ep-soft); }
-	.ep-f .ep-sheet-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-	.ep-f .ep-sheet-row input { width: 260px; }
-	.ep-f .ep-ip-wrap { position: relative; }
-	.ep-f .ep-suggest { position: absolute; z-index: 20; top: calc(100% + 2px); left: 0; min-width: 360px; max-height: 260px; overflow-y: auto;
-		background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .18); padding: 4px; }
-	.ep-f .ep-suggest button { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 10px; width: 100%; text-align: left; background: none; border: 0;
-		color: inherit; font: inherit; padding: 6px 8px; border-radius: 5px; cursor: pointer; height: auto; line-height: 1.4; }
-	.ep-f .ep-suggest button:hover, .ep-f .ep-suggest button:focus-visible { background: var(--ep-soft); }
-	.ep-f .ep-suggest button[disabled] { cursor: not-allowed; opacity: .55; }
-	.ep-f .ep-suggest .ep-ip { font-size: 12px; }
-	.ep-f .ep-suggest .ep-owner { color: var(--ep-muted); font-size: 11.5px; }
-	/* A host that is in Zabbix but Not monitored can still be adopted, so the row stays pickable
-	   and says so instead of being left out — hiding it would make the sheet promise a new host
-	   and then adopt this one anyway. An implicit fourth grid column, so rows without it are unchanged. */
-	.ep-f .ep-suggest .ep-off { font-size: 11px; font-weight: 600; color: var(--ep-warn); white-space: nowrap;
-		background: color-mix(in srgb, var(--ep-warn) 16%, transparent); padding: 1px 7px; border-radius: 5px; align-self: center; }
-	.ep-f .ep-suggest .ep-none { padding: 6px 8px; color: var(--ep-muted); }
-	.ep-f #ep-s-notes { width: 100%; max-width: 560px; }
-	.ep-f .ep-chip-row { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; align-items: start; margin: 2px 0; }
-	.ep-f .ep-chip-fam { color: var(--ep-muted); padding-top: 4px; }
-	.ep-f .ep-chip-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
-	.ep-f .ep-chip { border: 1px solid var(--ep-line); background: var(--ep-card); color: inherit; border-radius: 999px; padding: 3px 12px; cursor: pointer; font: inherit; }
-	.ep-f .ep-chip[aria-pressed=true] { background: var(--ep-accent); border-color: var(--ep-accent); color: #fff; }
-	.ep-f .ep-sheet-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-	.ep-f .ep-sheet-foot .ep-hint { margin-right: auto; }
-	.ep-f .ep-table-wrap { overflow-x: auto; }
-	.ep-f .ep-req { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-	.ep-f .ep-req th { color: var(--ep-muted); font-weight: normal; font-size: 12px; text-align: right; padding: 8px 10px 4px; }
-	.ep-f .ep-req th:first-child, .ep-f .ep-req td:first-child { text-align: left; padding-left: 14px; }
-	.ep-f .ep-req td { padding: 5px 10px; border-top: 1px solid var(--ep-line); text-align: right; }
-	.ep-f .ep-req td input { width: 72px; text-align: right; }
-	.ep-f .ep-req td.ep-disks { text-align: left; }
-	.ep-f .ep-req th.ep-disks-h { text-align: left; padding-left: 10px; }
-	.ep-f .ep-disk { display: flex; gap: 6px; align-items: center; margin: 2px 0; }
-	.ep-f .ep-disk .ep-mount { display: inline-block; width: 90px; color: var(--ep-muted); }
-	.ep-f .ep-req td .ep-disk input.ep-mount-in { width: 90px; text-align: left; }
-	.ep-f .ep-add-disk { font-size: 12px; margin-top: 2px; }
-	.ep-f .ep-built { color: var(--ep-muted); font-size: 12px; }
-	.ep-f .ep-note { border-radius: 10px; padding: 10px 14px; border: 1px solid var(--ep-line); background: var(--ep-card); }
-	.ep-f .ep-note ul { margin: 6px 0 0 18px; list-style: disc; }
-	.ep-f .ep-note ul.ep-plain { list-style: none; margin-left: 0; }
-	.ep-f .ep-bad { border-color: color-mix(in srgb, var(--ep-bad) 50%, transparent); color: var(--ep-bad); }
-	.ep-f .ep-warn { border-color: color-mix(in srgb, var(--ep-warn) 50%, transparent); }
-	.ep-f .ep-good { border-color: color-mix(in srgb, var(--ep-good) 50%, transparent); }
-	.ep-f .ep-hosts { background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 10px; padding: 10px 14px; }
-	.ep-f .ep-hosts summary { cursor: pointer; color: var(--ep-muted); }
-	.ep-f .ep-hosts ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
-	.ep-f .ep-hosts li { display: grid; grid-template-columns: minmax(0, 2fr) 120px minmax(0, 2fr) 140px; gap: 10px; }
-	.ep-f .ep-foot { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding: 4px 0; }
-	.ep-f .ep-foot .ep-hint { margin-right: auto; }
-	.ep-f .ep-btn { display: inline-flex; align-items: center; text-decoration: none; }
-	.ep-f [hidden] { display: none !important; }
-	@media (max-width: 720px) { .ep-f .ep-row { grid-template-columns: 1fr; gap: 4px; } .ep-f .ep-server { grid-template-columns: 1fr auto; } .ep-f .ep-ip { grid-column: 1 / -1; } }
-</style>
+<style><?php readfile(__DIR__.'/css/ep.hint.css'); readfile(__DIR__.'/css/ep.clients.dialogs.css'); readfile(__DIR__.'/css/ep.clients.edit.css'); ?></style>

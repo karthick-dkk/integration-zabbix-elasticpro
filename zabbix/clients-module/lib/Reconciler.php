@@ -970,6 +970,49 @@ class Reconciler {
 		}
 	}
 
+	/**
+	 * Take a client out of ElasticPro and nothing else: its master host is unlinked from the master
+	 * template and loses the macros this module wrote on it, which is all that lists it in Cluster
+	 * Management and the reports.
+	 *
+	 * The unlink is plain — templateids, never templateids_clear — so the master host keeps the
+	 * items and history the template gave it, as Zabbix's own Unlink does. No host is disabled,
+	 * deleted, renamed, moved out of a group or retagged; the servers, the cluster host and its
+	 * template, maintenance periods, other templates, dashboards, reports and actions are not
+	 * touched. The template goes first: were the macros removed and the unlink to fail, the client
+	 * would still be listed, with nothing in it.
+	 *
+	 * @return array{0: string[], 1: string[]}  [template names unlinked, macro names removed]
+	 */
+	public function release(string $client): array {
+		$now = $this->current($client);
+		if ($now['master'] === null) {
+			throw new Exception(_s('Client "%1$s" has no master host in Zabbix.', $client));
+		}
+		$hostid = $now['master']['hostid'];
+		$linked = API::Host()->get(['output' => ['hostid'], 'hostids' => [$hostid], 'selectParentTemplates' => ['templateid', 'host']]);
+		$ours = array_filter($linked[0]['parentTemplates'] ?? [], fn($t) => in_array($t['host'], self::masterTemplates(), true));
+		if ($ours) {
+			$this->api(API::Host()->massRemove(['hostids' => [$hostid], 'templateids' => array_values(array_column($ours, 'templateid'))]),
+				_('unlink the master template'));
+		}
+		$own = $this->spec->masterMacroNames();
+		$gone = [];
+		foreach (API::UserMacro()->get(['output' => ['hostmacroid', 'macro'], 'hostids' => [$hostid]]) ?: [] as $m) {
+			if (in_array($m['macro'], $own, true) || strncmp($m['macro'], ClientSpec::MACRO_PREFIX, strlen(ClientSpec::MACRO_PREFIX)) === 0
+					|| strncmp($m['macro'], ClientSpec::LEGACY_MACRO_PREFIX, strlen(ClientSpec::LEGACY_MACRO_PREFIX)) === 0) {
+				$gone[$m['hostmacroid']] = $m['macro'];
+			}
+		}
+		if ($gone) {
+			$this->api(API::UserMacro()->delete(array_map('strval', array_keys($gone))), _('remove the ElasticPro macros'));
+		}
+		$names = array_values(array_column($ours, 'host'));
+		$this->done[] = _s('"%1$s" is no longer linked to %2$s; %3$s ElasticPro macros removed. Nothing else was changed.', ClientSpec::masterName($client),
+			$names ? implode(', ', $names) : _('the master template'), count($gone));
+		return [$names, array_values($gone)];
+	}
+
 	/* ------------------------------------ helpers ------------------------------------ */
 
 	/** The host fields for the client's proxy: monitored_by and the proxy or group id. */
