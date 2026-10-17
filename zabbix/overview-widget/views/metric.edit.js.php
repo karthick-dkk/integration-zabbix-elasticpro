@@ -111,8 +111,9 @@ window.ep_overview_metric_form = new class {
 	}
 
 	/**
-	 * Switching to a Zabbix item clears the name and units a built-in filled in (not what was
-	 * typed); switching back to a built-in fills them from it again.
+	 * Switching to a Zabbix item clears the name and units a built-in filled in, and brings back
+	 * the units typed for the item before; switching to a built-in fills both from it again and
+	 * keeps the typed units aside.
 	 */
 	_sourceChanged() {
 		const source = this._val('source');
@@ -128,12 +129,15 @@ window.ep_overview_metric_form = new class {
 				name.value = '';
 				delete name.dataset.epAuto;
 			}
-			if (units.dataset.epAuto === '1') {
-				units.value = '';
-				delete units.dataset.epAuto;
-			}
+			// Back to an item: the units typed for it come back; a built-in's never stay.
+			units.value = this._typedUnits ?? (units.dataset.epAuto === '1' ? '' : units.value);
+			delete units.dataset.epAuto;
 		}
 		else {
+			// Leaving the item: keep what was typed for it, as a typed name is kept.
+			if (units.dataset.epAuto !== '1') {
+				this._typedUnits = units.value;
+			}
 			this._prefill();
 		}
 	}

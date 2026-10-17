@@ -176,7 +176,14 @@
 /* The widget's settings form (Zabbix's own dialog, outside the panel), tabbed like Zabbix's Graph widget. */
 /* One width on both tabs: the dialog never resizes when the tab changes. */
 form.dashboard-widget-ep_overview { width: 1000px; max-width: calc(100vw - 42px); min-width: 0; box-sizing: border-box; }
-form.dashboard-widget-ep_overview .form-grid > .ep-ov-tabs { grid-column: 1 / -1; }
+form.dashboard-widget-ep_overview .form-grid > .ep-ov-tabs { grid-column: 1 / -1; box-sizing: border-box; max-width: 100%; min-width: 0; }
+/* No field may be wider than the dialog: the field column takes what is left and no more, and
+   hints and inline rows wrap inside it instead of pushing a sideways scrollbar. */
+form.dashboard-widget-ep_overview .ep-ov-tabs .form-grid { grid-template-columns: minmax(15%, max-content) minmax(0, 1fr); }
+form.dashboard-widget-ep_overview .ep-ov-tabs .form-field { min-width: 0; max-width: 100%; box-sizing: border-box; }
+form.dashboard-widget-ep_overview .ep-ov-inline > * { min-width: 0; max-width: 100%; }
+form.dashboard-widget-ep_overview .ep-ov-hint { white-space: normal; overflow-wrap: break-word; }
+form.dashboard-widget-ep_overview .ep-ov-hint-block { display: block; line-height: 1.4; margin-top: 2px; }
 form.dashboard-widget-ep_overview .ep-ov-tabs > .ui-tabs-nav { position: sticky; top: 0; z-index: 3; background: inherit; }
 form.dashboard-widget-ep_overview .ep-ov-tabs.table-forms-container { margin: 0; border: 1px solid rgba(127, 127, 127, .25); border-top: none; padding: 10px; }
 .dashboard-widget-ep_overview .ep-ov-inline { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }

@@ -37,8 +37,9 @@ namespace {
 	define('ZBX_WIDGET_FIELD_TYPE_INT32', 0); define('ZBX_WIDGET_FIELD_TYPE_STR', 1);
 	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
 	if (!function_exists('_')) { function _($s) { return $s; } }
-	if (!function_exists('_s')) { function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace('%'.($i + 1).'$s', (string) $v, $s); } return $s; } }
-	if (!function_exists('_n')) { function _n($one, $many, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $one : $many); } }
+	// As Zabbix's own: vsprintf, so a stray % in a message fails here as it would there.
+	if (!function_exists('_s')) { function _s($s, ...$a) { return vsprintf($s, $a); } }
+	if (!function_exists('_n')) { function _n($one, $many, $n, ...$a) { return vsprintf($n == 1 ? $one : $many, array_merge([$n], $a)); } }
 	function getSubGroups($ids) { return $ids; }
 	class CWidgetsData { public const DATA_TYPE_TIME_PERIOD = '_timeperiod'; }
 
@@ -620,6 +621,15 @@ namespace Modules\EpOverview\Test {
 	check('every editor error names its metric', Metrics::named($e, 'ES CPU') === ['Metric "ES CPU": Warn must not be above High.'], Metrics::named($e, 'ES CPU'));
 	check('…a metric with no name yet is "New metric", or its place in the list', Metrics::named(['Item key cannot be empty.'], '')[0] === 'Metric "New metric": Item key cannot be empty.'
 		&& Metrics::named(['x'], '', 3)[0] === 'Metric "#3": x');
+
+
+	check('Summary view: Warn at 90 above High at 50 is refused on Apply, readably',
+		WidgetForm::pairErrors(['summary_warn' => '90', 'summary_high' => '50']) === ['Invalid parameter "Summary view: Warn at, %": must not be above High at, % (90 > 50).'],
+		WidgetForm::pairErrors(['summary_warn' => '90', 'summary_high' => '50']));
+	check('…Warn 50 / High 90, or either empty (Settings), is fine', WidgetForm::pairErrors(['summary_warn' => '50', 'summary_high' => '90']) === []
+		&& WidgetForm::pairErrors(['summary_warn' => '90', 'summary_high' => '']) === []);
+	check('the day counts pair up the same way: High within must not exceed Warn within', count(WidgetForm::pairErrors(['contract_warn' => 14, 'contract_high' => 60,
+		'forecast_warn' => '7', 'forecast_high' => '30'])) === 2 && WidgetForm::pairErrors(['contract_warn' => 60, 'contract_high' => 14]) === []);
 
 	foreach (array_diff(scandir($dir), ['.', '..']) as $f) {
 		unlink($dir.'/'.$f);

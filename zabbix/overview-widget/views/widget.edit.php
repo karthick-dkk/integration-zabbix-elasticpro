@@ -308,9 +308,9 @@ $summaryFamily = $fields['summary_family']->getValue();
 $summaryWarn = $fields['summary_warn']->getValue();
 $summaryHigh = $fields['summary_high']->getValue();
 $viewGrid = new CFormGrid();
-$row($viewGrid, $viewField->getLabel(), (new CDiv([$viewField->getView(),
-	$hint(_('Cards: the metrics and sections set here. Summary: the overview as it was before 2.1 — summary cards, used of allocated, servers by role, and one client\'s tiles when only one is picked.'))
-]))->addClass('ep-ov-inline'));
+$row($viewGrid, $viewField->getLabel(), [$viewField->getView(),
+	(new CDiv(_('Cards: the metrics and sections set here. Summary: the overview as it was before 2.1.')))->addClass('ep-ov-hint')->addClass('ep-ov-hint-block')
+]);
 $summaryGrid = new CFormGrid();
 $row($summaryGrid, new CLabel(_('Cards show'), 'ep_ov_summary_family_btn'), [
 	(new CSelect('summary_family'))->setId('ep_ov_summary_family')->setFocusableElementId('ep_ov_summary_family_btn')

@@ -101,6 +101,19 @@ test('the edit dialog: one width on both tabs, a live Clients hint, and the edit
   assert.ok(read('actions/MetricEdit.php').includes('Metrics::named('), 'the editor names the metric in its errors');
 });
 
+test('no field in the edit dialog is wider than the dialog', () => {
+  const css = read('assets/css/widget.css');
+  // The field column takes what is left and no more; hints wrap inside it.
+  assert.match(css, /\.ep-ov-tabs \.form-grid \{ grid-template-columns: minmax\(15%, max-content\) minmax\(0, 1fr\); \}/);
+  assert.match(css, /\.ep-ov-tabs \.form-field \{ min-width: 0; max-width: 100%;/);
+  assert.match(css, /\.ep-ov-hint \{ white-space: normal;/);
+  const edit = read('views/widget.edit.php');
+  // Every hint is short enough to sit on a line or two, and none is put inside a no-wrap row unbroken.
+  for (const m of edit.matchAll(/\$hint\(_\('((?:[^'\\]|\\.)*)'\)/g)) assert.ok(m[1].length <= 140, `hint too long: ${m[1]}`);
+  const view = edit.match(/Cards: the metrics and sections set here\.[^']*/);
+  assert.ok(view && view[0].length <= 100 && edit.includes("addClass('ep-ov-hint-block')"), 'the View hint is short and a block of its own');
+});
+
 test('links go to real Zabbix 7.0 pages', () => {
   const php = read('actions/WidgetView.php') + read('includes/Overview.php');
   for (const action of ["'problem.view'", "'host.dashboard.view'", "'latest.view'", "'ep.clients.edit'", "'elasticpro.overview'", "'showgraph'", "'batchgraph'"]) {

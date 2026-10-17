@@ -197,6 +197,40 @@ class WidgetForm extends CWidgetForm {
 		return array_diff_key($values, array_flip(self::LEGACY));
 	}
 
+	/**
+	 * The fields themselves check their own ranges; this checks the pairs that must agree, when
+	 * the form is applied. A saved widget that disagrees still draws (Settings::usageFor holds
+	 * Warn at or below High), so only the strict check refuses.
+	 */
+	public function validate(bool $strict = false): array {
+		$errors = parent::validate($strict);
+
+		if ($strict && !$errors) {
+			$errors = self::pairErrors($this->getFieldsValues());
+		}
+
+		return $errors;
+	}
+
+	/** Warn and High of the Summary view in order, and the day counts that pair up likewise. */
+	public static function pairErrors(array $v): array {
+		$errors = [];
+		$set = fn($k) => isset($v[$k]) && $v[$k] !== '' && is_numeric($v[$k]);
+		if ($set('summary_warn') && $set('summary_high') && (float) $v['summary_warn'] > (float) $v['summary_high']) {
+			$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Summary view: Warn at, %'),
+				_s('must not be above High at, %% (%1$s > %2$s)', $v['summary_warn'], $v['summary_high']));
+		}
+		if ($set('forecast_warn') && $set('forecast_high') && (float) $v['forecast_high'] > (float) $v['forecast_warn']) {
+			$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Forecast: High at'),
+				_s('must not be more days left than Warn at (%1$s > %2$s)', $v['forecast_high'], $v['forecast_warn']));
+		}
+		if ($set('contract_warn') && $set('contract_high') && (float) $v['contract_high'] > (float) $v['contract_warn']) {
+			$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Contract end: High within'),
+				_s('must not be more days than Warn within (%1$s > %2$s)', $v['contract_high'], $v['contract_warn']));
+		}
+		return $errors;
+	}
+
 	/** The typed reference to the dashboard's time period, as Zabbix's own widgets name it. */
 	public static function dashboardPeriod(): string {
 		return CWidgetField::createTypedReference(CWidgetField::REFERENCE_DASHBOARD, CWidgetsData::DATA_TYPE_TIME_PERIOD);
