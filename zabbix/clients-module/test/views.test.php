@@ -3,7 +3,8 @@
  * The list and the client page, rendered for real against stand-ins for Zabbix's page classes.
  *
  *   php test/views.test.php            checks
- *   EP_VIEWS_OUT=/dir php test/views.test.php   also writes list.html, list-ro.html, edit.html, edit-ro.html, add.html
+ *   EP_VIEWS_OUT=/dir php test/views.test.php   also writes list.html, list-ro.html, edit.html, edit-ro.html, add.html,
+ *                                                import.html, import-errors.html, import-done.html
  *
  * What it holds the pages to: the list's row is one pencil and no text links; the client page
  * carries the status and the list's old actions for a client that exists and none for a new one;
@@ -48,6 +49,25 @@ namespace {
 		public function show() { foreach ($this->i as $i) { echo $i->toString(); } return $this; }
 	}
 	class CView {}
+	// For the import page, which is built from Zabbix's classes rather than an HTML string.
+	class CDiv extends CTag { public function __construct($c = null) { parent::__construct('div', true, $c); } }
+	class CSpan extends CTag { public function __construct($c = null) { parent::__construct('span', true, $c); } }
+	class CLink extends CTag { public function __construct($c = null, $u = null) { parent::__construct('a', true, $c); if ($u !== null) { $this->setAttribute('href', $u); } } }
+	class CLabel extends CTag { public function __construct($c = null, $for = null) { parent::__construct('label', true, $c); if ($for !== null) { $this->setAttribute('for', $for); } } }
+	class CSubmit extends CTag { public function __construct($n = 'submit', $c = '') { parent::__construct('button', true, $c); $this->setAttribute('type', 'submit')->setAttribute('name', $n); } }
+	class CForm extends CTag {
+		public function __construct($m = 'post', $a = null) { parent::__construct('form'); $this->setAttribute('method', $m)->setAttribute('action', $a); }
+		public function addVar($n, $v) { return $this->addItem((new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', $n)->setAttribute('value', $v)); }
+	}
+	class CCheckBox extends CTag {
+		public function __construct($n, $v = '1') { parent::__construct('input', false); $this->setAttribute('type', 'checkbox')->setAttribute('name', $n)->setAttribute('value', $v); }
+		public function setChecked($on) { if ($on) { $this->setAttribute('checked', 'checked'); } return $this; }
+	}
+	class CTableInfo extends CTag {
+		public function __construct() { parent::__construct('table'); }
+		public function setHeader($h) { $tr = new CTag('tr'); foreach ($h as $c) { $tr->addItem(new CTag('th', true, $c)); } return $this->addItem($tr); }
+		public function addRow($cells) { $tr = new CTag('tr'); foreach ($cells as $c) { $tr->addItem((new CTag('td'))->addItem($c)); } return $this->addItem($tr); }
+	}
 }
 namespace Modules\EpClients\Test {
 	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions'] as $lib) {
@@ -205,6 +225,54 @@ namespace Modules\EpClients\Test {
 		&& substr_count($pb, 'tabindex="0"') === substr_count($pb, 'role="tooltip"'));
 	check('names and labels are never cut with an ellipsis', !str_contains(file_get_contents(__DIR__.'/../views/css/ep.clients.edit.css'), 'text-overflow')
 		&& !str_contains(file_get_contents(__DIR__.'/../views/css/ep.clients.edit.css'), 'ellipsis'));
+
+	/* ---------------- the import page ---------------- */
+	$importData = fn(array $x = []) => $x + ['stage' => 'upload', 'file' => '', 'plan' => null, 'added' => [], 'backup' => null, 'pending' => [], 'error' => null,
+		'store_ok' => true, 'store_dir' => $dir, 'sheets' => [], 'skipped' => [], 'client_count' => 6];
+	$imp = render('ep.clients.import', $importData());
+	$dump('import', $imp);
+	$ib = body($imp);
+	check('import: three cards — get the workbook, upload it, review and apply', str_contains($ib, '<h4>1 · Get the workbook</h4>') && str_contains($ib, '<h4>2 · Upload it</h4>')
+		&& str_contains($ib, '<h4>3 · Review and apply</h4>') && substr_count($ib, 'class="ep-card"') === 3);
+	check('import: Download template — clients.xlsx, from the workbook action', (bool) preg_match('~<a href="zabbix.php\?action=ep.clients.workbook" class="ep-dl ep-dl-main">.*Download template — clients.xlsx</a>~', $ib)
+		&& str_contains($ib, 'A filled-in Sample sheet and a note on every column; dropdowns from this Zabbix'));
+	check('import: Export current clients — clients.xlsx, with the count', (bool) preg_match('~<a href="zabbix.php\?action=ep.clients.workbook&amp;what=export" class="ep-dl">.*Export current clients — clients.xlsx</a>~', $ib)
+		&& str_contains($ib, 'Your 6 clients and their servers, ready to edit and import back.'));
+	check('import: one file input, .xlsx and the old .csv files, several allowed', preg_match_all('~<input type="file"~', $ib) === 1
+		&& (bool) preg_match('~<input type="file" name="file\[\]" multiple="multiple" accept="\.xlsx,\.csv[^"]*" id="ep-file"~', $ib));
+	check('import: the upload posts multipart to the import action with its token, and says Check file',
+		(bool) preg_match('~<form method="post" action="zabbix.php\?action=ep.clients.import" enctype="multipart/form-data">~', $ib)
+		&& str_contains($ib, 'name="_csrf_token" value="tok-ep.clients.import"') && str_contains($ib, '<button type="submit" name="check">Check file</button>'));
+	check('import: the rules', str_contains($ib, 'One error and nothing is applied.') && str_contains($ib, 'a column you leave out means &quot;no change&quot;') === false
+		&& str_contains($ib, 'A column you leave out means &quot;no change&quot;; an empty cell means &quot;clear&quot;.') && str_contains($ib, 'Clients missing from the file are not removed.'));
+	check('import: the old CSV templates are still linked, small', str_contains($ib, 'href="zabbix.php?action=ep.clients.csv.template"') && str_contains($ib, 'action=ep.clients.csv.template&amp;kind=servers'));
+	check('import: before a check, the review says what it will show and does not span the width', str_contains($ib, 'Check a file to see') && !str_contains($ib, 'ep-wide'));
+	check('import: the view carries no colour; the sheet has light and dark tokens', !preg_match('/#[0-9a-f]{3,6}\b/i', preg_replace('~<style>.*</style>~s', '', file_get_contents(__DIR__.'/../views/ep.clients.import.php')))
+		&& str_contains($imp, '.ep-imp { --ep-card:') && str_contains($imp, '[theme="dark-theme"] .ep-imp'));
+	$errPlan = ['rows' => [], 'ignored' => [], 'errors' => ['Servers, row 14 (10.0.0.31): Role 2 is "ES Hot" — not one of the roles. Pick it from the dropdown, or leave it empty.']];
+	$err = render('ep.clients.import', $importData(['stage' => 'errors', 'file' => 'clients.xlsx', 'plan' => $errPlan, 'skipped' => ['Sample'],
+		'sheets' => [['name' => 'Clients', 'rows' => 7, 'new' => 1, 'changed' => 2, 'errors' => 0], ['name' => 'Servers', 'rows' => 52, 'new' => 4, 'changed' => 1, 'errors' => 1]]]));
+	$dump('import-errors', $err);
+	$eb = body($err);
+	check('import: after a check, a table per sheet — rows, new, changed, errors', str_contains($eb, '<th>Sheet</th><th>Rows</th><th>New</th><th>Changed</th><th>Errors</th>')
+		&& str_contains($eb, '<tr><td>Servers</td><td>52</td><td class="ep-n-new">4</td><td>1</td><td class="ep-n-err">1</td></tr>')
+		&& str_contains($eb, '<tr><td>Clients</td><td>7</td><td class="ep-n-new">1</td><td>2</td><td>0</td></tr>'), $eb);
+	check('import: the errors, by sheet, row and column, nothing applied, and the review spans the width', str_contains($eb, 'role="alert"') && str_contains($eb, 'Nothing was applied.')
+		&& str_contains($eb, 'Servers, row 14 (10.0.0.31): Role 2 is &quot;ES Hot&quot; — not one of the roles.') && str_contains($eb, 'ep-card ep-wide') && str_contains($eb, 'Not read: Sample.'));
+	$pending = [['name' => 'acme', 'status' => 'update', 'type' => 'DI', 'warnings' => [], 'diff' => ['fields' => [['field' => 'Type', 'old' => 'CI', 'new' => 'DI']],
+		'hosts' => [['change' => 'add', 'ip' => '10.0.0.9', 'roles' => 'Parser']]]],
+		['name' => 'globex', 'status' => 'update', 'type' => 'On-Prem', 'warnings' => [], 'diff' => ['fields' => [], 'hosts' => [['change' => 'delete', 'ip' => '10.0.0.5', 'host' => 'globex-Parser-1', 'roles' => 'Parser']]]]];
+	$done = render('ep.clients.import', $importData(['stage' => 'done', 'file' => 'clients.xlsx', 'plan' => ['rows' => $pending, 'errors' => [], 'ignored' => []], 'pending' => $pending,
+		'token' => 'abc123', 'backup' => 'b1', 'added' => [['name' => 'bajaj', 'done' => ['Created bajaj.'], 'problems' => []]],
+		'sheets' => [['name' => 'Clients', 'rows' => 3, 'new' => 1, 'changed' => 1, 'errors' => 0]]]));
+	$dump('import-done', $done);
+	$db = body($done);
+	check('import: the apply flow is the one it was — same action, token, pending token, a tick per client', str_contains($db, '<form method="post" action="zabbix.php?action=ep.clients.import.apply">')
+		&& str_contains($db, 'name="_csrf_token" value="tok-ep.clients.import.apply"') && str_contains($db, 'name="token" value="abc123"')
+		&& str_contains($db, '<input type="checkbox" name="apply[acme]" value="1" checked="checked" id="apply_acme">')
+		&& str_contains($db, '<input type="checkbox" name="apply[globex]" value="1" id="apply_globex">') && str_contains($db, '<button type="submit" name="apply-selected">Apply ticked changes</button>'), $db);
+	check('import: new clients added straight away, read back, after a backup', str_contains($db, 'Backup taken.') && str_contains($db, '1 new client added: bajaj.') && str_contains($db, 'Read back — matches the file.'));
+	check('import: a deleted host is named and not ticked for you', str_contains($db, '− globex-Parser-1 (10.0.0.5) — deleted with its history'));
 
 	foreach (array_diff(scandir($dir), ['.', '..']) as $fn) { is_dir($dir.'/'.$fn) ? null : unlink($dir.'/'.$fn); }
 	@rmdir($dir);

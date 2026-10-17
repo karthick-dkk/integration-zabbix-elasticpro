@@ -560,10 +560,10 @@ namespace {
 	}
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
-	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate};
+	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate};
 
 	$failed = 0; $passed = 0; $scene = '';
 	function check(string $what, bool $ok, $detail = null): void {
@@ -1283,6 +1283,49 @@ namespace Modules\EpClients\Test {
 		(bool) preg_grep('/which is not a client yet/', (new Importer($spec, $state($rec())))->analyze(null, Csv::parseServers("client,ip,roles\nnobody,10.1.1.1,parser\n", $roles))['errors']));
 	check('the same client twice in clients.csv is an error, whatever the case',
 		(bool) preg_grep('/is in clients\.csv twice/', (new Importer($spec, $state($rec())))->analyze(Csv::parse("client,type\nacme,On-Prem\nACME,DI\n", $roles), null)['errors']));
+
+	/*
+	 * The same import from clients.xlsx. The workbook is only another way to write the two CSV
+	 * files: Workbook::parse hands the Importer what Csv::parse / Csv::parseServers hand it, so a new
+	 * client and its servers go through the same analyze and the same apply, and the Sample sheet is
+	 * never read.
+	 */
+	$begin('an xlsx import: a new client and its servers');
+	$lists = ['types' => Settings::types()['all'], 'proxies' => [], 'proxy_groups' => []];
+	$book = Xlsx::build([
+		['name' => 'Clients', 'rows' => [1 => [1 => 'Client *', 2 => 'Type ▾', 3 => 'ES URL *', 4 => 'Password in ▾', 5 => 'Vault path', 6 => 'Contract ends', 7 => 'ES Data Hot · CPU cores', 8 => 'ES Data Hot · Other disks'],
+			2 => [1 => 'bajaj', 2 => 'On-Prem', 3 => 'https://es.bajaj.example:9243', 4 => 'Vault', 5 => 'secret/elasticpro/bajaj:password', 6 => ['v' => '2027-03-31', 'style' => 'date'], 7 => 16, 8 => '/data=4000']]],
+		['name' => 'Servers', 'rows' => [1 => [1 => 'Client ▾ *', 2 => 'IP *', 3 => 'Host name', 4 => 'Role 1 ▾ *', 5 => 'Role 2 ▾', 6 => 'Rack'],
+			2 => [1 => 'bajaj', 2 => '10.120.0.11', 4 => 'ES Data Hot', 6 => 'R4'], 3 => [1 => 'bajaj', 2 => '10.120.0.12', 4 => 'ES Master', 5 => 'ES Coordination']]],
+		['name' => 'Sample', 'rows' => [1 => [1 => 'Client *'], 2 => [1 => 'acme-from-the-sample']]]
+	]);
+	$wb = Workbook::parse($book, $roles, $lists);
+	check('the workbook reads with no error, the Sample skipped', $wb['errors'] === [] && $wb['skipped'] === ['Sample'], $wb['errors']);
+	$xplan = (new Importer($spec, $state($rec())))->analyze($wb['clients'], $wb['servers']);
+	check('the Importer plans one new client and no error', $xplan['errors'] === [] && count($xplan['rows']) === 1 && $xplan['rows'][0]['status'] === 'new'
+		&& $xplan['rows'][0]['name'] === 'bajaj', [$xplan['errors'], array_column($xplan['rows'], 'status')]);
+	$csvPlan = (new Importer($spec, $state($rec())))->analyze(
+		Csv::parse("client,type,es_url,es_password_in,es_password_vault,contract_end,es_data_hot_cpu_cores,es_data_hot_disk2_mount,es_data_hot_disk2_gb,es_data_hot_disk3_mount,es_data_hot_disk3_gb,es_data_hot_disk4_mount,es_data_hot_disk4_gb,es_data_hot_disk5_mount,es_data_hot_disk5_gb\n"
+			."bajaj,On-Prem,https://es.bajaj.example:9243,vault,secret/elasticpro/bajaj:password,2027-03-31,16,/data,4000,,,,,,\n", $roles),
+		Csv::parseServers("client,ip,name,roles,rack\nbajaj,10.120.0.11,,es_data_hot,R4\nbajaj,10.120.0.12,,es_master;es_coord,\n", $roles));
+	check('and it is the very plan the same clients.csv and servers.csv give', $csvPlan['errors'] === [] && $csvPlan['rows'][0]['form'] === $xplan['rows'][0]['form'],
+		array_diff_assoc($xplan['rows'][0]['form'], $csvPlan['rows'][0]['form'] ?? []));
+	\Zbx::$wrote = [];
+	$xr = $rec();
+	['client' => $xc] = $spec->fromForm($xplan['rows'][0]['form']);
+	$xr->apply($xc);
+	$now = $state($rec())->formFor('bajaj');
+	$ips = array_column((array) json_decode($now['servers'], true), 'roles', 'ip');
+	check('applied as ImportUpload applies it: the client and both servers are in Zabbix, roles as on the sheet', $ips === ['10.120.0.11' => ['es_data_hot'], '10.120.0.12' => ['es_coord', 'es_master']]
+		|| $ips === ['10.120.0.11' => ['es_data_hot'], '10.120.0.12' => ['es_master', 'es_coord']], $ips);
+	check('the settings from the Clients sheet are on the client, read back', $now['contract_end'] === '2027-03-31' && $now['es_data_hot_cpu'] === '16'
+		&& $now['es_data_hot_disk2_fs'] === '/data' && $now['es_data_hot_disk2'] === '4000', [$now['contract_end'], $now['es_data_hot_cpu'], $now['es_data_hot_disk2_fs']]);
+	check('and the Importer\'s read-back finds nothing different', (new Importer($spec, $state($rec())))->verify($xc) === [], (new Importer($spec, $state($rec())))->verify($xc));
+	check('nothing from the Sample sheet was made', !isset($state($rec())->clients()['acme-from-the-sample']));
+	$bad = Workbook::parse(Xlsx::build([['name' => 'Servers', 'rows' => [1 => [1 => 'Client ▾ *', 2 => 'IP *', 3 => 'Role 1 ▾ *', 4 => 'Role 2 ▾'],
+		14 => [1 => 'bajaj', 2 => '10.120.0.31', 3 => 'ES Master', 4 => 'ES Hot']]]]), $roles, $lists);
+	check('a role not on the Roles page stops the file, saying where and how to fix it',
+		in_array('Servers, row 14 (10.120.0.31): Role 2 is "ES Hot" — not one of the roles. Pick it from the dropdown, or leave it empty.', $bad['errors'], true), $bad['errors']);
 
 	/*
 	 * A backup of an empty client list. Only three backups are kept, so a backup of nothing is not

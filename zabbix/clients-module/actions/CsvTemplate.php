@@ -5,7 +5,10 @@ namespace Modules\EpClients\Actions;
 use CControllerResponseData;
 use Modules\EpClients\Lib\Csv;
 
-/** The empty CSV templates: clients.csv (a column set per role) or servers.csv (kind=servers). */
+/**
+ * The empty CSV templates: clients.csv (a column set per role) or servers.csv (kind=servers).
+ * The Import page offers clients.xlsx (WorkbookDownload); these stay for scripts and older links.
+ */
 class CsvTemplate extends Base {
 
 	protected function init(): void {

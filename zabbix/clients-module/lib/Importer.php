@@ -28,7 +28,11 @@ class Importer {
 		$this->roles = $spec->roles();
 	}
 
-	/** The plan for parsed files (Csv::parse / Csv::parseServers; either may be null). */
+	/**
+	 * The plan for parsed files (Csv::parse / Csv::parseServers, or the workbook's sheets through
+	 * Workbook::parse, which hands over the same structures; either may be null). Their 'file'
+	 * names the source in messages.
+	 */
 	public function analyze(?array $clients, ?array $servers): array {
 		$plan = ['rows' => [], 'errors' => [], 'ignored' => []];
 		foreach ([$clients, $servers] as $p) {
@@ -47,7 +51,7 @@ class Importer {
 			$name = trim((string) ($row['client'] ?? ''));
 			$key = strtolower($name);
 			if ($name !== '' && isset($rows[$key])) {
-				$plan['errors'][] = _s('Client "%1$s" is in clients.csv twice (lines %2$s and %3$s).', $name, $lines[$key], $row['_line']);
+				$plan['errors'][] = _s('Client "%1$s" is in %4$s twice (lines %2$s and %3$s).', $name, $lines[$key], $row['_line'], $clients['file'] ?? 'clients.csv');
 				continue;
 			}
 			$rows[$key] = ['name' => $name, 'row' => $row, 'servers' => null];
@@ -56,7 +60,8 @@ class Importer {
 		foreach ($servers['clients'] ?? [] as $name => $list) {
 			$key = strtolower($name);
 			if (!isset($rows[$key]) && !isset($existing[$name])) {
-				$plan['errors'][] = _s('servers.csv lists servers for "%1$s", which is not a client yet. Add it to clients.csv too.', $name);
+				$plan['errors'][] = _s('%2$s lists servers for "%1$s", which is not a client yet. Add it to %3$s too.', $name, $servers['file'] ?? 'servers.csv',
+					$clients['file'] ?? 'clients.csv');
 				continue;
 			}
 			$rows[$key] = ($rows[$key] ?? ['name' => $name, 'row' => null]) + ['servers' => null];
@@ -80,7 +85,7 @@ class Importer {
 			if ($r['servers'] !== null) {
 				['servers' => $parsed, 'errors' => $serverErrors] = $this->spec->parseServers(json_encode(array_map(
 					fn($s) => array_diff_key($s, ['_line' => 1]), $r['servers'])));
-				$errors = array_merge($errors, array_map(fn($e) => 'servers.csv: '.$e, $serverErrors));
+				$errors = array_merge($errors, array_map(fn($e) => ($servers['file'] ?? 'servers.csv').': '.$e, $serverErrors));
 				$form['servers'] = ClientSpec::encodeServers($parsed);
 			}
 			['client' => $client, 'errors' => $formErrors] = $this->spec->fromForm($form);
