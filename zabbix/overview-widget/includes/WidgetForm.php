@@ -302,7 +302,7 @@ class WidgetForm extends CWidgetForm {
 			->addField((new CWidgetFieldCheckBox('warn_maintenance', null, _('Client in maintenance')))->setDefault(1))
 			// Click-through.
 			->addField((new CWidgetFieldSelect('link_client', _('Client name'), [
-				self::LINK_DASHBOARD => _('Client dashboard (master host)'),
+				self::LINK_DASHBOARD => _('Client dashboard'),
 				self::LINK_ELASTICPRO => _('ElasticPro cluster page'),
 				self::LINK_CLUSTER_MANAGEMENT => _('Cluster Management, this client')
 			]))->setDefault(self::LINK_DASHBOARD))

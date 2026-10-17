@@ -151,12 +151,14 @@ window.EpOverview = {
 				+ (m.window ? `<span class="ep-ov-tag" title="Trend over its own ${e(m.window)}">${e(m.window)}</span>` : '');
 			const trend = cols.map((k) => {
 				const t = m[k];
-				if (!t) return '<td></td>';
-				return `<td class="${t.level ? `ep-ov-tx-${e(t.level)}` : ''}">${e(t.text)}</td>`;
+				const label = k === 'avg' ? `${set.window} avg` : k;
+				if (!t || t.text === '') return `<td class="ep-ov-tcell ep-ov-tempty" data-k="${e(label)}"></td>`;
+				return `<td class="ep-ov-tcell${t.level ? ` ep-ov-tx-${e(t.level)}` : ''}" data-k="${e(label)}">${e(t.text)}</td>`;
 			}).join('');
-			return `<tr><th scope="row">${name}</th><td>${this.now(m)}</td>${trend}</tr>`;
+			return `<tr><th scope="row">${name}</th><td class="ep-ov-ncell" data-k="now">${this.now(m)}</td>${trend}</tr>`;
 		}).join('');
-		return `<table class="ep-ov-metrics"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+		// The wrapper is the last guard: whatever a figure does, the card's border holds.
+		return `<div class="ep-ov-mwrap"><table class="ep-ov-metrics"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 	},
 
 	/** The Now cell in the metric's display: as is, a bar, indicators or a sparkline. */

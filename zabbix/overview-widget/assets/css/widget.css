@@ -16,7 +16,8 @@
 
 /* Cards. */
 .ep-panel .ep-ov-cv .ep-ov-grid { display: grid; gap: 12px; align-items: start; }
-.ep-panel .ep-ov-cv .ep-ov-card { border: 1px solid var(--ep-line); border-radius: 4px; background: var(--ep-bg); display: flex; flex-direction: column; min-width: 0; }
+.ep-panel .ep-ov-cv .ep-ov-card { border: 1px solid var(--ep-line); border-radius: 4px; background: var(--ep-bg); display: flex; flex-direction: column; min-width: 0;
+	container: ep-ov-card / inline-size; overflow-wrap: break-word; }
 .ep-panel .ep-ov-cv .ep-ov-card > * + * { border-top: 1px solid var(--ep-line-2); }
 .ep-panel .ep-ov-cv .ep-ov-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; flex-wrap: wrap; }
 .ep-panel .ep-ov-cv .ep-ov-compact .ep-ov-head { padding: 6px 12px; }
@@ -62,6 +63,27 @@
 .ep-panel .ep-ov-cv .ep-ov-lcd { display: inline-grid; grid-template-columns: repeat(10, 5px); gap: 1px; height: 10px; }
 .ep-panel .ep-ov-cv .ep-ov-lcd i { background: var(--ep-track); border-radius: 1px; }
 .ep-panel .ep-ov-cv .ep-ov-spark { width: 60px; height: 16px; }
+
+.ep-panel .ep-ov-cv .ep-ov-mwrap { max-width: 100%; overflow-x: auto; }
+@container ep-ov-card (max-width: 540px) {
+	.ep-panel .ep-ov-cv .ep-ov-barcell > i, .ep-panel .ep-ov-cv .ep-ov-spark { width: 36px; }
+	.ep-panel .ep-ov-cv .ep-ov-lcd { grid-template-columns: repeat(10, 3px); }
+	.ep-panel .ep-ov-cv .ep-ov-metrics th, .ep-panel .ep-ov-cv .ep-ov-metrics td { padding-left: 4px; padding-right: 4px; }
+}
+
+/* A narrow card (four columns, a small widget): each metric on two lines — its full name, then
+   now and the trend figures each with its own label — so nothing runs past the card's edge. */
+@container ep-ov-card (max-width: 440px) {
+	.ep-panel .ep-ov-cv .ep-ov-metrics, .ep-panel .ep-ov-cv .ep-ov-metrics tbody { display: block; }
+	.ep-panel .ep-ov-cv .ep-ov-metrics thead { display: none; }
+	.ep-panel .ep-ov-cv .ep-ov-metrics tbody tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 5px 12px; }
+	.ep-panel .ep-ov-cv .ep-ov-metrics tbody th, .ep-panel .ep-ov-cv .ep-ov-metrics tbody td { padding: 0 !important; text-align: left; }
+	.ep-panel .ep-ov-cv .ep-ov-metrics tbody th { flex: 1 0 100%; min-width: 0; width: auto; }
+	.ep-panel .ep-ov-cv .ep-ov-metrics tbody td { white-space: nowrap; }
+	.ep-panel .ep-ov-cv .ep-ov-metrics td.ep-ov-tcell::before { content: attr(data-k) " "; color: var(--ep-muted); font-size: 11px; }
+	.ep-panel .ep-ov-cv .ep-ov-metrics td.ep-ov-tempty { display: none; }
+	.ep-panel .ep-ov-cv .ep-ov-barcell { justify-content: flex-start; }
+}
 
 /* Used of allocated. */
 .ep-panel .ep-ov-cv .ep-ov-used { padding: 8px 12px; display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
@@ -152,7 +174,8 @@
 .ep-panel .ep-ov-sv .ep-ov-pie li em { font-style: normal; color: var(--ep-muted); text-align: right; }
 
 /* The widget's settings form (Zabbix's own dialog, outside the panel), tabbed like Zabbix's Graph widget. */
-form.dashboard-widget-ep_overview { width: calc(100vw - 42px); max-width: 1100px; min-width: 760px; }
+/* One width on both tabs: the dialog never resizes when the tab changes. */
+form.dashboard-widget-ep_overview { width: 1000px; max-width: calc(100vw - 42px); min-width: 0; box-sizing: border-box; }
 form.dashboard-widget-ep_overview .form-grid > .ep-ov-tabs { grid-column: 1 / -1; }
 form.dashboard-widget-ep_overview .ep-ov-tabs > .ui-tabs-nav { position: sticky; top: 0; z-index: 3; background: inherit; }
 form.dashboard-widget-ep_overview .ep-ov-tabs.table-forms-container { margin: 0; border: 1px solid rgba(127, 127, 127, .25); border-top: none; padding: 10px; }
@@ -161,8 +184,12 @@ form.dashboard-widget-ep_overview .ep-ov-tabs.table-forms-container { margin: 0;
 .dashboard-widget-ep_overview .ep-ov-tag { font-size: 10px; margin-left: 6px; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; opacity: .75; }
 .dashboard-widget-ep_overview .ep-ov-mono { font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .dashboard-widget-ep_overview .ep-ov-metrics { width: 100%; }
+.dashboard-widget-ep_overview .ep-ov-metrics th, .dashboard-widget-ep_overview .ep-ov-metrics td { padding: 4px 12px 4px 0; vertical-align: middle; }
 .dashboard-widget-ep_overview .ep-ov-clients { max-height: 132px; overflow-y: auto; padding: 4px 0; }
-.dashboard-widget-ep_overview .ep-ov-sortlist td { padding: 2px 6px 2px 0; }
-.dashboard-widget-ep_overview .ep-ov-layout fieldset { margin: 0 0 12px; }
+.dashboard-widget-ep_overview .ep-ov-sortlist td { padding: 2px 6px 2px 0; vertical-align: middle; line-height: 24px; }
+.dashboard-widget-ep_overview .ep-ov-sortlist td.td-drag-icon { padding-top: 4px; }
+.dashboard-widget-ep_overview .ep-ov-sortlist td.td-drag-icon .drag-icon { vertical-align: middle; }
+.dashboard-widget-ep_overview .ep-ov-layout fieldset { margin: 0 0 18px; padding-bottom: 6px; }
+.dashboard-widget-ep_overview .ep-ov-layout legend { margin-bottom: 8px; }
 .dashboard-widget-ep_overview .ep-ov-layout legend span { font-weight: bold; }
 .ep-ov-metric-form .ep-ov-inline { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }

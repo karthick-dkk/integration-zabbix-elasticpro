@@ -74,7 +74,7 @@ test('one card per client with the default sections in order, and no summary bar
   assert.equal(body.querySelectorAll('.ep-ov-card').length, 2);
   assert.ok(!body.querySelector('.ep-ov-summary'), 'the summary bar is off by default');
   const kids = [...card(body, 'acme').children].map((el) => el.className.split(' ')[0]);
-  assert.deepEqual(kids, ['ep-ov-head', 'ep-ov-probs', 'ep-ov-metrics', 'ep-ov-used', 'ep-ov-roles', 'ep-ov-warn']);
+  assert.deepEqual(kids, ['ep-ov-head', 'ep-ov-probs', 'ep-ov-mwrap', 'ep-ov-used', 'ep-ov-roles', 'ep-ov-warn']);
   assert.match(body.querySelector('.ep-ov-grid').getAttribute('style'), /minmax\(min\(100%, 340px\), 1fr\)/, 'Auto columns at the card width');
 });
 
@@ -84,7 +84,7 @@ test('the sections the widget turns on, in its order; columns; the summary bar',
   assert.ok(body.querySelector('.ep-ov-summary'));
   assert.match(body.querySelector('.ep-ov-summary').textContent, /1 down/);
   const kids = [...card(body, 'acme').children].map((el) => el.className.split(' ')[0]);
-  assert.deepEqual(kids, ['ep-ov-head', 'ep-ov-warn', 'ep-ov-metrics'], 'the name stays; the rest as ordered');
+  assert.deepEqual(kids, ['ep-ov-head', 'ep-ov-warn', 'ep-ov-mwrap'], 'the name stays; the rest as ordered');
   assert.ok(!card(body, 'acme').querySelector('.ep-pill'), 'card header off: no type, no contract badge');
   assert.match(body.querySelector('.ep-ov-grid').getAttribute('style'), /repeat\(3, minmax\(0, 1fr\)\)/);
 });
@@ -134,6 +134,9 @@ test('metrics: level colour, custom tag, stale and partial marks, "not collected
   assert.equal(nc.textContent, 'not collected');
   assert.match(nc.getAttribute('title'), /add the item no\.such\.key/);
   assert.ok(![...rows[2].querySelectorAll('td')].some((td) => /^0/.test(td.textContent.trim())), 'no 0 anywhere for it');
+  // Each cell says what it is, for the two-line layout of a narrow card.
+  assert.deepEqual([...rows[0].querySelectorAll('td')].map((td) => td.dataset.k), ['now', '7d avg', 'min', 'max']);
+  assert.ok([...rows[2].querySelectorAll('td.ep-ov-tcell')].every((td) => td.classList.contains('ep-ov-tempty')), 'empty trend cells drop out there');
 });
 
 test('metric displays: bar, indicators and sparkline', (t) => {

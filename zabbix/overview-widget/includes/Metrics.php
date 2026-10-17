@@ -328,6 +328,7 @@ class Metrics {
 				$m['thresholds'][] = ['level' => $level, 'color' => $color, 'value' => $v];
 			}
 			usort($m['thresholds'], fn($a, $b) => (float) $a['value'] <=> (float) $b['value']);
+			$e = array_merge($e, self::orderErrors($m['thresholds'], $m['worse']));
 		}
 
 		$m['nodata'] = $int('nodata', [self::NODATA_SHOW, self::NODATA_HIDE]);
@@ -340,6 +341,32 @@ class Metrics {
 		$m['click'] = $int('click', [self::CLICK_GRAPH, self::CLICK_LATEST, self::CLICK_NONE]);
 
 		return [$m, array_values(array_unique($e))];
+	}
+
+	/**
+	 * Warn and High on the right sides of each other: worse when higher, every Warn below every
+	 * High; worse when lower, every Warn above every High. Otherwise Warn would never show, or
+	 * High would colour values that are better than Warn.
+	 */
+	public static function orderErrors(array $thresholds, int $worse): array {
+		$warn = array_map(fn($t) => (float) $t['value'], array_filter($thresholds, fn($t) => (int) $t['level'] === self::LEVEL_WARN));
+		$high = array_map(fn($t) => (float) $t['value'], array_filter($thresholds, fn($t) => (int) $t['level'] === self::LEVEL_HIGH));
+		if (!$warn || !$high) {
+			return [];
+		}
+		if ($worse === self::WORSE_LOWER) {
+			return min($warn) > max($high) ? [] : [_s('Warn (%1$s) must be above High (%2$s) when lower is worse.', self::num(min($warn)), self::num(max($high)))];
+		}
+		return max($warn) < min($high) ? [] : [_s('Warn (%1$s) must be below High (%2$s) when higher is worse.', self::num(max($warn)), self::num(min($high)))];
+	}
+
+	/**
+	 * A metric's errors as the editor and the form show them: each one naming the metric, so a
+	 * message is never just "Threshold 1 needs a number." with twenty metrics to look through.
+	 */
+	public static function named(array $errors, string $name, int $position = 0): array {
+		$label = trim($name) !== '' ? trim($name) : ($position > 0 ? '#'.$position : _('New metric'));
+		return array_map(fn($one) => _s('Metric "%1$s": %2$s', $label, $one), $errors);
 	}
 
 	/**

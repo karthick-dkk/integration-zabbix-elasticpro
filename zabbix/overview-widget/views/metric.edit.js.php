@@ -63,6 +63,9 @@ window.ep_overview_metric_form = new class {
 			if (e.target.name === 'builtin') {
 				this._prefill();
 			}
+			if (e.target.name === 'source') {
+				this._sourceChanged();
+			}
 			this._update();
 		}, {capture: true});
 		this._form.querySelector('[name="builtin"]').addEventListener('change', () => { this._prefill(); this._update(); });
@@ -70,9 +73,11 @@ window.ep_overview_metric_form = new class {
 
 		this._$form.on('process.form', (e, overlay) => this._submit(overlay));
 
-		if (this._form.querySelector('[name="name"]').value === '') {
-			this._prefill();
+		// What the user types is theirs; what the editor filled in from a built-in is not.
+		for (const name of ['name', 'units']) {
+			this._form.querySelector(`[name="${name}"]`).addEventListener('input', (e) => delete e.target.dataset.epAuto);
 		}
+		this._source = this._val('source');
 		this._update();
 		this._form.style.display = '';
 		this._form.querySelector('[name="name"]').focus();
@@ -105,6 +110,34 @@ window.ep_overview_metric_form = new class {
 		}
 	}
 
+	/**
+	 * Switching to a Zabbix item clears the name and units a built-in filled in (not what was
+	 * typed); switching back to a built-in fills them from it again.
+	 */
+	_sourceChanged() {
+		const source = this._val('source');
+		if (source === this._source) {
+			return;
+		}
+		this._source = source;
+		const name = this._form.querySelector('[name="name"]');
+		const units = this._form.querySelector('[name="units"]');
+		if (source === '<?= Metrics::SOURCE_ITEM ?>') {
+			const isLabel = Object.values(this._catalogue).some((c) => c.label === name.value);
+			if (name.dataset.epAuto === '1' || isLabel) {
+				name.value = '';
+				delete name.dataset.epAuto;
+			}
+			if (units.dataset.epAuto === '1') {
+				units.value = '';
+				delete units.dataset.epAuto;
+			}
+		}
+		else {
+			this._prefill();
+		}
+	}
+
 	_update() {
 		const builtin = this._val('source') === '<?= Metrics::SOURCE_BUILTIN ?>';
 		const b = builtin ? this._builtin() : null;
@@ -122,6 +155,7 @@ window.ep_overview_metric_form = new class {
 		units.readOnly = builtin;
 		if (b !== null) {
 			units.value = b.units;
+			units.dataset.epAuto = '1';
 		}
 		const dec = this._decimals[units.value === '%' ? '%' : (units.value === '' ? '' : 'B')];
 		this._form.querySelector('[name="decimals"]').placeholder = <?= json_encode(_('Settings')) ?> + (dec !== undefined ? `: ${dec}` : '');
@@ -170,6 +204,11 @@ window.ep_overview_metric_form = new class {
 		}
 		if (this._val('window_own') !== '1') {
 			fields.window = '0';
+		}
+		// A built-in left unnamed is called what it is.
+		const b = this._val('source') === '<?= Metrics::SOURCE_BUILTIN ?>' ? this._builtin() : null;
+		if ((fields.name || '') === '' && b !== null) {
+			fields.name = b.label;
 		}
 		if (!('worse' in fields)) {
 			fields.worse = '<?= Metrics::WORSE_HIGHER ?>';

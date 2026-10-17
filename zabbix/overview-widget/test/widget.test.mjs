@@ -81,10 +81,24 @@ test('the Summary view is the 2.0 widget restored, with its own scoped styles', 
   assert.ok(php.includes('private function summary(array $clients)') && php.includes('ClientData::classify('), 'the 2.0 controller path, on ClientData');
 });
 
-test('metric names are never cut in the cards', () => {
+test('metric names are never cut in the cards, and a narrow card keeps its content inside', () => {
   const css = read('assets/css/widget.css');
+  assert.match(css, /container: ep-ov-card \/ inline-size/);
+  assert.match(css, /@container ep-ov-card \(max-width: 440px\)[\s\S]*?thead \{ display: none; \}/);
+  assert.match(css, /\.ep-ov-mwrap \{ max-width: 100%; overflow-x: auto; \}/);
   const rule = css.split('\n').find((l) => l.startsWith('.ep-panel .ep-ov-cv .ep-ov-metrics tbody th {'));
   assert.ok(rule && /white-space: normal/.test(rule) && /min-width: 16ch/.test(rule) && !/ellipsis/.test(rule), rule);
+});
+
+test('the edit dialog: one width on both tabs, a live Clients hint, and the editor clears what a built-in filled in', () => {
+  assert.match(read('assets/css/widget.css'), /form\.dashboard-widget-ep_overview \{ width: 1000px;/);
+  const js = read('views/widget.edit.js.php');
+  assert.ok(js.includes("getElementById('ep_ov_clients_note')") && js.includes("e.target.name === 'clients[]'"));
+  const ed = read('views/metric.edit.js.php');
+  assert.ok(ed.includes('_sourceChanged()') && ed.includes("delete e.target.dataset.epAuto"));
+  assert.ok(!/if \(this\._form\.querySelector\('\[name="name"\]'\)\.value === ''\) \{\s*this\._prefill\(\);/.test(ed), 'Add opens with an empty name');
+  assert.ok(read('includes/WidgetForm.php').includes("_('Client dashboard')"));
+  assert.ok(read('actions/MetricEdit.php').includes('Metrics::named('), 'the editor names the metric in its errors');
 });
 
 test('links go to real Zabbix 7.0 pages', () => {

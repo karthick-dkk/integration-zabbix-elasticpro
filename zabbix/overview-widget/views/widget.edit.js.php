@@ -51,7 +51,7 @@ window.widget_ep_overview_form = new class {
 		}
 
 		this._form.addEventListener('change', (e) => {
-			if (e.target.name === 'trend_source' || e.target.name === 'view') {
+			if (e.target.name === 'trend_source' || e.target.name === 'view' || e.target.name === 'clients[]') {
 				this._update();
 			}
 		});
@@ -59,6 +59,16 @@ window.widget_ep_overview_form = new class {
 	}
 
 	_update() {
+		// The Clients hint says what is picked, as it is ticked.
+		const note = document.getElementById('ep_ov_clients_note');
+		if (note !== null) {
+			const boxes = this._form.querySelectorAll('.ep-ov-clients input[type="checkbox"]');
+			const picked = [...boxes].filter((box) => box.checked).length;
+			note.textContent = picked > 0
+				? (picked === 1 ? <?= json_encode(_('%1$s client picked')) ?> : <?= json_encode(_('%1$s clients picked')) ?>).replace('%1$s', picked)
+				: <?= json_encode(_('All clients · tick to pick from %1$s')) ?>.replace('%1$s', boxes.length);
+		}
+
 		// Each view's own settings show while that view is chosen.
 		const view = this._form.querySelector('[name="view"]:checked');
 		const summary = view !== null && view.value === '<?= WidgetForm::VIEW_SUMMARY ?>';

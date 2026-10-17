@@ -600,6 +600,27 @@ namespace Modules\EpOverview\Test {
 	[$m, $e] = $metric(['source' => 2, 'key' => 'k', 'thresholds' => [['level' => 1, 'value' => '-1e12']]]);
 	check('…while -1e12 is a number', $e === [], $e);
 
+
+	/* -------------------------------- browser QA fixes -------------------------------- */
+
+	$own = fn($worse, $w, $h) => $metric(['name' => 'Ingest', 'source' => 2, 'key' => 'k', 'worse' => $worse, 'use_settings' => 0,
+		'thresholds' => [['level' => 1, 'value' => $w], ['level' => 2, 'value' => $h]]]);
+	[, $e] = $own(Metrics::WORSE_HIGHER, '90', '80');
+	check('higher is worse: Warn 90 above High 80 is refused', $e === ['Warn (90) must be below High (80) when higher is worse.'], $e);
+	[, $e] = $own(Metrics::WORSE_HIGHER, '80', '90');
+	check('…Warn 80 below High 90 is fine', $e === [], $e);
+	[, $e] = $own(Metrics::WORSE_LOWER, '1000', '5000');
+	check('lower is worse: Warn 1000 below High 5000 is refused', $e === ['Warn (1000) must be above High (5000) when lower is worse.'], $e);
+	[, $e] = $own(Metrics::WORSE_LOWER, '5000', '1000');
+	check('…Warn 5000 above High 1000 is fine', $e === [], $e);
+	[, $e] = CWidgetFieldMetrics::cleanList([['name' => 'Ingest', 'source' => 2, 'key' => 'k', 'use_settings' => 0,
+		'thresholds' => [['level' => 1, 'value' => '90'], ['level' => 2, 'value' => '80']]]], $cat, $roleIds, true);
+	check('…and refused on Apply, naming the metric', $e === ['Metric "Ingest": Warn (90) must be below High (80) when higher is worse.'], $e);
+	[, $e] = $metric(['name' => 'ES CPU', 'source' => 1, 'builtin' => 'fam.es.cpu', 'use_settings' => 1, 'warn' => '95', 'high' => '90']);
+	check('every editor error names its metric', Metrics::named($e, 'ES CPU') === ['Metric "ES CPU": Warn must not be above High.'], Metrics::named($e, 'ES CPU'));
+	check('…a metric with no name yet is "New metric", or its place in the list', Metrics::named(['Item key cannot be empty.'], '')[0] === 'Metric "New metric": Item key cannot be empty.'
+		&& Metrics::named(['x'], '', 3)[0] === 'Metric "#3": x');
+
 	foreach (array_diff(scandir($dir), ['.', '..']) as $f) {
 		unlink($dir.'/'.$f);
 	}

@@ -75,10 +75,7 @@ class CWidgetFieldMetrics extends CWidgetField {
 
 			if ($e) {
 				if ($strict) {
-					$label = trim((string) ($m['name'] ?? '')) !== '' ? (string) $m['name'] : '#'.($i + 1);
-					foreach ($e as $one) {
-						$errors[] = _s('Metric "%1$s": %2$s', $label, $one);
-					}
+					$errors = array_merge($errors, Metrics::named($e, is_scalar($m['name'] ?? null) ? (string) $m['name'] : '', $i + 1));
 				}
 				continue;
 			}

@@ -66,7 +66,8 @@ class MetricEdit extends CController {
 			unset($input['update'], $input['edit'], $input['templateid'], $input['trend_days'], $input['stale_after']);
 			[$metric, $errors] = Metrics::clean($input, $catalogue, $roleIds);
 			if ($errors) {
-				$this->json(['error' => ['title' => _('Cannot update metric'), 'messages' => $errors]]);
+				$this->json(['error' => ['title' => _('Cannot update metric'),
+					'messages' => Metrics::named($errors, is_scalar($input['name'] ?? null) ? (string) $input['name'] : '')]]);
 				return;
 			}
 			$this->json($metric + ($edit ? ['edit' => 1] : []));
