@@ -38,6 +38,21 @@ class WidgetView extends CControllerDashboardWidgetView {
 	/** Under this, a window is read from history: trends are hourly. */
 	private const HISTORY_UNDER = 7200;
 
+	/** History is combined across servers in buckets of this many seconds. */
+	private const HISTORY_BUCKET = 60;
+
+	/** The most items one pattern item.get may return. */
+	private const PATTERN_LIMIT = 10000;
+
+	/** A graph link holds at most this many items; more open Latest data instead. */
+	private const GRAPH_ITEMS = 30;
+
+	/** The Summary view's panels, all on unless the widget turns one off. */
+	public const SUMMARY_PANELS = ['summary', 'used', 'roles'];
+
+	/** Patterns whose item.get hit its limit: their figures may be short of items. */
+	private array $patternCapped = [];
+
 	private const SEVERITY_DEFAULTS = [
 		0 => ['Not classified', '97AAB3'], 1 => ['Information', '7499FF'], 2 => ['Warning', 'FFC859'],
 		3 => ['Average', 'FFA059'], 4 => ['High', 'E97659'], 5 => ['Disaster', 'E45959']
@@ -71,7 +86,9 @@ class WidgetView extends CControllerDashboardWidgetView {
 	private function overview(): array {
 		$f = $this->f;
 		$hideInactive = (int) ($f['hide_inactive'] ?? 1) === 1;
-		[$masters, $clients, $error] = ClientData::clients($this->cfg, $f['groupids'] ?? [], !$hideInactive);
+		// The Summary view lists clients as it always did: never the decommissioned ones.
+		$summary = (int) ($f['view'] ?? WidgetForm::VIEW_CARDS) === WidgetForm::VIEW_SUMMARY;
+		[$masters, $clients, $error] = ClientData::clients($this->cfg, $f['groupids'] ?? [], !$hideInactive && !$summary);
 		if ($error !== null) {
 			throw new OverviewError($error);
 		}
@@ -88,6 +105,9 @@ class WidgetView extends CControllerDashboardWidgetView {
 				: _('None of the clients this widget names is here. Check the names in ElasticPro → Clients, or change the Clients setting.'));
 		}
 		$clients = $picked;
+		if ($summary) {
+			return $this->summary($clients);
+		}
 
 		$metrics = $f['metrics'] ?? [];
 		$catalogue = Metrics::catalogue($this->roles);
@@ -174,9 +194,10 @@ class WidgetView extends CControllerDashboardWidgetView {
 		unset($r);
 
 		return [
+			'view' => 'cards',
 			'clients' => $rows,
 			'total' => $total,
-			'summary' => $this->summary($rows, $severities),
+			'summary' => $this->totals($rows, $severities),
 			'metrics' => array_map(fn($m) => ['uid' => $m['uid'], 'name' => $m['name']], $metrics),
 			'settings' => $this->settings($wLabel, $measure, $severities)
 		];
@@ -215,9 +236,14 @@ class WidgetView extends CControllerDashboardWidgetView {
 		return $out;
 	}
 
-	/** The items one metric reads for one client, as found. */
-	private function matched(array $target, array $items): array {
+	/**
+	 * The items one metric reads for one client, as found. A pattern brings in at most
+	 * Metrics::PATTERN_PER_HOST items per host and PATTERN_PER_METRIC in all; $capped says when
+	 * it would have brought more (or the item.get itself hit its limit).
+	 */
+	private function matched(array $target, array $items, ?bool &$capped = null): array {
 		$out = [];
+		$capped = false;
 		foreach ($target['want'] as [$hostid, $key, $pattern]) {
 			if (!$pattern) {
 				if (isset($items[$hostid][$key])) {
@@ -225,10 +251,20 @@ class WidgetView extends CControllerDashboardWidgetView {
 				}
 				continue;
 			}
+			$n = 0;
 			foreach ($items[$hostid] ?? [] as $k => $it) {
-				if (Metrics::keyMatches((string) $k, $key, true)) {
-					$out[$it['itemid']] = $it;
+				if (!Metrics::keyMatches((string) $k, $key, true)) {
+					continue;
 				}
+				if ($n >= Metrics::PATTERN_PER_HOST || count($out) >= Metrics::PATTERN_PER_METRIC) {
+					$capped = true;
+					break;
+				}
+				$out[$it['itemid']] = $it;
+				$n++;
+			}
+			if (isset($this->patternCapped[$key])) {
+				$capped = true;
 			}
 		}
 		return array_values($out);
@@ -251,9 +287,15 @@ class WidgetView extends CControllerDashboardWidgetView {
 			$index(API::Item()->get(['output' => $output, 'hostids' => $hostids, 'filter' => ['key_' => array_keys($exact)]]), $exact);
 		}
 		if ($patterns) {
+			// Every pattern starts with a literal prefix (Metrics::keyError), so the search is anchored
+			// at the start; the limit keeps one careless pattern from pulling every item there is.
 			$hostids = array_keys(array_replace(...array_values($patterns)));
+			$limit = min(self::PATTERN_LIMIT, max(1, count($hostids)) * Metrics::PATTERN_PER_HOST * count($patterns));
 			$rows = API::Item()->get(['output' => $output, 'hostids' => $hostids, 'search' => ['key_' => array_keys($patterns)],
-				'searchByAny' => true, 'searchWildcardsEnabled' => true]);
+				'searchByAny' => true, 'searchWildcardsEnabled' => true, 'startSearch' => true, 'limit' => $limit]) ?: [];
+			if (count($rows) >= $limit) {
+				$this->patternCapped = array_fill_keys(array_keys($patterns), true);
+			}
 			foreach ($rows ?: [] as $it) {
 				foreach ($patterns as $p => $hosts) {
 					if (isset($hosts[$it['hostid']]) && Metrics::keyMatches($it['key_'], $p, true)) {
@@ -284,7 +326,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 	/**
 	 * Every item's points in its window: clock => [avg, min, max]. One trend.get for all of
 	 * them; items whose window is under two hours come from history instead (trends are hourly),
-	 * one history.get per value type.
+	 * one history.get per value type, put in one-minute buckets (each item's last value in each)
+	 * so servers polled seconds apart are combined, not counted one at a time.
 	 */
 	private function series(array $want): array {
 		$out = [];
@@ -308,9 +351,12 @@ class WidgetView extends CControllerDashboardWidgetView {
 		foreach ($history as $type => $ws) {
 			$rows = API::History()->get(['output' => ['itemid', 'clock', 'value'], 'history' => $type, 'itemids' => array_keys($ws),
 				'time_from' => min(array_column($ws, 'from')), 'time_till' => max(array_column($ws, 'till')), 'sortfield' => 'clock']);
+			$byItem = [];
 			foreach ($rows ?: [] as $r) {
-				$v = (float) $r['value'];
-				$out[$r['itemid']][(int) $r['clock']] = [$v, $v, $v];
+				$byItem[$r['itemid']][] = [(int) $r['clock'], $r['value']];
+			}
+			foreach ($byItem as $itemid => $points) {
+				$out[$itemid] = Overview::bucket($points, self::HISTORY_BUCKET);
 			}
 		}
 		return $out;
@@ -390,17 +436,20 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$rows = [];
 		foreach ($metrics as $m) {
 			$target = $plan[$m['uid']] ?? ['want' => [], 'on' => Metrics::ON_SERVERS, 'servers' => 0];
-			$found = $this->matched($target, $items);
+			$found = $this->matched($target, $items, $capped);
 			$usage = Settings::usageFor($c['macros'], $m['warn'] === '' ? Settings::INHERIT : $m['warn'],
 				$m['high'] === '' ? Settings::INHERIT : $m['high'], $this->cfg);
 			$levelOf = fn(?float $v) => Overview::level($v, $m, $usage);
 			$overWarn = fn(float $v) => $levelOf($v)['level'] !== '';
 			$master = $target['on'] === Metrics::ON_MASTER;
+			$count = !$master && (int) $m['combine'] === Metrics::COMBINE_COUNT;
+			$lower = (int) $m['worse'] === Metrics::WORSE_LOWER;
 			$fn = $master ? Metrics::COMBINE_MAX : (int) $m['combine'];
-			$numeric = array_filter($found, fn($it) => in_array((int) $it['value_type'], [0, 3], true));
-			$values = array_map([self::class, 'value'], $numeric);
-			$now = Overview::combine($values, $fn, $overWarn);
-			$fromServers = count(array_unique(array_map(fn($it) => $it['hostid'], array_filter($numeric, fn($it) => self::value($it) !== null))));
+			$numeric = array_values(array_filter($found, fn($it) => in_array((int) $it['value_type'], [0, 3], true)));
+			// One value per server first — its worst item — then the servers combined.
+			$hostValues = Overview::perHost(array_map(fn($it) => [$it['hostid'], self::value($it)], $numeric), $lower);
+			$now = Overview::combine(array_values($hostValues), $fn, $overWarn);
+			$fromServers = count(array_filter($hostValues, fn($v) => $v !== null));
 			$newest = $numeric ? max(array_map(fn($it) => (int) $it['lastclock'], $numeric)) : 0;
 			$staleMin = $m['stale'] === '' ? $staleWidget : (int) $m['stale'];
 			$stale = $now !== null && $newest > 0 && $this->now - $newest > $staleMin * 60;
@@ -420,14 +469,28 @@ class WidgetView extends CControllerDashboardWidgetView {
 					continue;
 				}
 			}
-			$lv = $levelOf($now);
+			// A count is never held against the per-server thresholds it counts with: it takes the
+			// level of its worst server (any server at High: high; at Warn: warn; none: no colour).
+			if ($count) {
+				$levels = array_map(fn($v) => $levelOf($v)['level'], array_filter($hostValues, fn($v) => $v !== null));
+				$lv = ['level' => in_array('high', $levels, true) ? 'high' : (in_array('warn', $levels, true) ? 'warn' : ''), 'color' => null];
+			}
+			else {
+				$lv = $levelOf($now);
+			}
 			if ($lv['level'] !== '') {
 				$over = true;
 			}
 
-			// The trend: the metric's own window, or the widget's.
+			// The trend: the metric's own window, or the widget's; each server's items made one series first.
 			[$from, $till] = $m['window'] > 0 ? [$this->now - $m['window'] * 86400, $this->now] : $window;
-			$trend = Overview::trend(array_intersect_key($series, array_flip(array_column($numeric, 'itemid'))), $fn, $from, $till, $overWarn);
+			$byHost = [];
+			foreach ($numeric as $it) {
+				if (isset($series[$it['itemid']])) {
+					$byHost[$it['hostid']][$it['itemid']] = $series[$it['itemid']];
+				}
+			}
+			$trend = Overview::trend(Overview::hostSeries($byHost, $lower), $fn, $from, $till, $overWarn);
 			$sort['m:'.$m['uid'].':now'] = $now;
 			$sort['m:'.$m['uid'].':max'] = $trend['max'] ?? null;
 
@@ -443,7 +506,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 			foreach (['avg', 'min', 'max'] as $k) {
 				if ($m['trend_'.$k]) {
 					$v = $trend[$k] ?? null;
-					$row[$k] = ['text' => $trend === null ? ($now === null ? '' : _('no trend')) : $fmt($v), 'level' => $levelOf($v)['level']];
+					$row[$k] = ['text' => $trend === null ? ($now === null ? '' : _('no trend')) : $fmt($v), 'level' => $count ? '' : $levelOf($v)['level']];
 				}
 			}
 			if ((int) $m['display'] === Metrics::DISPLAY_SPARKLINE && $trend !== null) {
@@ -461,6 +524,11 @@ class WidgetView extends CControllerDashboardWidgetView {
 			if ($row['partial'] !== null && $warnNodata) {
 				$warnings[] = ['level' => 'info', 'text' => _s('%1$s is from %2$s of %3$s servers — the others do not report it', $m['name'],
 					$row['partial'][0], $row['partial'][1])];
+			}
+			if ($capped) {
+				$row['capped'] = true;
+				$warnings[] = ['level' => 'warn', 'text' => _s('%1$s: the key pattern matches more items than are read (%2$s per server, %3$s in all) — make it narrower',
+					$m['name'], Metrics::PATTERN_PER_HOST, Metrics::PATTERN_PER_METRIC)];
 			}
 			$row['url'] = $this->metricUrl((int) $m['click'], array_column($numeric, 'itemid'), array_unique(array_column($found, 'hostid')));
 			$rows[] = $row;
@@ -658,6 +726,10 @@ class WidgetView extends CControllerDashboardWidgetView {
 	}
 
 	private function metricUrl(int $click, array $itemids, array $hostids): ?string {
+		// A graph of every item a wide pattern found would be an address too long to open: Latest data instead.
+		if ($click === Metrics::CLICK_GRAPH && count($itemids) > self::GRAPH_ITEMS) {
+			$click = Metrics::CLICK_LATEST;
+		}
 		if ($click === Metrics::CLICK_GRAPH && $itemids) {
 			return count($itemids) === 1
 				? Overview::url('history.php', ['action' => 'showgraph', 'itemids' => array_values($itemids)])
@@ -692,7 +764,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 	}
 
 	/** Totals across the clients shown, for the summary bar. */
-	private function summary(array $rows, array $severities): array {
+	private function totals(array $rows, array $severities): array {
 		$sev = array_fill_keys($severities, 0);
 		foreach ($rows as $r) {
 			foreach ($r['problems'] as $p) {
@@ -737,6 +809,93 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'roles_servers' => (int) ($f['roles_servers'] ?? WidgetForm::SERVERS_COUNT),
 			'down_red' => (int) ($f['down_red'] ?? 1) === 1,
 			'types' => Settings::types($this->cfg)['all']
+		];
+	}
+
+	/* ------------------------------------ Summary view ------------------------------------ */
+
+	/**
+	 * The Summary view: the widget as it was before 2.1 — a card per client (servers up and down,
+	 * devices, the chosen family's CPU and memory, ES storage), Used of allocated and Servers by
+	 * role, or one client's tiles and gauges when the widget names exactly one client. Drawn by
+	 * ep-overview-summary.js, the 2.0 code restored. Figures and classes come from ClientData and
+	 * Settings::usageFor, as in every other ElasticPro report.
+	 */
+	private function summary(array $clients): array {
+		$roles = $this->roles;
+		$f = $this->f;
+		$family = 'es';
+		foreach ($roles['families'] as $fam) {
+			if ($fam['id'] === (string) ($f['summary_family'] ?? 'es')) {
+				$family = $fam['id'];
+			}
+		}
+		// The master hosts' figures the panels read: storage, devices, every family's servers, CPU, memory.
+		$keys = ['ep.es.storage.purchased', 'ep.es.storage.allocated', 'ep.es.storage.used', 'ep.es.storage.usage', 'ep.devices.purchased', 'ep.devices.seen'];
+		foreach ($roles['families'] as $fam) {
+			foreach (['servers', 'cpu', 'mem'] as $res) {
+				foreach (['requested', 'allocated', 'usage'] as $kind) {
+					$keys[] = 'ep.'.$fam['id'].'.'.$res.'.'.$kind;
+				}
+			}
+		}
+		$values = [];
+		if ($clients) {
+			foreach (API::Item()->get(['output' => ['hostid', 'key_', 'lastvalue', 'lastclock', 'state'], 'hostids' => array_keys($clients),
+					'filter' => ['key_' => $keys]]) ?: [] as $it) {
+				$values[$it['hostid']][$it['key_']] = ClientData::known($it) ? (float) $it['lastvalue'] : null;
+			}
+		}
+		$servers = ClientData::servers($roles, $clients);
+		$warnOverride = ($f['summary_warn'] ?? '') === '' ? Settings::INHERIT : $f['summary_warn'];
+		$highOverride = ($f['summary_high'] ?? '') === '' ? Settings::INHERIT : $f['summary_high'];
+		$out = [];
+		foreach ($clients as $hostid => $client) {
+			['warn' => $warn, 'high' => $high] = Settings::usageFor($client['macros'], $warnOverride, $highOverride, $this->cfg);
+			$srv = array_map(fn($s) => ClientData::classify($s, $warn, $high), $servers[$client['name']] ?? []);
+			$out[] = $this->summaryClient($client, $values[$hostid] ?? [], $srv, $warn, $high);
+		}
+		usort($out, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
+		$panels = $f['summary_panels'] ?? self::SUMMARY_PANELS;
+		return [
+			'view' => 'summary',
+			'families' => array_map(fn($fam) => ['id' => $fam['id'], 'label' => $fam['label']], $roles['families']),
+			'clients' => $out,
+			'total' => count($out),
+			'settings' => [
+				// One client named: the view opens on that client's own tiles, as the old Client setting did.
+				'client' => count($f['clients'] ?? []) === 1 && count($out) === 1 ? $out[0]['name'] : '',
+				'family' => $family,
+				'panels' => ['summary' => in_array('summary', $panels, true), 'used' => in_array('used', $panels, true), 'roles' => in_array('roles', $panels, true)],
+				'types' => Settings::types($this->cfg)['all']
+			]
+		];
+	}
+
+	/** One client for the Summary view: raw figures with the colour class each was given. */
+	private function summaryClient(array $client, array $v, array $srv, float $warn, float $high): array {
+		$req = fn($k) => isset($v[$k]) && $v[$k] !== null && $v[$k] > 0 ? $v[$k] : null;
+		$num = fn($k) => $v[$k] ?? null;
+		$cls = fn($x) => ClientData::usageClass($x, $warn, $high);
+		$fam = [];
+		foreach ($this->roles['families'] as $f) {
+			$k = fn($res, $kind) => 'ep.'.$f['id'].'.'.$res.'.'.$kind;
+			$fam[$f['id']] = [
+				'servers' => ['requested' => $req($k('servers', 'requested')), 'allocated' => $num($k('servers', 'allocated'))],
+				'cpu' => ['requested' => $req($k('cpu', 'requested')), 'allocated' => $num($k('cpu', 'allocated')), 'usage' => $num($k('cpu', 'usage')),
+					'class' => $cls($num($k('cpu', 'usage')))],
+				'mem' => ['requested' => $req($k('mem', 'requested')), 'allocated' => $num($k('mem', 'allocated')), 'usage' => $num($k('mem', 'usage')),
+					'class' => $cls($num($k('mem', 'usage')))]
+			];
+		}
+		return [
+			'name' => $client['name'], 'type' => $client['type'], 'badge' => $client['badge'], 'warn' => $warn, 'high' => $high,
+			'devices' => ['purchased' => $req('ep.devices.purchased'), 'seen' => $num('ep.devices.seen')],
+			'storage' => ['purchased' => $req('ep.es.storage.purchased'), 'allocated' => $num('ep.es.storage.allocated'),
+				'used' => $num('ep.es.storage.used'), 'usage' => $num('ep.es.storage.usage'), 'class' => $cls($num('ep.es.storage.usage'))],
+			'families' => $fam,
+			'servers' => array_map(fn($s) => ['host' => $s['host'], 'hostid' => $s['hostid'], 'roles' => array_values(array_filter(array_map('trim', explode('+', $s['role'])))),
+				'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'], 'classes' => $s['classes']], $srv)
 		];
 	}
 }

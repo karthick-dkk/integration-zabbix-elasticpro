@@ -61,6 +61,7 @@ namespace {
 	 */
 	class FakeApi {
 		public static array $calls = [];
+		public static array $options = [];
 		private $what;
 		public function __construct($what) { $this->what = $what; }
 
@@ -80,6 +81,9 @@ namespace {
 				[102, 'ep.es.cpu.usage', 35, 60], [102, 'ep.es.storage.used', 300 * 1073741824, 60],
 				[104, 'ep.es.cpu.usage', 5, 60]
 			];
+			for ($n = 0; $n < 60; $n++) {
+				$rows[] = [201, 'es.many['.$n.']', $n, 60];
+			}
 			$out = [];
 			foreach ($rows as $i => [$h, $k, $v, $age]) {
 				$out[] = ['itemid' => (string) ($h * 1000 + $i), 'hostid' => (string) $h, 'key_' => $k, 'name' => $k, 'lastvalue' => (string) $v,
@@ -90,6 +94,7 @@ namespace {
 
 		public function get(array $o) {
 			self::$calls[] = $this->what;
+			self::$options[] = [$this->what, $o];
 			$if = fn($ip, $a) => [['ip' => $ip, 'type' => 1, 'main' => 1, 'available' => $a]];
 			$g = fn(...$n) => array_map(fn($x) => ['name' => $x], $n);
 			$now = time();
@@ -143,7 +148,7 @@ namespace {
 						}
 						$out[] = $it;
 					}
-					return $out;
+					return isset($o['limit']) ? array_slice($out, 0, $o['limit']) : $out;
 				case 'Trend':
 					// Seven days of hourly trend for the items asked, rising slowly: ES storage usage
 					// from 54 % to 61 %, every other item flat at its value with ±5 around it.
@@ -220,6 +225,7 @@ namespace Modules\EpOverview\Test {
 	}
 	function run(array $fields = []): array {
 		\FakeApi::$calls = [];
+		\FakeApi::$options = [];
 		$v = new WidgetView();
 		$v->fields_values = values($fields);
 		$m = new \ReflectionMethod($v, 'doAction');
@@ -336,26 +342,58 @@ namespace Modules\EpOverview\Test {
 	$up = WidgetForm::upgrade(['config_version' => 2, 'trend_source' => '1', 'time_period' => ['_reference' => 'DASHBOARD._timeperiod']], $roles, Settings::all());
 	check('…and not while it is "Last N days", so the dashboard shows no time selector for it', !array_key_exists('time_period', $up));
 
-	// A widget saved before 2.1 draws, unedited, with what it showed.
-	$d = run(['client' => 'KARTHI', 'usage_warn' => '0', 'usage_high' => '0']);
-	check('an old widget naming a client draws that client alone', array_column($d['overview']['clients'], 'name') === ['karthi'], $d['error'] ?? array_column($d['overview']['clients'] ?? [], 'name'));
+	// A widget saved before 2.1 draws, unedited, as it did: the Summary view.
+	$d = run();
+	$ov = $d['overview'];
+	check('a 2.0 widget (host groups only) opens on the Summary view', ($ov['view'] ?? '') === 'summary', $ov['view'] ?? $d['error']);
+	check('…every client but the decommissioned one, disabled ones with their badge, by name', array_column($ov['clients'], 'name') === ['acme', 'dis', 'karthi'],
+		array_column($ov['clients'], 'name'));
 	$k = $byName($d)['karthi'];
-	check('…with ES storage, ES CPU and ES memory, at the Settings thresholds', array_column($k['metrics'], 'uid') === ['storage', 'cpu', 'mem']
-		&& $metricOf($k, 'cpu')['now']['text'] === '95%' && $metricOf($k, 'cpu')['now']['level'] === 'high', $k['metrics']);
+	check('ES CPU with its class at the default thresholds: 95 % high', $k['families']['es']['cpu']['usage'] === 95.0 && $k['families']['es']['cpu']['class'] === 'ep-high'
+		&& $k['families']['es']['cpu']['allocated'] === 16.0, $k['families']['es']['cpu']);
+	check('every family is there, not only ES', $k['families']['parser']['mem']['usage'] === 82.0 && $k['families']['parser']['mem']['class'] === 'ep-warn');
+	check('storage in bytes, with its class', $k['storage']['used'] === 600.0 * 1073741824 && $k['storage']['class'] === '');
+	check('servers with their status and CPU and memory classes', count($k['servers']) === 4 && in_array('down', array_column($k['servers'], 'status'), true)
+		&& isset($k['servers'][0]['classes']['cpu']));
+	check('acme at its own thresholds (30 / 40): 35 % ES CPU is warn', $byName($d)['acme']['families']['es']['cpu']['class'] === 'ep-warn');
+	check('by default every panel, cards for ES, no client chosen', $ov['settings']['panels'] === ['summary' => true, 'used' => true, 'roles' => true]
+		&& $ov['settings']['family'] === 'es' && $ov['settings']['client'] === '');
+	$d = run(['show_used' => 0, 'show_roles' => 0, 'family' => WidgetForm::key('parser'), 'usage_warn' => '96', 'usage_high' => '98']);
+	check('its panels, family and thresholds carry on', $d['overview']['settings']['panels'] === ['summary' => true, 'used' => false, 'roles' => false]
+		&& $d['overview']['settings']['family'] === 'parser' && $byName($d)['karthi']['families']['es']['cpu']['class'] === '', $d['overview']['settings']);
+	$d = run(['client' => 'KARTHI']);
+	check('old Client: that client alone, opened on its own view', array_column($d['overview']['clients'], 'name') === ['karthi'] && $d['overview']['settings']['client'] === 'karthi');
 	$d = run(['client' => 'nobody']);
 	check('a client that is not there is said', strpos((string) $d['error'], 'No client named "nobody"') !== false, $d['error']);
 	$d = run(['client_type' => WidgetForm::key('On-Prem')]);
-	check('old Client type: only that type', array_column($d['overview']['clients'], 'name') === ['acme']);
+	check('old Client type: only that type (dis has none set, so it is the default type, On-Prem)', array_column($d['overview']['clients'], 'name') === ['acme', 'dis']);
+	$up = WidgetForm::upgrade([], $roles, Settings::all());
+	check('a widget being added (no fields at all) starts on Cards', !array_key_exists('view', $up) && count($up['metrics']) === 3);
+	$up = WidgetForm::upgrade(['groupids' => ['5']], $roles, Settings::all());
+	check('a saved 2.0 widget starts on Summary and lists disabled clients as it did', $up['view'] === WidgetForm::VIEW_SUMMARY && $up['hide_inactive'] === 0);
+	// Chosen Cards, the 2.0 widget's cards' figures are the default metrics.
+	$d = run(['client' => 'KARTHI', 'usage_warn' => '0', 'usage_high' => '0', 'view' => 0]);
+	$k = $byName($d)['karthi'];
+	check('Cards for a 2.0 widget: ES storage, ES CPU and ES memory, at the Settings thresholds', array_column($k['metrics'], 'uid') === ['storage', 'cpu', 'mem']
+		&& $metricOf($k, 'cpu')['now']['text'] === '95%' && $metricOf($k, 'cpu')['now']['level'] === 'high', $k['metrics']);
+	foreach ($roles['families'] as $fam) {
+		$up = WidgetForm::upgrade(['family' => (string) WidgetForm::key($fam['id'])], $roles, Settings::all());
+		$keys = array_map(fn($m) => $cat[$m['builtin']]['key'], $up['metrics']);
+		$labels = array_column($up['metrics'], 'name');
+		check("default metrics for the {$fam['label']} family read its own items", $keys === ['ep.es.storage.usage', 'ep.'.$fam['id'].'.cpu.usage', 'ep.'.$fam['id'].'.mem.usage']
+			&& $labels === ['ES storage used', $fam['label'].' CPU', $fam['label'].' memory'], [$keys, $labels]);
+	}
 
 	/* ---------------------------------- the overview ---------------------------------- */
 
-	$d = run();
+	$cards = ['view' => 0];
+	$d = run($cards);
 	$ov = $d['overview'];
 	check('every active client by name; disabled and decommissioned hidden by default', array_column($ov['clients'], 'name') === ['acme', 'karthi'], array_column($ov['clients'], 'name'));
-	$d = run(['hide_inactive' => 0]);
+	$d = run($cards + ['hide_inactive' => 0]);
 	check('…and shown when asked, with their badge', array_column($d['overview']['clients'], 'name') === ['acme', 'dis', 'gone', 'karthi']
 		&& $byName($d)['gone']['badge'] === 'decommissioned' && $byName($d)['dis']['status'] === 'disabled', array_column($d['overview']['clients'], 'badge', 'name'));
-	$d = run(['clients' => ['acme', 'Karthi'], 'client_types' => ['DI']]);
+	$d = run($cards + ['clients' => ['acme', 'Karthi'], 'client_types' => ['DI']]);
 	check('Clients and Client types together', array_column($d['overview']['clients'], 'name') === ['karthi']);
 
 	$custom = ['config_version' => 2, 'metrics' => [
@@ -416,7 +454,7 @@ namespace Modules\EpOverview\Test {
 	$sev = fn($c) => array_column($c['problems'], 'n', 'severity');
 	check('problems by severity: the default count leaves acknowledged and suppressed out', $sev($k) === [5 => 1, 4 => 0, 3 => 0, 2 => 0] && $sev($a) === [5 => 0, 4 => 0, 3 => 0, 2 => 1], [$sev($k), $sev($a)]);
 	check('a problem on two of a client\'s hosts counts once', $k['problems_total'] === 1);
-	$d2 = run(['problems_ack' => 1, 'problems_suppressed' => 1, 'severities' => ['5', '4', '3', '2', '1']]);
+	$d2 = run($cards + ['problems_ack' => 1, 'problems_suppressed' => 1, 'severities' => ['5', '4', '3', '2', '1']]);
 	check('include acknowledged and suppressed, and Information', $sev($byName($d2)['karthi']) === [5 => 1, 4 => 1, 3 => 1, 2 => 0, 1 => 1], $sev($byName($d2)['karthi']));
 	check('the severity link opens Problems for the client\'s hosts and that severity', strpos($k['problems'][0]['url'], 'action=problem.view') !== false
 		&& strpos($k['problems'][0]['url'], 'hostids%5B%5D=101') !== false && strpos($k['problems'][0]['url'], 'severities%5B5%5D=5') !== false
@@ -445,13 +483,13 @@ namespace Modules\EpOverview\Test {
 	$d2 = run(['config_version' => 2, 'metrics' => [['uid' => 'c', 'name' => 'ES CPU', 'source' => 1, 'builtin' => 'fam.es.cpu', 'use_settings' => 1, 'warn' => '50', 'high' => '96']],
 		'only_show' => Overview::ONLY_OVER, 'clients' => ['karthi']]);
 	check('a metric\'s own Warn applies where the host has none (95 % at 50 / 96 is warn)', $byName($d2)['karthi']['metrics'][0]['now']['level'] === 'warn');
-	$d2 = run(['only_show' => Overview::ONLY_PROBLEMS, 'severities' => ['5']]);
+	$d2 = run($cards + ['only_show' => Overview::ONLY_PROBLEMS, 'severities' => ['5']]);
 	check('only clients with open problems', array_column($d2['overview']['clients'], 'name') === ['karthi']);
-	$d2 = run(['order_by' => 'm:nosuch:now']);
+	$d2 = run($cards + ['order_by' => 'm:nosuch:now']);
 	check('ordering by a metric that has gone falls back to the name', array_column($d2['overview']['clients'], 'name') === ['acme', 'karthi']);
 	check('settings for the cards: sections in order, the summary bar off by default', $ov['settings']['sections'] === Overview::SECTIONS_ON
 		&& $ov['settings']['window'] === '7d');
-	$d2 = run(['section_order' => ['warnings', 'metrics', 'summary'], 'sections' => ['summary', 'metrics', 'warnings']]);
+	$d2 = run($cards + ['section_order' => ['warnings', 'metrics', 'summary'], 'sections' => ['summary', 'metrics', 'warnings']]);
 	check('sections on and in the order chosen', $d2['overview']['settings']['sections'] === ['warnings', 'metrics', 'summary'], $d2['overview']['settings']['sections']);
 
 	/* ---------------------------------- the arithmetic ---------------------------------- */
@@ -514,6 +552,53 @@ namespace Modules\EpOverview\Test {
 	check('urls are encoded, arrays as name[]', Overview::url('zabbix.php', ['action' => 'ep.clients.edit', 'client' => 'a&b "c"']) === 'zabbix.php?action=ep.clients.edit&client=a%26b%20%22c%22');
 	check('a client name is never a macro: ClientData::contractEnd reads only a real date', \Modules\EpOverview\Lib\ClientData::contractEnd(['{$EP.CONTRACT.END}' => '2026-02-30']) === null
 		&& \Modules\EpOverview\Lib\ClientData::contractEnd(['{$EP.CONTRACT.END}' => '2026-12-31']) === '2026-12-31');
+
+
+	/* ------------------------------- review fixes (2.1 QA) ------------------------------- */
+
+	foreach (['*.*' => false, 'a*' => false, 'ab*' => false, '*abc' => false, 'abc*' => true, 'es.jvm[*]' => true, 'es.jvm[heap]' => false] as $key => $ok) {
+		[, $e] = $metric(['source' => 2, 'key' => $key, 'pattern' => 1]);
+		check("a pattern needs three plain characters before its first *: $key", ($e === []) === $ok, $e);
+	}
+	$many = ['config_version' => 2, 'metrics' => [['uid' => 'many', 'name' => 'Many', 'source' => 2, 'key' => 'es.many[*]', 'pattern' => 1,
+		'combine' => Metrics::COMBINE_MAX, 'use_settings' => 0]], 'clients' => ['karthi']];
+	$d = run($many);
+	$row = $metricOf($byName($d)['karthi'], 'many');
+	$call = array_values(array_filter(\FakeApi::$options, fn($c) => $c[0] === 'Item' && isset($c[1]['search'])))[0][1] ?? [];
+	check('a pattern search is anchored at the start and limited', ($call['startSearch'] ?? false) === true && ($call['limit'] ?? 0) > 0
+		&& $call['limit'] <= 10000, $call);
+	check('a pattern matching 60 items on one server reads 50 and says it is capped', !empty($row['capped'])
+		&& $row['now']['text'] === '49' && (bool) array_filter($byName($d)['karthi']['warnings'], fn($w) => strpos($w['text'], 'Many: the key pattern matches more items') === 0), $row);
+	check('…and the graph link, which would hold 50 items, opens Latest data instead', strpos((string) $row['url'], 'action=latest.view') !== false, $row['url']);
+
+	check('history in one-minute buckets, the last value of each', Overview::bucket([[100, 1], [130, 2], [170, 5]], 60) === [60 => [1.0, 1.0, 1.0], 120 => [5.0, 5.0, 5.0]]);
+	$t = Overview::trend(['a' => Overview::bucket([[60, 10], [125, 20]]), 'b' => Overview::bucket([[75, 1], [170, 2]])], Metrics::COMBINE_SUM, 0, 1000);
+	check('…so servers polled seconds apart are summed, not taken one at a time', $t['avg'] === 16.5 && $t['min'] === 11.0 && $t['max'] === 22.0, $t);
+
+	check('one value per server: its worst item', Overview::perHost([[1, 70.0], [1, 20.0], [2, null], [3, 5.0]], false) === [1 => 70.0, 2 => null, 3 => 5.0]
+		&& Overview::perHost([[1, 70.0], [1, 20.0]], true) === [1 => 20.0]);
+	$hs = Overview::hostSeries([1 => ['a' => [100 => [70, 60, 80]], 'b' => [100 => [20, 10, 30]]]], false);
+	check('…and in trends, the worst item\'s hour', $hs === [1 => [100 => [70, 60, 80]]], $hs);
+	$perHost = ['config_version' => 2, 'clients' => ['karthi'], 'metrics' => [
+		['uid' => 'javg', 'name' => 'JVM avg', 'source' => 2, 'key' => 'es.jvm[*]', 'pattern' => 1, 'combine' => Metrics::COMBINE_AVG, 'use_settings' => 0],
+		['uid' => 'jcnt', 'name' => 'JVM count', 'source' => 2, 'key' => 'es.jvm[*]', 'pattern' => 1, 'combine' => Metrics::COMBINE_COUNT, 'use_settings' => 0,
+			'thresholds' => [['level' => 1, 'value' => '10', 'color' => '']]]]];
+	$k = $byName(run($perHost))['karthi'];
+	check('Average over servers, not items: Forwarder-1\'s worst JVM item (70), not the mean of its two (45)', $metricOf($k, 'javg')['now']['text'] === '70', $metricOf($k, 'javg')['now']);
+	check('Count over Warn counts servers, not items (1, not 2)', $metricOf($k, 'jcnt')['now']['text'] === '1', $metricOf($k, 'jcnt')['now']);
+	check('…and is coloured by its worst server, never by holding the count against the server threshold', $metricOf($k, 'jcnt')['now']['level'] === 'warn'
+		&& ($metricOf($k, 'jcnt')['max']['level'] ?? null) === '', $metricOf($k, 'jcnt'));
+
+	foreach (['min' => '1e999', 'max' => '2e12'] as $f => $v) {
+		[, $e] = $metric(['source' => 2, 'key' => 'k', $f => $v]);
+		check("a bar $f of $v is refused, readably", $e !== [] && strpos($e[0], '1e12') !== false, $e);
+	}
+	[, $e] = $metric(['source' => 1, 'builtin' => 'storage.usage', 'use_settings' => 1, 'warn' => '1e999']);
+	check('a Warn of 1e999 is refused', $e !== []);
+	[, $e] = $metric(['source' => 2, 'key' => 'k', 'thresholds' => [['level' => 1, 'value' => '1e999']]]);
+	check('a threshold of 1e999 (INF) is refused before it can vanish on the dashboard', $e !== [] && strpos($e[0], '1e12') !== false, $e);
+	[$m, $e] = $metric(['source' => 2, 'key' => 'k', 'thresholds' => [['level' => 1, 'value' => '-1e12']]]);
+	check('…while -1e12 is a number', $e === [], $e);
 
 	foreach (array_diff(scandir($dir), ['.', '..']) as $f) {
 		unlink($dir.'/'.$f);

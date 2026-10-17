@@ -134,7 +134,11 @@ class MetricEdit extends CController {
 			return ['found' => 0, 'total' => 0];
 		}
 		$options = ['output' => ['hostid', 'key_'], 'hostids' => array_keys($servers)];
-		$options += $pattern ? ['search' => ['key_' => $key], 'searchWildcardsEnabled' => true] : ['filter' => ['key_' => $key]];
+		// A pattern starts with a literal prefix (Metrics::keyError): anchored, and limited.
+		$options += $pattern
+			? ['search' => ['key_' => $key], 'searchWildcardsEnabled' => true, 'startSearch' => true,
+				'limit' => min(10000, count($servers) * Metrics::PATTERN_PER_HOST)]
+			: ['filter' => ['key_' => $key]];
 		$hosts = [];
 		foreach (API::Item()->get($options) ?: [] as $it) {
 			if (Metrics::keyMatches($it['key_'], $key, $pattern)) {

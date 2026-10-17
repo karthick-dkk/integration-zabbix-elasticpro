@@ -1,12 +1,13 @@
 /*
  * Client overview. The controller sends every client's figures with their colour classes and the
- * widget's settings; ep-overview.js lays out the panels the settings ask for. The chosen client,
- * the search and the Type filter survive the refresh.
+ * widget's settings; the view the settings choose lays them out — ep-overview.js the cards,
+ * ep-overview-summary.js the Summary view. The search and the Type filter survive the refresh.
  */
 class WidgetEpOverview extends CWidget {
 
 	setContents(response) {
 		super.setContents(response);
-		window.EpOverview.init(this, this._body, response.ep_overview || null);
+		const data = response.ep_overview || null;
+		(data !== null && data.view === 'summary' ? window.EpOverviewSummary : window.EpOverview).init(this, this._body, data);
 	}
 }

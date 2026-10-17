@@ -91,11 +91,15 @@ window.ep_overview_metric_form = new class {
 		return this._catalogue[this._val('builtin')] || null;
 	}
 
-	/** A new metric takes its name from the built-in figure chosen, until somebody types one. */
+	/**
+	 * The name follows the built-in figure chosen while it is still a built-in's own label (or
+	 * empty): choosing another figure must not leave "Engine CPU" reading ES storage.
+	 */
 	_prefill() {
 		const name = this._form.querySelector('[name="name"]');
 		const b = this._builtin();
-		if (b && (name.value === '' || name.dataset.epAuto === '1')) {
+		const isLabel = Object.values(this._catalogue).some((c) => c.label === name.value);
+		if (b && (name.value === '' || name.dataset.epAuto === '1' || isLabel)) {
 			name.value = b.label;
 			name.dataset.epAuto = '1';
 		}

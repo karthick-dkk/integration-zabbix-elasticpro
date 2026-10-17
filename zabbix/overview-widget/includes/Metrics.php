@@ -20,6 +20,16 @@ class Metrics {
 	public const MAX_KEY = 255;
 	public const MAX_UNITS = 16;
 
+	/** Largest magnitude a typed number may have: beyond it, it is a typo (or 1e999), not a threshold. */
+	public const MAX_NUMBER = 1e12;
+
+	/** A literal start a key pattern needs before its first *, so it cannot match every item there is. */
+	public const PATTERN_PREFIX = 3;
+
+	/** How many items a pattern may bring in, per host and per metric for one client, before it is capped. */
+	public const PATTERN_PER_HOST = 50;
+	public const PATTERN_PER_METRIC = 500;
+
 	public const SOURCE_BUILTIN = 1;
 	public const SOURCE_ITEM = 2;
 
@@ -246,8 +256,8 @@ class Metrics {
 		$m['display'] = $int('display', [self::DISPLAY_AS_IS, self::DISPLAY_BAR, self::DISPLAY_INDICATORS, self::DISPLAY_SPARKLINE]);
 		foreach (['min', 'max'] as $k) {
 			$v = $str($k);
-			if ($v !== '' && !is_numeric($v)) {
-				$e[] = _s('Bar %1$s must be a number or empty.', $k);
+			if ($v !== '' && !self::isNumber($v)) {
+				$e[] = _s('Bar %1$s must be a number between -1e12 and 1e12, or empty.', $k);
 				$v = '';
 			}
 			$m[$k] = $v === '' ? '' : self::num((float) $v);
@@ -276,7 +286,7 @@ class Metrics {
 			$m['worse'] = self::WORSE_HIGHER;
 			foreach (['warn', 'high'] as $k) {
 				$v = $str($k);
-				if ($v !== '' && (!is_numeric($v) || (float) $v <= 0 || (float) $v > 100)) {
+				if ($v !== '' && (!self::isNumber($v) || (float) $v <= 0 || (float) $v > 100)) {
 					$e[] = _s('%1$s must be empty (ElasticPro → Settings) or above 0 and at most 100.', $k === 'warn' ? _('Warn') : _('High'));
 					$v = '';
 				}
@@ -297,8 +307,8 @@ class Metrics {
 				$v = is_scalar($t['value'] ?? null) ? trim((string) $t['value']) : '';
 				$level = is_scalar($t['level'] ?? null) ? (int) $t['level'] : 0;
 				$color = strtoupper(ltrim(is_scalar($t['color'] ?? null) ? trim((string) $t['color']) : '', '#'));
-				if ($v === '' || !is_numeric($v)) {
-					$e[] = _s('Threshold %1$s needs a number.', $i + 1);
+				if ($v === '' || !self::isNumber($v)) {
+					$e[] = _s('Threshold %1$s needs a number between -1e12 and 1e12.', $i + 1);
 					continue;
 				}
 				if (!in_array($level, [self::LEVEL_WARN, self::LEVEL_HIGH], true)) {
@@ -354,10 +364,22 @@ class Metrics {
 		if (!preg_match('/^'.$name.'(\[.*\])?$/s', $key)) {
 			return _s('"%1$s" is not an item key: letters, digits, _ - . then optional [parameters].', $key);
 		}
-		if ($pattern && trim($key, '*') === '') {
-			return _('A pattern must name more than *.');
+		if ($pattern) {
+			$star = strpos($key, '*');
+			if ($star === false) {
+				return _('A pattern needs a * — or untick "Key is a pattern".');
+			}
+			if ($star < self::PATTERN_PREFIX) {
+				return _s('A pattern must start with at least %1$s plain characters before its first *, so it cannot match every item.',
+					self::PATTERN_PREFIX);
+			}
 		}
 		return null;
+	}
+
+	/** A finite number of sane size: 1e999 is INF, and INF is not a threshold. */
+	public static function isNumber($v): bool {
+		return is_numeric($v) && is_finite((float) $v) && abs((float) $v) <= self::MAX_NUMBER;
 	}
 
 	/** Whether a key matches a metric's key: equal, or the pattern's * standing for anything. */

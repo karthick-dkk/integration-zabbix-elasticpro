@@ -1,8 +1,17 @@
 # Client overview widget (Zabbix 7.0 module)
 
-Every client at a glance, one card each: open problems by severity, the metrics the widget lists
+Every client at a glance, in one of two views (Layout and production → **View**):
+
+- **Cards** (new widgets): open problems by severity, the metrics the widget lists
 (now, and avg / min / max over a trend window), used of allocated with a forecast, servers by
-role and what is wrong with the client's data. Copy into Zabbix's `modules/` as `ep_overview`;
+role and what is wrong with the client's data.
+- **Summary**: the overview as releases before 2.1 drew it — a summary card per client (servers
+  up and down, devices, the chosen family's CPU and memory, ES storage), Used of allocated and
+  Servers by role, or one client's tiles and gauges when exactly one client is picked. Its own
+  settings: *Cards show* (family), its three panels, Warn and High (empty: ElasticPro → Settings).
+  It never lists decommissioned clients; *Hide disabled…* decides the disabled ones.
+
+Copy into Zabbix's `modules/` as `ep_overview`;
 `master/import.py` enables it and makes the *ElasticPro — Client overview* dashboard.
 
 ## Data and metrics
@@ -15,8 +24,10 @@ role and what is wrong with the client's data. Copy into Zabbix's `modules/` as 
 - **Metrics** (up to 20, dragged into order, each edited in its own dialog like Top hosts'
   columns): a **built-in** figure — the client master host's `ep.*` items (ES storage, devices,
   log delay, every family's CPU, memory, disk and servers) or each server's CPU, memory and role
-  mounts — or **any Zabbix item key** (a `*` pattern allowed) on the client's servers, filtered by
-  role. Servers are combined into one value per client: sum, average, highest, lowest, or count
+  mounts — or **any Zabbix item key** on the client's servers, filtered by role. A key pattern
+  needs at least three plain characters before its first `*`; it is searched anchored at the
+  start, with a limit, and reads at most 50 items per server and 500 per metric — beyond that
+  the card says the pattern is capped. A graph link over more than 30 items opens Latest data. Servers are combined into one value per client: sum, average, highest, lowest, or count
   over Warn. Units, decimals (empty: ElasticPro → Settings), short numbers; shown as is, as a bar,
   as indicators or as a sparkline; trend columns over the widget's window or the metric's own;
   worse when higher or lower; **thresholds** — a usage percentage may follow ElasticPro →
@@ -29,8 +40,14 @@ role and what is wrong with the client's data. Copy into Zabbix's `modules/` as 
   show** all clients, those over a threshold, or those with open problems. A client whose sort
   figure is unknown goes last either way.
 
+Each server counts once: when a metric reads several items on one server (srv.disk's mounts, a
+pattern), its worst item stands for it — the highest when higher is worse, the lowest when lower
+is — before servers are combined, now and in trends. **Count over Warn** counts servers, and is
+coloured by its worst server (warn or high), never by holding the count against the per-server
+thresholds; its trend cells are not coloured.
+
 How servers combine over time: hour by hour with the metric's function, into one series per
-client. Sum, average and count combine the hourly averages (min and max are the lowest and
+client (windows under two hours: from history, each item's last value per minute). Sum, average and count combine the hourly averages (min and max are the lowest and
 highest combined hours); highest takes the highest peak of any server for max (max of maxes),
 lowest the lowest trough for min (min of mins). avg is the mean of the combined hours.
 
@@ -63,8 +80,10 @@ pattern), one `trend.get`, one `problem.get` with the `trigger.get` that says wh
 problem is on.
 
 A widget saved before 2.1 (Client, Client type, Summary / Used / Servers by role, Cards show,
-Warn at, High at) draws unchanged without an edit: its client and type become the lists, its
-panels the sections, and its cards' figures the default metrics at its thresholds (0: Settings).
-The first Apply stores it in the new shape.
+Warn at, High at) draws unchanged without an edit, on the **Summary** view with its family,
+panels and thresholds, its client and type as the lists. Its cards' figures also become the
+default metrics, should it be switched to Cards. A widget being added starts on Cards. (A 2.0
+widget left entirely at its defaults, with no host groups either, stored no fields and so cannot
+be told from a new one: it opens on Cards.)
 
 Tests (from `zabbix/`): `npm test`; the controller alone: `php test/view.test.php`.

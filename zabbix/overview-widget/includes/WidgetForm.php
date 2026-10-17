@@ -28,6 +28,9 @@ class WidgetForm extends CWidgetForm {
 
 	public const CONFIG_VERSION = 2;
 
+	public const VIEW_CARDS = 0;
+	public const VIEW_SUMMARY = 1;
+
 	public const TREND_DASHBOARD = 0;
 	public const TREND_DAYS = 1;
 
@@ -117,7 +120,43 @@ class WidgetForm extends CWidgetForm {
 			return array_diff_key($values, array_flip(self::LEGACY));
 		}
 
-		// Before 2.1. One client by name, one client type by number.
+		// Before 2.1. It looked like the Summary view, so it stays the Summary view — its family,
+		// its three panels and its thresholds kept for that view — until somebody chooses Cards.
+		// A widget being added has no fields at all and starts on Cards; one saved by 2.0 has some
+		// (import.py's host groups at least) and keeps looking as it did.
+		$saved = array_diff_key($values, array_flip(['rf_rate', 'reference', 'time_period', 'trend_source'])) !== [];
+		if ($saved && !array_key_exists('view', $values)) {
+			$values['view'] = self::VIEW_SUMMARY;
+			// The 2.0 widget listed disabled clients (with a badge); the Summary view never lists decommissioned ones.
+			if (!array_key_exists('hide_inactive', $values)) {
+				$values['hide_inactive'] = 0;
+			}
+		}
+		if (!array_key_exists('summary_family', $values) && (int) ($values['family'] ?? 0) !== 0) {
+			foreach ($roles['families'] ?? [] as $f) {
+				if (self::key((string) $f['id']) === (int) $values['family']) {
+					$values['summary_family'] = (string) $f['id'];
+				}
+			}
+		}
+		if (!array_key_exists('summary_panels', $values)) {
+			$on = [];
+			foreach (['show_summary' => 'summary', 'show_used' => 'used', 'show_roles' => 'roles'] as $old => $panel) {
+				if (!array_key_exists($old, $values) || (int) $values[$old] !== 0) {
+					$on[] = $panel;
+				}
+			}
+			if (count($on) < 3) {
+				$values['summary_panels'] = $on ?: '';
+			}
+		}
+		foreach (['usage_warn' => 'summary_warn', 'usage_high' => 'summary_high'] as $old => $new) {
+			if (!array_key_exists($new, $values) && is_numeric($values[$old] ?? null) && (float) $values[$old] > 0) {
+				$values[$new] = (string) (int) $values[$old];
+			}
+		}
+
+		// One client by name, one client type by number.
 		$client = trim((string) ($values['client'] ?? ''));
 		if ($client !== '' && !array_key_exists('clients', $values)) {
 			$values['clients'] = [$client];
@@ -198,6 +237,16 @@ class WidgetForm extends CWidgetForm {
 				Overview::ONLY_OVER => _('Over a Warn or High threshold'),
 				Overview::ONLY_PROBLEMS => _('With open problems')
 			]))->setDefault(Overview::ONLY_ALL))
+			// Layout and production: the view, and the Summary view's own settings.
+			->addField((new CWidgetFieldRadioButtonList('view', _('View'), [
+				self::VIEW_CARDS => _('Cards'),
+				self::VIEW_SUMMARY => _('Summary')
+			]))->setDefault(self::VIEW_CARDS))
+			->addField((new CWidgetFieldTextBox('summary_family', _('Cards show')))->setDefault('es'))
+			->addField((new CWidgetFieldStrings('summary_panels', _('Panels'), 3, 16))->setAllowed(['summary', 'used', 'roles'])
+				->setDefault(['summary', 'used', 'roles']))
+			->addField(new CWidgetFieldOptionalNumber('summary_warn', _('Warn at, %'), 1, 100))
+			->addField(new CWidgetFieldOptionalNumber('summary_high', _('High at, %'), 1, 100))
 			// Layout and production: sections.
 			->addField((new CWidgetFieldStrings('section_order', null, 20, 16))->setAllowed(Overview::SECTIONS)->setDefault(Overview::SECTIONS))
 			->addField((new CWidgetFieldStrings('sections', null, 20, 16))->setAllowed(Overview::SECTIONS)->setDefault(Overview::SECTIONS_ON))

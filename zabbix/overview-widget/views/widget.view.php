@@ -28,6 +28,6 @@ $toolbar = (new CDiv([
 ]))->addClass('ep-pt');
 
 $view
-	->addItem((new CDiv([$toolbar, (new CDiv(''))->addClass('ep-ov ep-pscroll')]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'overview'))
+	->addItem((new CDiv([$toolbar, (new CDiv(''))->addClass('ep-ov ep-pscroll')->addClass(($data['overview']['view'] ?? 'cards') === 'summary' ? 'ep-ov-sv' : 'ep-ov-cv')]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'overview'))
 	->setVar('ep_overview', $data['overview'])
 	->show();

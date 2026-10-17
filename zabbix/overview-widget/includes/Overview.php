@@ -144,6 +144,71 @@ class Overview {
 		return ['avg' => array_sum($series) / count($series), 'min' => (float) min($lo), 'max' => (float) max($hi), 'series' => $series];
 	}
 
+	/**
+	 * One value per host from its items: a host is one server, however many items a metric reads
+	 * on it (srv.disk has a mount each, a pattern may match several keys). The worst item stands
+	 * for the host — the highest when higher is worse, the lowest when lower is. Unknown items add
+	 * nothing; a host with none known is null.
+	 *
+	 * @param array $values  list of [hostid, ?float]
+	 *
+	 * @return array  hostid => ?float
+	 */
+	public static function perHost(array $values, bool $lower): array {
+		$out = [];
+		foreach ($values as [$hostid, $v]) {
+			if (!array_key_exists($hostid, $out)) {
+				$out[$hostid] = null;
+			}
+			if ($v !== null && ($out[$hostid] === null || ($lower ? $v < $out[$hostid] : $v > $out[$hostid]))) {
+				$out[$hostid] = (float) $v;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The same for trends: each host's items made into one series, clock by clock taking the point
+	 * of its worst item (by the hour's average), before servers are combined.
+	 *
+	 * @param array $byHost  hostid => [itemid => [clock => [avg, min, max]]]
+	 *
+	 * @return array  hostid => [clock => [avg, min, max]]
+	 */
+	public static function hostSeries(array $byHost, bool $lower): array {
+		$out = [];
+		foreach ($byHost as $hostid => $items) {
+			foreach ($items as $points) {
+				foreach ($points as $clock => $p) {
+					$cur = $out[$hostid][$clock] ?? null;
+					if ($cur === null || ($lower ? $p[0] < $cur[0] : $p[0] > $cur[0])) {
+						$out[$hostid][$clock] = $p;
+					}
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * History values in buckets of $size seconds, the last value of each item in each bucket, so
+	 * that servers polled a few seconds apart meet in the same bucket and combine — combined by
+	 * exact clock, a sum would be one server's figure.
+	 *
+	 * @param array $rows  [clock, value] in any order
+	 *
+	 * @return array  bucket clock => [v, v, v]
+	 */
+	public static function bucket(array $rows, int $size = 60): array {
+		usort($rows, fn($a, $b) => $a[0] <=> $b[0]);
+		$out = [];
+		foreach ($rows as [$clock, $v]) {
+			$v = (float) $v;
+			$out[intdiv((int) $clock, $size) * $size] = [$v, $v, $v];
+		}
+		return $out;
+	}
+
 	/** At most $n points of a series, each the mean of its stretch — enough for a sparkline. */
 	public static function downsample(array $series, int $n = 48): array {
 		$values = array_values($series);

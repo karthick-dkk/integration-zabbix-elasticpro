@@ -51,7 +51,7 @@ window.widget_ep_overview_form = new class {
 		}
 
 		this._form.addEventListener('change', (e) => {
-			if (e.target.name === 'trend_source' || e.target.name === 'clients[]') {
+			if (e.target.name === 'trend_source' || e.target.name === 'view') {
 				this._update();
 			}
 		});
@@ -59,6 +59,11 @@ window.widget_ep_overview_form = new class {
 	}
 
 	_update() {
+		// Each view's own settings show while that view is chosen.
+		const view = this._form.querySelector('[name="view"]:checked');
+		const summary = view !== null && view.value === '<?= WidgetForm::VIEW_SUMMARY ?>';
+		this._form.querySelectorAll('.ep-ov-summary-only').forEach((el) => el.style.display = summary ? '' : 'none');
+		this._form.querySelectorAll('.ep-ov-cards-only').forEach((el) => el.style.display = summary ? 'none' : '');
 		const days = this._form.querySelector('[name="trend_days"]');
 		const source = this._form.querySelector('[name="trend_source"]:checked');
 		if (days !== null && source !== null) {
