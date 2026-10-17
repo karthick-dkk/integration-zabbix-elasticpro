@@ -14,13 +14,20 @@ use API;
  */
 class ClientData {
 
+	/** The master host macro a client's contract end date is kept in, YYYY-MM-DD (Cluster Management writes it). */
+	public const CONTRACT_MACRO = '{$EP.CONTRACT.END}';
+
 	/**
 	 * The client master hosts this user can see, and the clients they describe. Decommissioned
-	 * clients are left out; disabled ones stay, with a badge. Empty $groupids: every master host.
+	 * clients are left out unless $keepDecommissioned asks for them (the Client overview can
+	 * show them on request); disabled ones stay, with a badge. Empty $groupids: every master host.
+	 *
+	 * Each client carries its status (active, disabled, decommissioned) and whether its master
+	 * host is in a Zabbix maintenance, beside the badge that sums the two up.
 	 *
 	 * @return array{0: array, 1: array, 2: ?string}  [masters by hostid, clients by hostid, error]
 	 */
-	public static function clients(array $cfg, array $groupids): array {
+	public static function clients(array $cfg, array $groupids, bool $keepDecommissioned = false): array {
 		$names = Roles::templateNamesFor('master');
 		$templates = API::Template()->get(['output' => ['templateid'], 'filter' => ['host' => $names]]);
 		if (!$templates) {
@@ -42,23 +49,43 @@ class ClientData {
 		$clients = [];
 		foreach ($masters as $hostid => $master) {
 			$m = $macros[$hostid] ?? [];
-			// Decommissioned clients leave the report.
-			if (($m['{$EP.CLIENT.STATUS}'] ?? 'active') === 'decommissioned') {
+			$status = in_array($m['{$EP.CLIENT.STATUS}'] ?? '', ['disabled', 'decommissioned'], true) ? $m['{$EP.CLIENT.STATUS}'] : 'active';
+			// Decommissioned clients leave the report, unless the caller asked for them.
+			if ($status === 'decommissioned' && !$keepDecommissioned) {
 				unset($masters[$hostid]);
 				continue;
 			}
+			$maintenance = (int) ($master['maintenance_status'] ?? 0) === 1;
 			$clients[$hostid] = [
 				'name' => ($m['{$GRP.CLIENT}'] ?? '') !== '' ? $m['{$GRP.CLIENT}'] : $master['name'],
 				'type' => ($m['{$EP.CLIENT.TYPE}'] ?? '') !== '' ? $m['{$EP.CLIENT.TYPE}'] : Settings::defaultType($cfg),
-				'badge' => ($m['{$EP.CLIENT.STATUS}'] ?? 'active') === 'disabled' ? _('disabled') : ((int) ($master['maintenance_status'] ?? 0) === 1 ? _('maintenance') : ''),
+				'badge' => $status === 'decommissioned' ? _('decommissioned') : ($status === 'disabled' ? _('disabled') : ($maintenance ? _('maintenance') : '')),
+				'status' => $status,
+				'maintenance' => $maintenance,
 				'macros' => $m
 			];
 		}
 		return [$masters, $clients, null];
 	}
 
-	/** Every client's machines, each with its role, IP, status and CPU, memory and disk. */
-	public static function servers(array $roles, array $clients): array {
+	/**
+	 * A client's contract end date as Cluster Management stores it, or null when none is set or
+	 * it is not a date like 2026-12-31.
+	 */
+	public static function contractEnd(array $macros): ?string {
+		$v = trim((string) ($macros[self::CONTRACT_MACRO] ?? ''));
+		if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $v, $m) || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+			return null;
+		}
+		return $v;
+	}
+
+	/**
+	 * Every client's machines, each with its role, IP, status and CPU, memory and disk.
+	 * $figures false leaves the CPU, memory and disk figures unread (null) for a caller that
+	 * reads its own items, so it does not ask Zabbix twice.
+	 */
+	public static function servers(array $roles, array $clients, bool $figures = true): array {
 		if (!$clients) {
 			return [];
 		}
@@ -124,7 +151,7 @@ class ClientData {
 				$want[$hostid]['vfs.fs.dependent.size['.$m.',pused]'] = 'disk.'.$i.'.used';
 			}
 		}
-		if ($want) {
+		if ($want && $figures) {
 			$keys = array_unique(array_merge(...array_map('array_keys', array_values($want))));
 			foreach (API::Item()->get(['output' => ['hostid', 'key_', 'lastvalue', 'lastclock', 'state'], 'hostids' => array_keys($want),
 					'filter' => ['key_' => $keys]]) as $it) {
