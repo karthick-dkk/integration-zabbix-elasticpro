@@ -4,9 +4,9 @@
 	"type": "widget",
 	"name": "ElasticPro client overview",
 	"namespace": "EpOverview",
-	"version": "2.0",
+	"version": "2.1",
 	"author": "ElasticPro",
-	"description": "Every client at a glance, or one client in detail: servers up and down, devices, CPU, memory and ES storage, used of allocated per family, and servers by role. Settings choose host groups, client, client type, which panels show, the family the cards show, and the thresholds.",
+	"description": "Every client at a glance, one card each: open problems by severity, the metrics you choose with now, average, minimum and maximum over a trend window, used of allocated with a forecast, servers by role, the contract badge and what is wrong with the data. Data and metrics: host groups, clients, client types, trend window, a metrics list (built-in ElasticPro figures or any Zabbix item key on the client's servers, combined per client, with their own or ElasticPro Settings thresholds), order, top N and which clients show. Layout and production: sections and their order, columns, density, used of allocated, servers by role, problems and warnings, and where a click goes.",
 	"widget": {
 		"js_class": "WidgetEpOverview",
 		"size": {
@@ -18,6 +18,11 @@
 	"actions": {
 		"widget.ep_overview.view": {
 			"class": "WidgetView"
+		},
+		"widget.ep_overview.metric.edit": {
+			"class": "MetricEdit",
+			"view": "metric.edit",
+			"layout": "layout.json"
 		}
 	},
 	"assets": {

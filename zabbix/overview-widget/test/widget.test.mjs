@@ -7,28 +7,76 @@ import { spawnSync } from 'node:child_process';
 
 const HERE = path.resolve(import.meta.dirname, '..');
 const ROOT = path.resolve(HERE, '..');
+const read = (f) => fs.readFileSync(path.join(HERE, f), 'utf8');
 const noDocker = (r) => r.status !== 0 && /docker|daemon/i.test(`${r.stderr || ''}${r.stdout || ''}`)
   && !/passed, \d+ failed|FAIL:/.test(`${r.stdout || ''}`);
 
-test('the manifest names the widget and its controller, and loads the panel look', () => {
-  const m = JSON.parse(fs.readFileSync(path.join(HERE, 'manifest.json'), 'utf8'));
+test('the manifest names the widget, its controller and the metric editor, and loads the panel look', () => {
+  const m = JSON.parse(read('manifest.json'));
   assert.equal(m.id, 'ep_overview');
+  assert.equal(m.version, '2.1');
   assert.equal(m.widget.js_class, 'WidgetEpOverview');
   assert.ok(m.actions['widget.ep_overview.view']);
+  assert.deepEqual(m.actions['widget.ep_overview.metric.edit'], { class: 'MetricEdit', view: 'metric.edit', layout: 'layout.json' });
+  for (const f of ['actions/MetricEdit.php', 'views/metric.edit.php', 'views/metric.edit.js.php', 'views/widget.edit.js.php']) assert.ok(fs.existsSync(path.join(HERE, f)), f);
   assert.deepEqual(m.assets.js, ['ep-overview.js', 'class.widget.js']);
   assert.deepEqual(m.assets.css, ['ep-panel.css', 'widget.css']);
-  assert.equal(fs.readFileSync(path.join(HERE, 'assets/css/ep-panel.css'), 'utf8'), fs.readFileSync(path.join(ROOT, 'shared/ep-panel.css'), 'utf8'), 'node sync-assets.mjs');
-  const php = fs.readFileSync(path.join(HERE, 'actions/WidgetView.php'), 'utf8');
-  for (const call of ['ClientData::clients(', 'ClientData::servers(', 'ClientData::classify(', 'Settings::usageFor(']) assert.ok(php.includes(call), call);
-  const form = fs.readFileSync(path.join(HERE, 'includes/WidgetForm.php'), 'utf8');
-  for (const field of ["'groupids'", "'client'", "'client_type'", "'show_summary'", "'show_used'", "'show_roles'", "'family'", "'usage_warn'", "'usage_high'"]) assert.ok(form.includes(field), field);
+  assert.equal(read('assets/css/ep-panel.css'), fs.readFileSync(path.join(ROOT, 'shared/ep-panel.css'), 'utf8'), 'node sync-assets.mjs');
+  assert.match(m.description, /Data and metrics/);
+  assert.match(m.description, /Layout and production/);
+  assert.ok(!/elasticvue/i.test(JSON.stringify(m)), 'ElasticPro only');
+});
+
+test('one definition: clients, servers, thresholds, forecast and the metric rule each come from one place', () => {
+  const php = read('actions/WidgetView.php');
+  for (const call of ['ClientData::clients(', 'ClientData::servers(', 'ClientData::known(', 'ClientData::usageClass(', 'ClientData::contractEnd(',
+    'Settings::usageFor(', 'Forecast::fullIn(', 'Overview::level(', 'Overview::combine(', 'Overview::trend(', 'Overview::arrange(', 'Overview::countProblems(']) {
+    assert.ok(php.includes(call), call);
+  }
+  assert.ok(read('includes/Overview.php').includes('ClientData::usageClass('), 'Settings levels are ClientData\'s');
+  assert.ok(read('includes/Overview.php').includes('Forecast::fullIn('), 'forecast bands are Forecast\'s');
+  // The editor and the field apply the same rule.
+  assert.ok(read('actions/MetricEdit.php').includes('Metrics::clean('));
+  assert.ok(read('includes/CWidgetFieldMetrics.php').includes('Metrics::clean('));
+  // Batched: the controller never calls the API inside the per-client function.
+  const client = php.slice(php.indexOf('private function client('), php.indexOf('private function notCollected('));
+  assert.ok(!/API::/.test(client), 'no API call per client');
+});
+
+test('the form has both tabs and every setting of the design, and still reads the old fields', () => {
+  const form = read('includes/WidgetForm.php');
+  for (const field of ['groupids', 'clients', 'hide_inactive', 'client_types', 'trend_source', 'trend_days', 'time_period', 'metrics', 'order_by', 'order_dir',
+    'top_n', 'only_show', 'section_order', 'sections', 'columns', 'card_width', 'density', 'used_measure', 'used_show', 'used_style', 'forecast_days',
+    'forecast_warn', 'forecast_high', 'contract_badge', 'contract_warn', 'contract_high', 'roles_style', 'role_order', 'roles_hidden', 'roles_servers',
+    'down_red', 'down_after', 'severities', 'problems_ack', 'problems_suppressed', 'hide_zero', 'stale_after', 'warn_agent', 'warn_nodata',
+    'warn_maintenance', 'link_client', 'link_severity', 'link_target', 'config_version']) {
+    assert.ok(form.includes(`'${field}'`), field);
+  }
+  for (const old of ['client', 'client_type', 'show_summary', 'show_used', 'show_roles', 'family', 'usage_warn', 'usage_high']) {
+    assert.ok(form.includes(`'${old}'`), `old field ${old} is read`);
+  }
+  const edit = read('views/widget.edit.php');
+  assert.match(edit, /_\('Data and metrics'\)/);
+  assert.match(edit, /_\('Layout and production'\)/);
+  assert.ok(edit.includes("addVar('config_version'"), 'a saved form is marked as the new shape');
+  // Warn and High: empty means Settings, never a 0 in the box.
+  assert.ok(!/CWidgetFieldIntegerBox\('(usage_warn|usage_high)'/.test(form), 'no integer box for thresholds');
+  assert.ok(read('views/metric.edit.php').includes("_s('Settings: %1\$s'"), 'the editor shows the Settings value as the placeholder');
   assert.ok(fs.readFileSync(path.join(ROOT, 'master/import.py'), 'utf8').includes('"ep_overview"'), 'import.py makes its dashboard');
-  // The overview left Client resources: it is this widget now.
   const res = fs.readFileSync(path.join(ROOT, 'resources-widget/views/widget.view.php'), 'utf8');
   assert.ok(!res.includes('ep_overview') && !res.includes("'data-ep-view'"), 'Client resources has no overview of its own');
 });
 
-test('WidgetView against a fake Zabbix (PHP)', (t) => {
+test('links go to real Zabbix 7.0 pages', () => {
+  const php = read('actions/WidgetView.php') + read('includes/Overview.php');
+  for (const action of ["'problem.view'", "'host.dashboard.view'", "'latest.view'", "'ep.clients.edit'", "'elasticpro.overview'", "'showgraph'", "'batchgraph'"]) {
+    assert.ok(php.includes(action), action);
+  }
+  const js = read('assets/js/ep-overview.js');
+  assert.ok(js.includes('(zabbix|history)\\.php'), 'the cards only link to the pages the controller names');
+});
+
+test('WidgetView and the metric rules against a fake Zabbix (PHP)', (t) => {
   const local = spawnSync('php', ['test/view.test.php'], { cwd: HERE, encoding: 'utf8' });
   const r = local.error
     ? spawnSync('docker', ['run', '--rm', '-v', `${HERE}:/m:ro`, '-w', '/m', 'php:8.4-cli-alpine', 'php', 'test/view.test.php'], { encoding: 'utf8' })
