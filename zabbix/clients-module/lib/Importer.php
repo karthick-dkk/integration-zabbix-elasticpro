@@ -3,6 +3,7 @@
 namespace Modules\EpClients\Lib;
 
 use API;
+use Exception;
 
 /**
  * Reads uploaded files against Zabbix: what is new, what would change and how, what is
@@ -28,7 +29,11 @@ class Importer {
 		$this->roles = $spec->roles();
 	}
 
-	/** The plan for parsed files (Csv::parse / Csv::parseServers; either may be null). */
+	/**
+	 * The plan for parsed files (Csv::parse / Csv::parseServers, or the workbook's sheets through
+	 * Workbook::parse, which hands over the same structures; either may be null). Their 'file'
+	 * names the source in messages.
+	 */
 	public function analyze(?array $clients, ?array $servers): array {
 		$plan = ['rows' => [], 'errors' => [], 'ignored' => []];
 		foreach ([$clients, $servers] as $p) {
@@ -47,7 +52,7 @@ class Importer {
 			$name = trim((string) ($row['client'] ?? ''));
 			$key = strtolower($name);
 			if ($name !== '' && isset($rows[$key])) {
-				$plan['errors'][] = _s('Client "%1$s" is in clients.csv twice (lines %2$s and %3$s).', $name, $lines[$key], $row['_line']);
+				$plan['errors'][] = _s('Client "%1$s" is in %4$s twice (lines %2$s and %3$s).', $name, $lines[$key], $row['_line'], $clients['file'] ?? 'clients.csv');
 				continue;
 			}
 			$rows[$key] = ['name' => $name, 'row' => $row, 'servers' => null];
@@ -56,7 +61,8 @@ class Importer {
 		foreach ($servers['clients'] ?? [] as $name => $list) {
 			$key = strtolower($name);
 			if (!isset($rows[$key]) && !isset($existing[$name])) {
-				$plan['errors'][] = _s('servers.csv lists servers for "%1$s", which is not a client yet. Add it to clients.csv too.', $name);
+				$plan['errors'][] = _s('%2$s lists servers for "%1$s", which is not a client yet. Add it to %3$s too.', $name, $servers['file'] ?? 'servers.csv',
+					$clients['file'] ?? 'clients.csv');
 				continue;
 			}
 			$rows[$key] = ($rows[$key] ?? ['name' => $name, 'row' => null]) + ['servers' => null];
@@ -64,6 +70,7 @@ class Importer {
 		}
 
 		$ipOwner = [];
+		$nameOwner = [];
 		foreach ($rows as $r) {
 			$name = $r['name'];
 			$exists = $name !== '' && isset($existing[$name]);
@@ -71,7 +78,26 @@ class Importer {
 				$plan['errors'][] = _s('%1$s is decommissioned: restore it in Cluster Management before importing changes to it.', $name);
 				continue;
 			}
-			$before = $exists ? ClientState::plain($this->state->formFor($name)) : null;
+			$current = $exists ? $this->state->formFor($name) : null;
+			$before = $current !== null ? ClientState::plain($current) : null;
+			// The host now at each IP: a Host name equal to a made-up one changes nothing, and an empty
+			// one keeps a name of the host's own — the export fills in every name.
+			$hostAt = [];
+			foreach ($current['_now']['machines'] ?? [] as $h) {
+				if ($h['_ip'] !== null) {
+					$hostAt[$h['_ip']] = $h;
+				}
+			}
+			foreach ($r['servers'] ?? [] as $k => $sv) {
+				$h = $hostAt[trim((string) ($sv['ip'] ?? ''))] ?? null;
+				$given = trim((string) ($sv['host'] ?? ''));
+				if ($h !== null && $given === '' && !empty($h['_own_name'])) {
+					$r['servers'][$k]['host'] = $h['host'];
+				}
+				elseif ($h !== null && $given === $h['host'] && empty($h['_own_name'])) {
+					$r['servers'][$k]['host'] = '';
+				}
+			}
 			$form = $before ?? array_merge($this->spec->defaults(), ['name' => $name]);
 			if ($r['row'] !== null) {
 				$form = Csv::toForm($r['row'], $form, $this->roles);
@@ -80,7 +106,7 @@ class Importer {
 			if ($r['servers'] !== null) {
 				['servers' => $parsed, 'errors' => $serverErrors] = $this->spec->parseServers(json_encode(array_map(
 					fn($s) => array_diff_key($s, ['_line' => 1]), $r['servers'])));
-				$errors = array_merge($errors, array_map(fn($e) => 'servers.csv: '.$e, $serverErrors));
+				$errors = array_merge($errors, array_map(fn($e) => ($servers['file'] ?? 'servers.csv').': '.$e, $serverErrors));
 				$form['servers'] = ClientSpec::encodeServers($parsed);
 			}
 			['client' => $client, 'errors' => $formErrors] = $this->spec->fromForm($form);
@@ -90,6 +116,9 @@ class Importer {
 					$errors[] = _s('%1$s is listed for both %2$s and %3$s.', $ip, $ipOwner[$ip], $name);
 				}
 				$ipOwner[$ip] = $name;
+			}
+			if (!$errors) {
+				$errors = array_merge($errors, $this->hostNameClashes($name, $client, $hostAt, $nameOwner), $this->templatesMissing($name, $client));
 			}
 			$form['servers'] = $client['servers_json'];
 			$diff = ($exists && !$errors) ? $this->diff($before, $client) : null;
@@ -124,6 +153,64 @@ class Importer {
 		return $plan;
 	}
 
+	/**
+	 * Host names of the operator's own that another host in Zabbix already has, or that the file
+	 * gives twice. Zabbix keeps host names (and visible names) unique; it would refuse in the middle
+	 * of a save, so it is said here, at Check time.
+	 */
+	private function hostNameClashes(string $client, array $c, array $hostAt, array &$nameOwner): array {
+		$want = [];
+		foreach ($c['servers'] as $ip => $s) {
+			if (($s['host'] ?? '') !== '' && ($hostAt[$ip]['host'] ?? null) !== $s['host']) {
+				$want[$s['host']] = $ip;
+			}
+		}
+		$out = [];
+		foreach ($c['servers'] as $ip => $s) {
+			if (($s['host'] ?? '') === '') {
+				continue;
+			}
+			$key = strtolower($s['host']);
+			if (isset($nameOwner[$key]) && $nameOwner[$key] !== $client) {
+				$out[] = _s('host name "%1$s" (%2$s) is also given to a server of %3$s. Host names are unique in Zabbix.', $s['host'], $ip, $nameOwner[$key]);
+			}
+			$nameOwner[$key] = $client;
+		}
+		if (!$want) {
+			return $out;
+		}
+		$found = [];
+		foreach ([['host' => array_keys($want)], ['name' => array_keys($want)]] as $filter) {
+			foreach (API::Host()->get(['output' => ['hostid', 'host', 'name'], 'filter' => $filter]) ?: [] as $h) {
+				$found[$h['hostid']] = $h;
+			}
+		}
+		foreach ($found as $h) {
+			foreach ([$h['host'], $h['name']] as $taken) {
+				$ip = $want[$taken] ?? null;
+				if ($ip !== null && ($hostAt[$ip]['hostid'] ?? null) !== $h['hostid']) {
+					$out[] = _s('host name "%1$s" for %2$s is already taken in Zabbix (by host "%3$s"). Host names are unique: give another, or leave it empty.', $taken, $ip, $h['host']);
+					unset($want[$taken]);
+				}
+			}
+		}
+		return $out;
+	}
+
+	/** The templates this client would need and Zabbix does not have — so the operator learns at Check time, not at Apply. */
+	private function templatesMissing(string $client, array $c): array {
+		$missing = (new Reconciler($this->spec))->missingTemplates($c);
+		if (!$missing) {
+			return [];
+		}
+		// "DI needs …" when it is the log archive a DI client must have; "needs …" otherwise.
+		$who = in_array(Reconciler::ulmTemplate(), $missing, true) && ($c['fields']['type'] ?? '') === 'DI' ? _('DI').' ' : '';
+		$names = '"'.implode('", "', $missing).'"';
+		$text = count($missing) === 1 ? _s('%1$sneeds the template %2$s, which is not in this Zabbix.', $who, $names)
+			: _s('%1$sneeds the templates %2$s, which are not in this Zabbix.', $who, $names);
+		return [trim($text.' '.implode(' ', Reconciler::missingTemplatesHints($missing)))];
+	}
+
 	/** What changes for an existing client: settings old → new, servers added, changed and removed. */
 	public function diff(array $before, array $client): array {
 		['client' => $old] = $this->spec->fromForm($before);
@@ -145,10 +232,14 @@ class Importer {
 		foreach ($client['servers'] as $ip => $s) {
 			$was = $old['servers'][$ip] ?? null;
 			if ($was === null) {
-				$hosts[] = ['change' => isset($byIp[$ip]) ? 'role' : 'add', 'roles' => $this->roleLabels($s['roles']), 'ip' => $ip, 'host' => $byIp[$ip]['name'] ?? null];
+				$hosts[] = ['change' => isset($byIp[$ip]) ? 'role' : 'add', 'roles' => $this->roleLabels($s['roles']), 'ip' => $ip, 'host' => $byIp[$ip]['name'] ?? null,
+					'as' => $s['host'] ?? ''];
 			}
 			elseif ($was['roles'] !== $s['roles']) {
 				$hosts[] = ['change' => 'role', 'roles' => $this->roleLabels($s['roles']), 'was' => $this->roleLabels($was['roles']), 'ip' => $ip, 'host' => $byIp[$ip]['name'] ?? null];
+			}
+			elseif (($was['host'] ?? '') !== ($s['host'] ?? '') && ($s['host'] ?? '') !== '') {
+				$hosts[] = ['change' => 'rename', 'roles' => $this->roleLabels($s['roles']), 'ip' => $ip, 'host' => $byIp[$ip]['name'] ?? null, 'as' => $s['host']];
 			}
 			elseif ($was['services'] !== $s['services'] || $was['notes'] !== $s['notes'] || array_diff_assoc($s['attrs'], $was['attrs'])) {
 				$hosts[] = ['change' => 'detail', 'roles' => $this->roleLabels($s['roles']), 'ip' => $ip, 'host' => $byIp[$ip]['name'] ?? null];
@@ -233,6 +324,51 @@ class Importer {
 		}
 	}
 
+	/**
+	 * Apply planned rows, one client at a time: ['applied' => [['name', 'done', 'problems']], 'failed' =>
+	 * [['name', 'error', 'done', 'exists']]]. A client whose apply threw is never counted as applied:
+	 * `done` says what was written before the refusal and `exists` what of it is in Zabbix now.
+	 * $newRec makes a Reconciler per client; $applied($name) is called for each client applied.
+	 */
+	public function applyRows(array $rows, callable $newRec, callable $applied): array {
+		$out = ['applied' => [], 'failed' => []];
+		foreach ($rows as $row) {
+			$rec = $newRec();
+			['client' => $client] = $this->spec->fromForm($row['form']);
+			try {
+				$rec->apply($client);
+			}
+			catch (Exception $e) {
+				$out['failed'][] = ['name' => $client['name'], 'error' => $e->getMessage(), 'done' => $rec->done(), 'exists' => $this->existsNow($client['name'])];
+				continue;
+			}
+			$problems = [];
+			try {
+				$applied($client['name']);
+			}
+			catch (Exception $e) {
+				$problems[] = $e->getMessage();
+			}
+			$out['applied'][] = ['name' => $client['name'], 'done' => $rec->done(), 'problems' => array_merge($problems, $this->verify($client))];
+		}
+		return $out;
+	}
+
+	/** The hosts a client has in Zabbix now, by name: what a failed apply left behind. */
+	public function existsNow(string $client): array {
+		try {
+			$now = (new Reconciler($this->spec))->current($client);
+		}
+		catch (Exception $e) {
+			return [];
+		}
+		$out = [];
+		foreach (array_merge(array_filter([$now['master'], $now['cluster'], $now['ulm']]), array_values($now['machines'])) as $h) {
+			$out[] = $h['name'] ?? $h['host'];
+		}
+		return $out;
+	}
+
 	/** After applying: the client read back from Zabbix, compared with what was asked. Empty when they match. */
 	public function verify(array $client): array {
 		$form = ClientState::plain($this->state->formFor($client['name']));
@@ -251,6 +387,9 @@ class Importer {
 			}
 			elseif ($have['roles'] !== $s['roles']) {
 				$out[] = _s('%1$s: asked %2$s, Zabbix has %3$s.', $ip, $this->roleLabels($s['roles']), $this->roleLabels($have['roles']));
+			}
+			elseif (($s['host'] ?? '') !== '' && ($have['host'] ?? '') !== $s['host']) {
+				$out[] = _s('%1$s: asked for the host name "%2$s", Zabbix has "%3$s".', $ip, $s['host'], $have['host'] ?? '');
 			}
 			// Only the attributes asked for: other inv: tags are Host Inventory's.
 			elseif ($have['services'] !== $s['services'] || array_diff_assoc(array_filter($s['attrs'], 'strlen'), $have['attrs'])) {

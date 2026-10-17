@@ -555,7 +555,19 @@ class ClientSpec {
 				$attrs[$k] = $val;
 			}
 			ksort($attrs);
-			$out[$ip] = ['ip' => $ip, 'roles' => $roles, 'services' => $services, 'notes' => $notes, 'attrs' => $attrs];
+			// A host name of the operator's own (empty: ElasticPro names it from the client and roles).
+			$host = trim((string) ($s['host'] ?? ''));
+			if ($host !== '' && !self::isHostName($host)) {
+				$errors[] = _s('%1$s: host name "%2$s" may hold only letters, digits, spaces, dots, dashes and underscores, at most 128.', $label, $host);
+				continue;
+			}
+			foreach ($out as $other) {
+				if ($host !== '' && strcasecmp($other['host'], $host) === 0) {
+					$errors[] = _s('%1$s: host name "%2$s" is already given to %3$s. Host names are unique.', $label, $host, $other['ip']);
+					continue 2;
+				}
+			}
+			$out[$ip] = ['ip' => $ip, 'roles' => $roles, 'services' => $services, 'notes' => $notes, 'attrs' => $attrs, 'host' => $host];
 		}
 		uksort($out, fn($a, $b) => ip2long($a) <=> ip2long($b));
 		return ['servers' => $out, 'errors' => $errors];
@@ -569,8 +581,15 @@ class ClientSpec {
 
 	/** Checked servers (parseServers) as canonical JSON. */
 	public static function encodeServers(array $clean): string {
+		// `host` only when the server has a name of its own, so a list without any reads as it always did.
 		return json_encode(array_map(fn($s) => ['ip' => $s['ip'], 'roles' => $s['roles'], 'services' => $s['services'],
-			'notes' => $s['notes'], 'attrs' => (object) $s['attrs']], array_values($clean)), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+			'notes' => $s['notes'], 'attrs' => (object) $s['attrs']] + (($s['host'] ?? '') !== '' ? ['host' => $s['host']] : []), array_values($clean)),
+			JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+	}
+
+	/** Zabbix's rule for a technical host name: letters, digits, space, dot, dash and underscore; at most 128. */
+	public static function isHostName(string $name): bool {
+		return (bool) preg_match('/^[0-9A-Za-z_.\- ]{1,128}$/', $name) && trim($name) === $name;
 	}
 
 	/**

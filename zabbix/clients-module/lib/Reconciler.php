@@ -44,7 +44,12 @@ class Reconciler {
 	public const JUMP_CLUSTER_SLOTS = ['jump', 'plan', 'alerts', 'delay'];
 	public const ULM_TEMPLATE = Roles::TEMPLATE_SLOTS['ulm'][0];
 	/** Tags this page writes; everything else on a host is left as it is. */
-	private const OWN_TAGS = ['ep-client', 'ep-kind', 'ep-role', 'ep-service', 'ep-status', 'client', 'role'];
+	private const OWN_TAGS = ['ep-client', 'ep-kind', 'ep-role', 'ep-service', 'ep-status', 'client', 'role', self::OWN_NAME_TAG];
+	/**
+	 * On a server whose host name the operator chose (the import's Host name): ep-name=own. Such a
+	 * host is never renamed to the <client>-<roles>-<n> pattern, whatever its roles become.
+	 */
+	public const OWN_NAME_TAG = 'ep-name';
 	/**
 	 * Neither spelling of the already-off marker is in OWN_TAGS, and neither may be added.
 	 *
@@ -244,14 +249,24 @@ class Reconciler {
 	 * for a client that has a bucket — without it, a Zabbix with no log archive could add no client.
 	 */
 	public function templateIds(array $extra = [], bool $ulm = true): array {
-		$names = array_values(array_unique(array_merge([MasterTemplate::name()], self::clusterTemplates(), self::jumpClusterTemplates(),
-			$ulm ? [self::ulmTemplate()] : [], [JumpTemplate::ulmName(), self::agentTemplate()], $extra)));
-		$found = array_column(API::Template()->get(['output' => ['templateid', 'host'], 'filter' => ['host' => $names]]), 'templateid', 'host');
-		$missing = array_diff($names, array_keys($found));
+		[$found, $missing] = $this->lookTemplates($extra, $ulm);
 		if ($missing) {
 			throw new Exception(self::missingTemplatesMessage($missing));
 		}
 		return $found;
+	}
+
+	/** [name => id of the templates there, names missing] — what templateIds() needs, without throwing. */
+	private function lookTemplates(array $extra, bool $ulm): array {
+		$names = array_values(array_unique(array_merge([MasterTemplate::name()], self::clusterTemplates(), self::jumpClusterTemplates(),
+			$ulm ? [self::ulmTemplate()] : [], [JumpTemplate::ulmName(), self::agentTemplate()], $extra)));
+		$found = array_column(API::Template()->get(['output' => ['templateid', 'host'], 'filter' => ['host' => $names]]), 'templateid', 'host');
+		return [$found, array_values(array_diff($names, array_keys($found)))];
+	}
+
+	/** The templates apply() would need for this client and Zabbix does not have — asked at Check time, before anything is written. */
+	public function missingTemplates(array $client): array {
+		return $this->lookTemplates(Roles::templatesOf($this->roles, self::rolesIn($client)), $this->spec->wantsUlm($client))[1];
 	}
 
 	/**
@@ -260,12 +275,16 @@ class Reconciler {
 	 * never said that the log archive template is not in this repository at all.
 	 */
 	public static function missingTemplatesMessage(array $missing): string {
+		return implode(' ', array_merge([_s('Nothing was saved. These templates are not in Zabbix: %1$s.', implode(', ', $missing))], self::missingTemplatesHints($missing)));
+	}
+
+	/** What to do about each missing template, without the "Nothing was saved" that only an apply can say. */
+	public static function missingTemplatesHints(array $missing): array {
 		$written = [MasterTemplate::name(), DevicesTemplate::name(), JumpTemplate::name(), JumpTemplate::ulmName()];
 		$button = array_values(array_intersect($missing, $written));
 		$archive = in_array(self::ULM_TEMPLATE, $missing, true);
 		$import = array_values(array_diff($missing, $written, [self::ULM_TEMPLATE]));
-
-		$out = [_s('Nothing was saved. These templates are not in Zabbix: %1$s.', implode(', ', $missing))];
+		$out = [];
 		if ($archive) {
 			$out[] = _s('"%1$s" is imported separately — it is not part of the module (see deploy/zabbix/README.md in the ElasticPro repository). To add this client without a log archive host, leave its S3 bucket empty; a DI client always needs one.', self::ULM_TEMPLATE);
 		}
@@ -275,7 +294,7 @@ class Reconciler {
 		if ($import) {
 			$out[] = _s('Import first: %1$s.', implode(', ', $import));
 		}
-		return implode(' ', $out);
+		return $out;
 	}
 
 	public function groupId(string $name, bool $create): ?string {
@@ -453,6 +472,7 @@ class Reconciler {
 			$host['_notes'] = is_array($host['inventory'] ?? null) ? (string) ($host['inventory']['notes'] ?? '') : '';
 			$host['_families'] = array_values(array_map(fn($f) => $f['id'], array_filter($this->roles['families'], fn($f) => in_array($f['group'], $groups, true))));
 			$host['_attrs'] = [];
+			$host['_own_name'] = in_array('own', self::tagValues($host, self::OWN_NAME_TAG), true);
 			foreach ($host['tags'] ?? [] as $t) {
 				if (strpos($t['tag'], 'inv:') === 0) {
 					$host['_attrs'][substr($t['tag'], 4)] = $t['value'];
@@ -886,6 +906,12 @@ class Reconciler {
 				$taken[$m[1]][(int) $m[2]] = true;
 			}
 		}
+		// A name of the operator's own that happens to follow the pattern takes its number too.
+		foreach ($client['servers'] as $s) {
+			if (($s['host'] ?? '') !== '' && preg_match('/^'.preg_quote($name, '/').'-(.+)-(\d+)$/', $s['host'], $m) && (int) $m[2] > 0) {
+				$taken[$m[1]][(int) $m[2]] = true;
+			}
+		}
 		$next = function(string $base) use (&$taken): int {
 			$n = !empty($taken[$base]) ? max(array_keys($taken[$base])) + 1 : 1;
 			$taken[$base][$n] = true;
@@ -906,7 +932,14 @@ class Reconciler {
 				if (isset($adopted[$host['hostid']])) {
 					$this->done[] = _s('Took on the existing host "%1$s" (%2$s): its history and templates stay.', $host['name'], $ip);
 				}
-				if (ClientSpec::slotOf($host['host'], $name, $base) === null) {
+				// A name of its own: the one asked for, or the one it already keeps (ep-name=own), which no
+				// save takes away. Otherwise the pattern, as before.
+				$own = ($s['host'] ?? '') !== '' ? $s['host'] : (!empty($host['_own_name']) ? $host['host'] : '');
+				$s['host'] = $own;
+				if ($own !== '') {
+					$this->rename($host, $own);
+				}
+				elseif (ClientSpec::slotOf($host['host'], $name, $base) === null) {
 					$this->rename($host, ClientSpec::machineName($name, $base, $next($base)));
 				}
 				// Out of the groups of roles and families it no longer has; into the ones it has.
@@ -926,7 +959,7 @@ class Reconciler {
 				$this->setMacros($host['hostid'], ['{$GRP.CLIENT}' => [$name, 0]]);
 				continue;
 			}
-			$host_name = ClientSpec::machineName($name, $base, $next($base));
+			$host_name = ($s['host'] ?? '') !== '' ? $s['host'] : ClientSpec::machineName($name, $base, $next($base));
 			$new = [
 				'host' => $host_name, 'groups' => $this->g($want_ids), 'templates' => $this->t($want_tpl),
 				'interfaces' => [['type' => INTERFACE_TYPE_AGENT, 'main' => INTERFACE_PRIMARY, 'useip' => INTERFACE_USE_IP,
@@ -1103,6 +1136,9 @@ class Reconciler {
 			if ((string) $v !== '') {
 				$out[] = ['tag' => 'inv:'.$k, 'value' => $v];
 			}
+		}
+		if (($s['host'] ?? '') !== '') {
+			$out[] = ['tag' => self::OWN_NAME_TAG, 'value' => 'own'];
 		}
 		return $out;
 	}

@@ -200,7 +200,7 @@ if ($data['candidates'] && !$ro) {
 $html[] = '</div>';
 
 $controls = $ro ? new CList() : (new CList())
-	->addItem(new CRedirectButton(_('Import / export CSV'), $url('ep.clients.import')))
+	->addItem(new CRedirectButton(_('Import / export'), $url('ep.clients.import')))
 	->addItem(new CRedirectButton(_s('Backups (%1$s)', $data['backups']), $url('ep.clients.backups')))
 	->addItem(new CRedirectButton(_('Roles'), $url('ep.clients.roles')))
 	->addItem(new CRedirectButton(_('Add client'), $url('ep.clients.edit')));
