@@ -228,7 +228,7 @@ namespace Modules\EpClients\Test {
 
 	/* ---------------- the import page ---------------- */
 	$importData = fn(array $x = []) => $x + ['stage' => 'upload', 'file' => '', 'plan' => null, 'added' => [], 'backup' => null, 'pending' => [], 'error' => null,
-		'store_ok' => true, 'store_dir' => $dir, 'sheets' => [], 'skipped' => [], 'client_count' => 6];
+		'store_ok' => true, 'store_dir' => $dir, 'sheets' => [], 'skipped' => [], 'client_count' => 6, 'failed' => []];
 	$imp = render('ep.clients.import', $importData());
 	$dump('import', $imp);
 	$ib = body($imp);
@@ -273,6 +273,21 @@ namespace Modules\EpClients\Test {
 		&& str_contains($db, '<input type="checkbox" name="apply[globex]" value="1" id="apply_globex">') && str_contains($db, '<button type="submit" name="apply-selected">Apply ticked changes</button>'), $db);
 	check('import: new clients added straight away, read back, after a backup', str_contains($db, 'Backup taken.') && str_contains($db, '1 new client added: bajaj.') && str_contains($db, 'Read back — matches the file.'));
 	check('import: a deleted host is named and not ticked for you', str_contains($db, '− globex-Parser-1 (10.0.0.5) — deleted with its history'));
+
+	// A new client Zabbix refused: never counted as added, shown as an error with what exists now.
+	$refused = render('ep.clients.import', $importData(['stage' => 'done', 'file' => 'clients.xlsx', 'plan' => ['rows' => [], 'errors' => [], 'ignored' => []],
+		'backup' => 'b1', 'added' => [], 'failed' => [['name' => 'QA-Excel', 'error' => 'Nothing was saved. These templates are not in Zabbix: ElasticPro log archive S3.', 'done' => [], 'exists' => []]],
+		'sheets' => [['name' => 'Clients', 'rows' => 1, 'new' => 0, 'changed' => 0, 'errors' => 1]]]));
+	$dump('import-refused', $refused);
+	$rb = body($refused);
+	check('import: a refused new client is not in the added count and is an error', !str_contains($rb, 'new client added') && !str_contains($rb, 'msg-good')
+		&& str_contains($rb, 'class="msg-bad ep-box" role="alert"') && str_contains($rb, '<b>QA-Excel was not added: </b>Nothing was saved. These templates are not in Zabbix')
+		&& str_contains($rb, 'Nothing of QA-Excel is in Zabbix.') && str_contains($rb, 'Backup taken.'), $rb);
+	$partial = body(render('ep.clients.import', $importData(['stage' => 'done', 'file' => 'clients.xlsx', 'plan' => ['rows' => [], 'errors' => [], 'ignored' => []],
+		'added' => [['name' => 'ok-1', 'done' => ['Created "ok-1-Master".'], 'problems' => []]],
+		'failed' => [['name' => 'half', 'error' => 'No permissions.', 'done' => ['Created host group "half".', 'Created "half-Master".'], 'exists' => ['half-Master']]]])));
+	check('import: some added, one refused half-way — counted apart, and what exists now is named', str_contains($partial, '1 new client added: ok-1.')
+		&& str_contains($partial, '<b>half was not added: </b>No permissions. Written before it stopped: Created host group &quot;half&quot;. Created &quot;half-Master&quot;. In Zabbix now: half-Master.'), $partial);
 
 	foreach (array_diff(scandir($dir), ['.', '..']) as $fn) { is_dir($dir.'/'.$fn) ? null : unlink($dir.'/'.$fn); }
 	@rmdir($dir);

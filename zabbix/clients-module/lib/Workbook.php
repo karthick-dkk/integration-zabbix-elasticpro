@@ -307,7 +307,7 @@ class Workbook {
 		$notes = [
 			'client' => _('The client this server belongs to: a name on the Clients sheet, or a client already in Zabbix. A client listed here gets exactly the servers listed for it; a client not listed keeps its servers.')."\n"._('Example: Acme')."\n"._('Required.'),
 			'ip' => _('The server\'s IPv4 address. Once per client: give one server all its roles. An IP belongs to one client only.')."\n"._('Example: 10.10.0.11')."\n"._('Required.'),
-			'name' => _('The host\'s name in Zabbix, filled in on export so you can tell the rows apart. Not read on import: ElasticPro names new hosts from the client and the roles (Acme-ES-Data-Hot-1).'),
+			'name' => _('Empty: ElasticPro names a new host from the client and its roles (Acme-ES-Data-Hot-1). Give one to keep your own: letters, digits, spaces, dots, dashes and underscores, unique in Zabbix; no later save changes it. On an existing server a different name renames the host (its history stays); an empty cell keeps the name it has. Export fills in every host\'s name.')."\n"._('Example: acme-edge-01'),
 			'role1' => _('The server\'s role, from the Roles page. More roles on the same server go in Role 2 to Role 4: a single node is ES Data, Parser, Forwarder and Engine.')."\n"._s('Choices: %1$s.', implode(', ', $roleNames))."\n"._('Required.'),
 			'services' => _('Services on the server, separated by ;.')."\n"._('Example: nginx; kafka'),
 			'notes' => _('Free text about the server.')
@@ -420,7 +420,7 @@ class Workbook {
 		foreach ($servers as $i => $row) {
 			$sheet['rows'][11 + $i] = array_filter(array_combine(range(1, count($row)), $row), fn($v) => $v !== '');
 		}
-		$sheet['notes']['C10'] = ['title' => _('Host name'), 'text' => _('Leave it empty: ElasticPro names each host from the client and its roles (Acme-ES-Data-Hot-1). On export it shows the name the host has in Zabbix; it is not read back.')];
+		$sheet['notes']['C10'] = ['title' => _('Host name'), 'text' => _('Leave it empty and ElasticPro names the host from the client and its roles (Acme-ES-Data-Hot-1). Give one to keep your own, as Acme\'s 10.10.0.21 does: letters, digits, spaces, dots, dashes and underscores, unique in Zabbix.')];
 		$sheet['notes']['D10'] = ['title' => _('Role 1 – Role 4'), 'text' => _('One role per column, from the Roles page. Acme\'s 10.10.0.12 is a master that also coordinates; Globex\'s 10.20.0.5 is a single node: ES Data, Parser, Forwarder and Engine on one machine.')];
 		$sheet['notes']['J10'] = ['title' => _('Rack'), 'text' => _('Not one of the Servers sheet\'s own columns, so it becomes an attribute of the server. Add any column you like.')];
 		return $sheet;

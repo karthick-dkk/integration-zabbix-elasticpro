@@ -128,6 +128,10 @@ class ClientState {
 			$s['services'] = array_merge($s['services'], $h['_services']);
 			$s['notes'] = $s['notes'] !== '' ? $s['notes'] : $h['_notes'];
 			$s['attrs'] = $s['attrs'] + $h['_attrs'];
+			// A host name of the operator's own is part of the server; a made-up one is not.
+			if (!empty($h['_own_name']) && ($s['host'] ?? '') === '') {
+				$s['host'] = $h['host'];
+			}
 			$servers[$h['_ip']] = $s;
 		}
 		// A merge leaves one host per IP, and a Single node cannot share a server: of hosts that

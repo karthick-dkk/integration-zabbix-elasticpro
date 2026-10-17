@@ -20,7 +20,6 @@ class ImportApply extends Base {
 		}
 		Store::delete('pending-import.json');
 		$chosen = array_filter((array) $this->getInput('apply', []), fn($v) => (string) $v === '1');
-		$spec = $this->spec();
 		$lines = [];
 		if (array_intersect_key($chosen, array_flip(array_column($pending['rows'], 'name')))) {
 			try {
@@ -31,27 +30,29 @@ class ImportApply extends Base {
 				return;
 			}
 		}
-		$failed = false;
+		$chosenRows = [];
 		foreach ($pending['rows'] as $row) {
 			if (!isset($chosen[$row['name']])) {
 				$lines[] = _s('%1$s left as it was.', $row['name']);
 				continue;
 			}
-			$rec = $this->rec();
-			['client' => $client] = $spec->fromForm($row['form']);
-			try {
-				$rec->apply($client);
-				$this->noteChange($client['name'], 'imported');
-				$problems = $this->importer()->verify($client);
-				$lines[] = _s('%1$s: %2$s', $client['name'], implode(' ', $rec->done()) ?: _('saved.'));
-				$lines[] = $problems ? _s('%1$s read back — differs: %2$s', $client['name'], implode(' ', $problems))
-					: _s('%1$s read back — matches the file.', $client['name']);
-			}
-			catch (Exception $e) {
-				$failed = true;
-				$lines[] = _s('%1$s: %2$s', $client['name'], $e->getMessage());
-			}
+			$chosenRows[] = $row;
 		}
-		$this->toList($failed ? _('Import applied, with problems') : _('Import applied'), $lines, $failed);
+		$importer = $this->importer();
+		$result = $importer->applyRows($chosenRows, fn() => $this->rec(), fn($name) => $this->noteChange($name, 'imported'));
+		foreach ($result['applied'] as $a) {
+			$lines[] = _s('%1$s: %2$s', $a['name'], implode(' ', $a['done']) ?: _('saved.'));
+			$lines[] = $a['problems'] ? _s('%1$s read back — differs: %2$s', $a['name'], implode(' ', $a['problems']))
+				: _s('%1$s read back — matches the file.', $a['name']);
+		}
+		// A client Zabbix refused is said to be not changed — with what was written before the refusal.
+		$errors = [];
+		foreach ($result['failed'] as $f) {
+			$errors[] = _s('%1$s was not changed: %2$s', $f['name'], $f['error'])
+				.($f['done'] ? ' '._s('Written before it stopped: %1$s', implode(' ', $f['done'])) : '');
+		}
+		$title = !$result['failed'] ? _('Import applied')
+			: ($result['applied'] ? _s('Import applied to %1$s of %2$s clients', count($result['applied']), count($chosenRows)) : _('Nothing applied'));
+		$this->toList($title, $lines, (bool) $result['failed'], $errors ? implode(" ", $errors) : null);
 	}
 }

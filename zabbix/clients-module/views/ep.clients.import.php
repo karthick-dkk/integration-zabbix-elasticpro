@@ -120,17 +120,33 @@ else {
 			$list($plan['errors'], 'ep-errors')]))->addClass('msg-bad')->addClass('ep-box')->setAttribute('role', 'alert');
 	}
 	else {
+		// Only clients Zabbix took are counted as added; a refused one is an error, never in the count.
+		$failed = $data['failed'] ?? [];
 		$summary = [];
 		if ($data['backup']) {
 			$summary[] = new CTag('b', true, _('Backup taken. '));
 		}
-		$summary[] = $data['added'] ? _n('%1$s new client added: ', '%1$s new clients added: ', count($data['added'])).implode(', ', array_column($data['added'], 'name')).'.'
-			: _('No new clients to add straight away.');
-		$review[] = (new CDiv($summary))->addClass('msg-good')->addClass('ep-box');
+		if ($data['added'] || !$failed) {
+			$summary[] = $data['added'] ? _n('%1$s new client added: ', '%1$s new clients added: ', count($data['added'])).implode(', ', array_column($data['added'], 'name')).'.'
+				: _('No new clients to add straight away.');
+			$review[] = (new CDiv($summary))->addClass('msg-good')->addClass('ep-box');
+		}
 		foreach ($data['added'] as $a) {
 			$review[] = (new CDiv([new CTag('b', true, $a['name'].': '), implode(' ', $a['done']), ' ',
 				$a['problems'] ? (new CSpan(_('Read back — differs: ').implode(' ', $a['problems'])))->addClass('ep-bad-text') : _('Read back — matches the file.')]))
 				->addClass('ep-muted')->addClass('ep-line');
+		}
+		if ($failed) {
+			$bad = $data['added'] ? [] : $summary;
+			$bad[] = new CTag('b', true, _n('%1$s new client was not added:', '%1$s new clients were not added:', count($failed)));
+			$items = [];
+			foreach ($failed as $f) {
+				$items[] = [new CTag('b', true, _s('%1$s was not added: ', $f['name'])), $f['error'],
+					$f['done'] ? ' '._s('Written before it stopped: %1$s', implode(' ', $f['done'])) : '',
+					' ', $f['exists'] ? _s('In Zabbix now: %1$s.', implode(', ', $f['exists'])) : _s('Nothing of %1$s is in Zabbix.', $f['name'])];
+			}
+			$bad[] = $list($items, 'ep-errors');
+			$review[] = (new CDiv($bad))->addClass('msg-bad')->addClass('ep-box')->setAttribute('role', 'alert');
 		}
 	}
 
@@ -162,7 +178,8 @@ else {
 			$deletes = false;
 			foreach ($r['diff']['hosts'] ?? [] as $h) {
 				switch ($h['change']) {
-					case 'add': $hosts[] = (new CSpan('+ '.$h['ip'].' · '.$h['roles']))->addClass('ep-new-text'); break;
+					case 'add': $hosts[] = (new CSpan('+ '.$h['ip'].' · '.$h['roles'].(($h['as'] ?? '') !== '' ? ' · '.$h['as'] : '')))->addClass('ep-new-text'); break;
+					case 'rename': $hosts[] = (new CSpan('✎ '.($h['host'] ?? $h['ip']).' → '.$h['as']))->addClass('ep-muted'); break;
 					case 'role': $hosts[] = (new CSpan('↻ '.($h['host'] ?? $h['ip']).' · '.(isset($h['was']) ? $h['was'].' → ' : '').$h['roles']))->addClass('ep-muted'); break;
 					case 'detail': $hosts[] = (new CSpan('· '.($h['host'] ?? $h['ip']).' — '._('services, notes or attributes')))->addClass('ep-muted'); break;
 					case 'delete': $deletes = true; $hosts[] = (new CSpan('− '.$h['host'].' ('.$h['ip'].') — '._('deleted with its history')))->addClass('ep-bad-text'); break;

@@ -31,7 +31,7 @@ class ImportUpload extends Base {
 
 	protected function doAction(): void {
 		$data = ['stage' => 'upload', 'file' => '', 'plan' => null, 'added' => [], 'backup' => null, 'pending' => [], 'error' => null,
-			'store_ok' => Store::writable(), 'store_dir' => Store::dir(), 'sheets' => [], 'skipped' => [], 'client_count' => null];
+			'store_ok' => Store::writable(), 'store_dir' => Store::dir(), 'sheets' => [], 'skipped' => [], 'client_count' => null, 'failed' => []];
 
 		if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 			if (!\CCsrfTokenHelper::check((string) $this->getInput(CSRF_TOKEN_NAME, ''), 'ep.clients.import')) {
@@ -141,7 +141,7 @@ class ImportUpload extends Base {
 	 * Per sheet (or file): rows, new, changed and errors — the review's table. Servers count as new
 	 * when added, changed when their roles, details or presence change.
 	 */
-	private static function sheets(array $plan, array $counts, bool $xlsx, ?array $clients, ?array $servers): array {
+	private static function sheets(array $plan, array $counts, bool $xlsx, ?array $clients, ?array $servers, array $failed = []): array {
 		[$cName, $sName] = $xlsx ? [Workbook::CLIENTS, Workbook::SERVERS] : ['clients.csv', 'servers.csv'];
 		$serverWords = [$sName.', row', ($servers['file'] ?? 'servers.csv').':', $servers['file'] ?? 'servers.csv', 'An IP belongs to one client only', ' is listed for both '];
 		$out = [];
@@ -151,7 +151,16 @@ class ImportUpload extends Base {
 			}
 		}
 		$inClients = array_flip(array_map(fn($r) => strtolower(trim((string) ($r['client'] ?? ''))), $clients['rows'] ?? []));
+		$failedNames = array_flip(array_column($failed, 'name'));
 		foreach ($plan['rows'] as $r) {
+			if (isset($failedNames[$r['name']])) {
+				// Zabbix refused it: nothing of it counts as new, and it is an error.
+				$key = isset($out[$cName]) ? $cName : $sName;
+				if (isset($out[$key])) {
+					$out[$key]['errors']++;
+				}
+				continue;
+			}
 			$fromClients = isset($inClients[strtolower($r['name'])]);
 			if (isset($out[$cName]) && $fromClients) {
 				$out[$cName]['new'] += $r['status'] === 'new' ? 1 : 0;
@@ -241,21 +250,13 @@ class ImportUpload extends Base {
 			}
 		}
 
-		$spec = $this->spec();
-		foreach ($plan['rows'] as $row) {
-			if ($row['status'] !== 'new' || $row['warnings']) {
-				continue;
-			}
-			$rec = $this->rec();
-			['client' => $client] = $spec->fromForm($row['form']);
-			try {
-				$rec->apply($client);
-				$this->noteChange($client['name'], 'imported');
-				$data['added'][] = ['name' => $client['name'], 'done' => $rec->done(), 'problems' => $importer->verify($client)];
-			}
-			catch (Exception $e) {
-				$data['added'][] = ['name' => $client['name'], 'done' => $rec->done(), 'problems' => [$e->getMessage()]];
-			}
+		// Only a client Zabbix took counts as added; one refused is reported as not added, with what
+		// was written before the refusal and what of it is in Zabbix now.
+		$result = $importer->applyRows(array_values($work), fn() => $this->rec(), fn($name) => $this->noteChange($name, 'imported'));
+		$data['added'] = $result['applied'];
+		$data['failed'] = $result['failed'];
+		if ($result['failed']) {
+			$data['sheets'] = self::sheets($plan, $counts, $xlsx, $clients, $servers, $result['failed']);
 		}
 
 		// What waits for a tick: changes, and new clients that overlap something.

@@ -6,8 +6,9 @@ namespace Modules\EpClients\Lib;
  * Clients as two CSV files. Pure — tested on its own (test/spec.test.php).
  *
  *   clients.csv  one row per client: settings and requested capacity per role
- *   servers.csv  one row per server: client, ip, roles (es_data_hot;es_coord), services, notes,
- *                and any other column kept as an attribute of the server (rack, owner …)
+ *   servers.csv  one row per server: client, ip, name (a host name of its own; empty: made from
+ *                the client and roles), roles (es_data_hot;es_coord), services, notes, and any
+ *                other column kept as an attribute of the server (rack, owner …)
  *
  * Either file may come alone. On import a clients.csv column left out means "no change" and an
  * empty cell "clear it". A client in servers.csv gets exactly the servers listed for it; a
@@ -160,7 +161,8 @@ class Csv {
 	/**
 	 * Every server of these forms, for servers.csv and the workbook: ['attrs' => attribute names,
 	 * sorted, 'lines' => [['client', 'ip', 'name', 'roles' (ids), 'services', 'notes', 'attrs'], …]].
-	 * `name` is the host's name in Zabbix when given (client => ip => name); it is ignored on import.
+	 * `name` is the host's name in Zabbix when given (client => ip => name). On import a name equal to
+	 * the host's current one changes nothing; another one becomes the host's own (Importer).
 	 */
 	public static function serverLines(array $forms, array $hostNames = []): array {
 		$attrs = [];
@@ -337,7 +339,7 @@ class Csv {
 			foreach ($attrCols as $col) {
 				$attrs[self::attrKey($col)] = (string) ($row[$col] ?? '');
 			}
-			$out['clients'][$client][] = ['ip' => (string) ($row['ip'] ?? ''), 'roles' => $ids,
+			$out['clients'][$client][] = ['ip' => (string) ($row['ip'] ?? ''), 'roles' => $ids, 'host' => (string) ($row['name'] ?? ''),
 				'services' => preg_split('/\s*[;,]\s*/', (string) ($row['services'] ?? ''), -1, PREG_SPLIT_NO_EMPTY),
 				'notes' => (string) ($row['notes'] ?? ''), 'attrs' => $attrs, '_line' => $row['_line']];
 		}

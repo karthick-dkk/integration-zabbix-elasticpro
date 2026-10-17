@@ -47,8 +47,11 @@ One workbook, **clients.xlsx** (**Import / export** → Download template, or Ex
 - **Clients** — one row per client: settings, then requested capacity per role (five columns a
   role, in one collapsed column group; Other disks as `/data=4000; /logs=500`).
 - **Servers** — one row per server: Client, IP, Host name, Role 1–4, Services, Notes. Any other
-  column becomes an attribute of the server. Host name is exported for reading and ignored on
-  import. A client on the Servers sheet gets exactly the servers listed for it.
+  column becomes an attribute of the server. Host name: empty — ElasticPro names the host from
+  the client and roles, as before; given — kept as the host's own (tag `ep-name=own`), which no
+  later save renames; on an existing server a different name renames the host. Names are checked
+  against Zabbix's rule and for clashes at Check time. A client on the Servers sheet gets exactly
+  the servers listed for it.
 - **Sample** — filled-in examples; never imported, nor is any sheet but Clients and Servers.
 
 Every header has a note (what it takes, its choices, an example); every column with a fixed set of
@@ -56,7 +59,7 @@ values is a dropdown filled from this Zabbix (client types, roles, proxies and p
 import checks those values again. The workbook is written and read in plain PHP (`lib/Zip.php`,
 `lib/Xlsx.php`, `lib/Workbook.php`) — no zip extension needed — into exactly what the CSV files give,
 so everything after the upload is one path. The old **clients.csv** / **servers.csv** are still
-accepted by the same upload, and their templates and export (`ep.clients.csv.template`,
+accepted by the same upload (servers.csv's `name` column is the Host name), and their templates and export (`ep.clients.csv.template`,
 `ep.clients.csv.export`) still answer.
 
 Every row is checked first; one error — a bad field, a client twice, an IP under two clients — and

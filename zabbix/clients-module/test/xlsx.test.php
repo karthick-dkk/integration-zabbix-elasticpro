@@ -261,9 +261,13 @@ namespace Modules\EpClients\Test {
 	}
 	$sv = Csv::parseServers(Csv::exportServers($roles, $forms), $roles);
 	$strip = fn($list) => array_map(fn($s) => array_diff_key($s, ['_line' => 1]), $list);
-	check('servers: the same as through servers.csv', $strip($back['servers']['clients']['acme']) == $strip($sv['clients']['acme']),
-		[$strip($back['servers']['clients']['acme']), $strip($sv['clients']['acme'])]);
-	['servers' => $again, 'errors' => $se] = $spec->parseServers(json_encode($strip($back['servers']['clients']['acme'])));
+	$csvNamed = Csv::parseServers(Csv::exportServers($roles, $forms, ['acme' => ['10.100.0.11' => 'acme-ES-Data-Hot-1']]), $roles);
+	check('servers: the same as through servers.csv, Host name read as the host name', $strip($back['servers']['clients']['acme']) == $strip($csvNamed['clients']['acme'])
+		&& $back['servers']['clients']['acme'][0]['host'] === 'acme-ES-Data-Hot-1' && $back['servers']['clients']['acme'][1]['host'] === '',
+		[$strip($back['servers']['clients']['acme']), $strip($csvNamed['clients']['acme'])]);
+	// The Importer drops a Host name that is the host's current made-up name (test/e2e.test.php); here, by hand.
+	$unnamed = array_map(fn($s) => array_merge($s, ['host' => '']), $strip($back['servers']['clients']['acme']));
+	['servers' => $again, 'errors' => $se] = $spec->parseServers(json_encode($unnamed));
 	check('and the same servers as before — five roles on one server survive the four slots', $se === [] && ClientSpec::encodeServers($again) === $forms[0]['servers'],
 		[$se, ClientSpec::encodeServers($again), $forms[0]['servers']]);
 
