@@ -44,11 +44,20 @@ window.ep_column_form = new class {
 				}
 			}
 		});
+		// Zabbix 7.0's CColor is a div.color-picker holding a hidden input: the colour picker adds the
+		// swatch button beside it, and its dialog (pick, or type a hex) opens in this popup's body, as
+		// the core widgets' forms do. Empty is "the palette's colour" (use default).
 		const colorpickers = () => {
-			this._form.querySelectorAll('.input-color-picker input').forEach((input) => {
+			this._form.querySelectorAll('.<?= ZBX_STYLE_COLOR_PICKER ?> input, .input-color-picker input').forEach((input) => {
 				if (!input.dataset.epInit) {
 					input.dataset.epInit = '1';
-					jQuery(input).colorpicker({appendTo: jQuery(input).closest('.input-color-picker')});
+					const body = jQuery(input).closest('.overlay-dialogue-body');
+					jQuery(input).colorpicker({
+						appendTo: body.length ? body : 'body',
+						use_default: true,
+						// The picker sets the value with jQuery; the preview listens for input.
+						onUpdate: function () { this.dispatchEvent(new Event('input', {bubbles: true})); }
+					});
 				}
 			});
 		};

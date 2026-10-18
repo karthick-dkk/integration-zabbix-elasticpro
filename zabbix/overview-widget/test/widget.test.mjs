@@ -196,3 +196,12 @@ test('Summary view: the Data tab keeps the Metrics list the usage chart offers; 
   assert.ok(shown('ep-ov-metrics') && shown('hint'), 'Summary: the Metrics list stays, with its note');
   assert.ok(!shown('trend') && !shown('order'), 'Summary: the Cards-only settings go');
 });
+
+test('the metric editor\'s threshold colours get Zabbix 7.0\'s colour picker in the popup, not a selector 7.0 never renders', () => {
+  const js = read('views/metric.edit.js.php');
+  const init = js.slice(js.indexOf('const colorpickers'), js.indexOf('colorpickers();'));
+  assert.match(init, /closest\('\.overlay-dialogue-body'\)/);
+  assert.match(init, /use_default: true/);
+  assert.ok(!/appendTo: jQuery\(input\)\.closest\('\.input-color-picker'\)/.test(init), 'no .input-color-picker: 7.0\'s CColor is div.color-picker');
+  assert.ok(read('views/metric.edit.php').includes("new CColor('thresholds[#{rowNum}][color]'"), 'the rows are CColor boxes');
+});

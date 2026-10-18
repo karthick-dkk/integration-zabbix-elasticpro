@@ -84,7 +84,9 @@ test('the modules use only Zabbix constants confirmed to exist in Zabbix 7.0', (
     'TIMEPERIOD_TYPE_ONETIME', 'TRIGGER_VALUE_TRUE', 'TRIGGER_SEVERITY_HIGH',
     // The column editor and the widget fields (2.1.1), checked in the same file of 7.0.31.
     'ZBX_WIDGET_FIELD_TYPE_STR', 'ZBX_WIDGET_FIELD_TYPE_INT32', 'ZBX_STYLE_BTN_LINK', 'ZBX_STYLE_DRAG_ICON', 'ZBX_STYLE_TD_DRAG_ICON',
-    'ZBX_STYLE_FORM_SUBMIT_HIDDEN', 'ZBX_STYLE_HOR_LIST', 'ZBX_STYLE_TABLE_FORMS', 'ZBX_STYLE_TABLE_FORMS_SEPARATOR', 'ZBX_TEXTAREA_NUMERIC_STANDARD_WIDTH']);
+    'ZBX_STYLE_FORM_SUBMIT_HIDDEN', 'ZBX_STYLE_HOR_LIST', 'ZBX_STYLE_TABLE_FORMS', 'ZBX_STYLE_TABLE_FORMS_SEPARATOR', 'ZBX_TEXTAREA_NUMERIC_STANDARD_WIDTH',
+    // CColor's class, which the column editor's colour picker looks for (defines.inc.php of 7.0.31: 'color-picker').
+    'ZBX_STYLE_COLOR_PICKER']);
   const used = new Set();
   const scan = (dir) => {
     for (const f of fs.readdirSync(dir, {withFileTypes: true})) {

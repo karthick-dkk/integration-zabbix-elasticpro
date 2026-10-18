@@ -121,11 +121,14 @@ function editorScript() {
   let src = read('views/column.edit.js.php');
   src = src.slice(src.indexOf('?>') + 2);
   src = src.replace(/<\?= Columns::(\w+) \?>/g, (_, k) => { assert.ok(k in COLS, k); return String(COLS[k]); });
+  src = src.replace(/<\?= ZBX_STYLE_COLOR_PICKER \?>/g, 'color-picker');
   src = src.replace(/<\?= json_encode\(_\('((?:[^'\\]|\\.)*)'\)\) \?>/g, (_, s) => JSON.stringify(s.replace(/\\'/g, "'")));
   assert.ok(!src.includes('<?'), 'every PHP tag replaced');
   return src;
 }
-const EDITOR = `<form name="ep_column_edit" style="display:none">
+/** A colour field as Zabbix 7.0.31's CColor renders it (appendColorPickerJs(false)): a hidden input in div.color-picker. */
+const color = (name) => `<div class="color-picker"><input type="hidden" id="${name}" name="${name}" value=""></div>`;
+const EDITOR = `<div class="overlay-dialogue-body"><form name="ep_column_edit" style="display:none">
   <input name="group" value=""><input name="name" value="">
   <input type="radio" name="source" value="1" checked><input type="radio" name="source" value="2"><input type="radio" name="source" value="3">
   <div class="js-builtin"><select name="builtin"><option value="storage.used">x</option><option value="storage.usage">y</option></select><span id="ep_ce_builtin_key"></span></div>
@@ -139,19 +142,22 @@ const EDITOR = `<form name="ep_column_edit" style="display:none">
   <select name="nodata"><option value="1">why</option><option value="2">—</option></select>
   <input type="radio" name="show" value="1" checked><input type="radio" name="show" value="2"><input type="radio" name="show" value="5">
   <div class="js-bar"><input type="radio" name="bar_style" value="0" checked><input type="radio" name="bar_style" value="3"><input name="segments" value="12">
-    <input type="radio" name="bar_color" value="1" checked><input type="radio" name="bar_color" value="2"><span class="ep-ce-color"><input name="bar_fixed"></span>
+    <input type="radio" name="bar_color" value="1" checked><input type="radio" name="bar_color" value="2"><div class="ep-ce-color">${color('bar_fixed')}</div><div class="ep-ce-color">${color('track')}</div>
     <input type="checkbox" name="show_value" checked><input type="checkbox" name="show_pct" checked></div>
   <input type="checkbox" name="wrap">
   <input type="radio" name="worse" value="1" checked><input type="radio" name="worse" value="2">
   <input type="checkbox" id="ep_ce_use_settings" name="use_settings" checked>
-  <div id="ep_ce_settings_values"><input name="warn"><input name="high"></div>
+  <div id="ep_ce_settings_values"><input name="warn"><input name="high"><div class="ep-ce-color">${color('warn_color')}</div><div class="ep-ce-color">${color('high_color')}</div></div>
   <div id="ep_ce_own"><table id="ep_ce_thresholds"><tr><th id="ep_ce_th_head"><span>At or above</span></th></tr></table></div>
   <div id="ep_ce_preview"></div>
-</form>`;
+</form></div>`;
 function editor(lib) {
   const dom = new lib.JSDOM(`<body>${EDITOR}</body>`, { runScripts: 'outside-only' });
   const w = dom.window;
-  w.jQuery = () => ({ find: () => ({ dynamicRows() {}, on() {}, 0: w.document.getElementById('ep_ce_thresholds') }), on() {}, colorpicker() {}, closest() {} });
+  const pickers = [];
+  w.jQuery = (x) => ({ find: () => ({ dynamicRows() {}, on() {}, 0: w.document.getElementById('ep_ce_thresholds') }), on() {},
+    colorpicker(o) { pickers.push({ el: x, o }); },
+    closest(sel) { const c = x && x.closest ? x.closest(sel) : null; return c ? Object.assign([c], { length: 1 }) : Object.assign([], { length: 0 }); } });
   w.getFormFields = (form) => {
     const out = {};
     for (const el of form.elements) {
@@ -171,7 +177,7 @@ function editor(lib) {
   const f = w.document.forms.ep_column_edit;
   const set = (sel, v) => { const el = f.querySelector(sel); if (el.type === 'radio' || el.type === 'checkbox') el.checked = v; else el.value = v;
     el.dispatchEvent(new w.Event('change', { bubbles: true })); };
-  return { w, ed, f, set, shown: (sel) => f.querySelector(sel).style.display !== 'none' };
+  return { w, ed, f, set, pickers, shown: (sel) => f.querySelector(sel).style.display !== 'none' };
 }
 
 test('the column editor: rows follow the source, a built-in names the column, Settings only for a percentage (DOM)', (t) => {
@@ -195,6 +201,25 @@ test('the column editor: rows follow the source, a built-in names the column, Se
   set('[name="calc_a_pick"]', '__key');
   assert.equal(f.querySelector('[name="calc_a_key"]').style.display, '', 'an item key operand gets its box');
   assert.ok(shown('.js-servers'), '…and is read off the servers');
+});
+
+test('the column editor\'s colour boxes get Zabbix 7.0\'s colour picker — swatch, pick, type a hex — in the popup (DOM)', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w, f, pickers } = editor(lib);
+  // 2.1.1 as shipped looked for .input-color-picker, which 7.0's CColor never renders: no box had a picker.
+  assert.deepEqual(pickers.map((p) => p.el.name), ['bar_fixed', 'track', 'warn_color', 'high_color'], 'every CColor box is given the picker');
+  const body = w.document.querySelector('.overlay-dialogue-body');
+  assert.ok(pickers.every((p) => p.o.appendTo[0] === body), 'its dialog opens in the popup\'s body, as the core widgets\' forms have it');
+  assert.ok(pickers.every((p) => p.o.use_default === true), 'empty is the palette\'s colour');
+  // A colour picked (set by jQuery, which fires no DOM event) still updates the preview.
+  let previewed = 0;
+  f.addEventListener('input', () => previewed++);
+  const warn = f.querySelector('[name="warn_color"]');
+  warn.value = 'FF0000';
+  pickers[2].o.onUpdate.call(warn, 'FF0000');
+  assert.equal(previewed, 1);
+  // Opening the editor again, or a threshold row added, never gives a box a second picker.
+  f.querySelectorAll('.color-picker input').forEach((i) => assert.equal(i.dataset.epInit, '1'));
 });
 
 test('the column editor sends every box, ticked or not, and the operands as stored (DOM)', (t) => {
