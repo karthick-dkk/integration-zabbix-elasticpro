@@ -1,0 +1,81 @@
+# Tests on every pull request and push to main; a GitHub release when a v* tag is pushed.
+#
+# Versions: every module carries one x.y.z (zabbix/*/manifest.json) with a matching section in
+# zabbix/CHANGELOG.md — see "Versions and releases" in zabbix/README.md. The tests hold the
+# manifests and the CHANGELOG together, and `npm run version-check` fails a change to a module
+# that does not bump the version past the latest v* tag.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: zabbix
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version check compares with the latest v* tag, so it needs every tag and commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: zabbix/package-lock.json
+
+      - run: npm ci
+
+      - name: tests
+        run: npm test
+
+      - name: version is bumped for a change to a module
+        run: npm run version-check
+
+  release:
+    # Only for a pushed tag, and only once the tests pass.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: zabbix
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: the tag is the manifests' version
+        run: |
+          version=$(node tools/version.mjs)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match the manifests' version v$version — bump (npm run version -- x.y.z) and tag the commit that carries it" >&2
+            exit 1
+          fi
+          node tools/version.mjs --check
+          node tools/version.mjs --notes > "$RUNNER_TEMP/notes.md"
+
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "ElasticPro Zabbix modules ${GITHUB_REF_NAME#v}" \
+            --notes-file "$RUNNER_TEMP/notes.md"

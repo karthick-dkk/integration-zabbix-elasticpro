@@ -14,7 +14,7 @@ const noDocker = (r) => r.status !== 0 && /docker|daemon/i.test(`${r.stderr || '
 test('the manifest names the widget, its controller and the metric editor, and loads the panel look', () => {
   const m = JSON.parse(read('manifest.json'));
   assert.equal(m.id, 'ep_overview');
-  assert.equal(m.version, '2.1');
+  assert.match(m.version, /^\d+\.\d+\.\d+$/); // the one shared version; tools/test/version.test.mjs holds the modules to the same one
   assert.equal(m.widget.js_class, 'WidgetEpOverview');
   assert.ok(m.actions['widget.ep_overview.view']);
   assert.deepEqual(m.actions['widget.ep_overview.metric.edit'], { class: 'MetricEdit', view: 'metric.edit', layout: 'layout.json' });

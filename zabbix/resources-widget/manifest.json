@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro client resources",
 	"namespace": "EpResources",
-	"version": "2.1",
+	"version": "2.1.0",
 	"author": "ElasticPro",
 	"description": "One row per client: requested, allocated and used \u2014 servers, CPU, memory, disk \u2014 per family (ES, Parser, Forwarder, Engine \u2026) or per role, ES storage and log delay; each client expands into its servers. Columns renamed, hidden and reordered in the Columns dialog; a Type filter; CSV and Excel export with a Servers sheet.",
 	"widget": {
