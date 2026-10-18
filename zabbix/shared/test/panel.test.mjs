@@ -319,3 +319,28 @@ test('the totals row, which is over every client, steps aside while a filter is 
   sel.value = 'DI'; sel.dispatchEvent(new w.Event('change'));
   assert.equal(totals.hidden, true, 'a Type filter');
 });
+
+test('group headers: the column names sit exactly under the first header row, sticky or not — never over the first data row', (t) => {
+  // QA 2.1.1: a Volume widget with the sticky header off (its 2.1.0 look) drew its second header row 24px low, over the
+  // first cluster. ep-panel.js makes a static header cell position: relative for its resize handle, and the sticky
+  // offset (top: 24px) then moved it. Off: top is auto. On: the offset is the first row's measured height.
+  const css = fs.readFileSync(path.join(HERE, 'ep-table.css'), 'utf8') + fs.readFileSync(path.join(HERE, 'ep-panel.css'), 'utf8');
+  assert.match(css, /\.ep-panel\.ep-nosticky \.ep-res-table thead th \{ position: static; top: auto; \}/, 'no sticky header: no offset, whatever position the cell gets');
+  assert.match(css, /\.ep-panel \.ep-res-table thead tr \+ tr th \{ top: var\(--ep-head1, 22px\); \}/, 'sticky: the measured height of the first row');
+  assert.ok(!/thead tr \+ tr th \{ top: 24px/.test(css), 'no fixed 24px');
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const dom = new lib.JSDOM(`<body><table class="ep-res-table"><thead><tr><th class="ep-res-group">Live</th></tr><tr><th>Used</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>
+    <table class="ep-res-table" id="one"><thead><tr><th>Used</th></tr></thead></table></body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  w.eval(fs.readFileSync(path.join(HERE, 'ep-panel.js'), 'utf8'));
+  const [two, one] = w.document.querySelectorAll('table');
+  two.tHead.rows[0].getBoundingClientRect = () => ({ height: 21.5 });  // jsdom lays nothing out
+  w.EpPanel.headOffset(two);
+  w.EpPanel.headOffset(one);
+  assert.equal(two.style.getPropertyValue('--ep-head1'), '21.5px', 'the second row sticks at the first row\'s own height');
+  assert.equal(one.style.getPropertyValue('--ep-head1'), '', 'one header row: nothing to offset');
+  const hidden = w.document.createElement('table');
+  hidden.innerHTML = '<thead><tr><th>a</th></tr><tr><th>b</th></tr></thead>';
+  w.EpPanel.headOffset(hidden);
+  assert.equal(hidden.style.getPropertyValue('--ep-head1'), '', 'a table not laid out (height 0) keeps the CSS fallback');
+});

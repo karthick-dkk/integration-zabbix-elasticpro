@@ -260,8 +260,20 @@ window.EpPanel = {
 		table.classList.add('ep-fixed');
 		table.style.width = w.reduce((a, b) => a + b, 0) + 'px';
 	},
+	/**
+	 * With group headers the column names are a second header row, stuck under the first: its offset is
+	 * the first row's own height (--ep-head1), measured, so it neither covers the first data row nor
+	 * leaves a gap — a fixed 24px did one or the other, by theme.
+	 */
+	headOffset(table) {
+		const rows = table && table.tHead ? table.tHead.rows : [];
+		if (rows.length < 2) return;
+		const h = rows[0].getBoundingClientRect().height;
+		if (h > 0) table.style.setProperty('--ep-head1', `${Math.round(h * 100) / 100}px`);
+	},
 	resizable(ctx) {
 		const { table, root, prefs, kind } = ctx;
+		this.headOffset(table);
 		const lab = this.labelRow(table);
 		if (!lab) return;
 		this.applyWidths(ctx);

@@ -46,7 +46,9 @@
 /* Table options. */
 /* No sticky header: the header scrolls away (the first column still frozen, unless that is off too).
    No frozen first column: the client scrolls sideways with the rest (its header still sticks to the top). */
-.ep-panel.ep-nosticky .ep-res-table thead th { position: static; }
+/* top: auto as well — the resize handle makes a static header cell position: relative (ep-panel.js), and the
+   second header row's sticky offset (top: 24px) would then push it down over the first row. */
+.ep-panel.ep-nosticky .ep-res-table thead th { position: static; top: auto; }
 .ep-panel.ep-nosticky:not(.ep-nofreeze) .ep-res-table thead th.ep-res-first { position: sticky; top: auto; }
 .ep-panel.ep-nofreeze .ep-res-table tbody .ep-res-first, .ep-panel.ep-nofreeze .ep-res-table tfoot .ep-res-first { position: static; }
 .ep-panel.ep-nofreeze .ep-res-table thead th.ep-res-first { left: auto; }
