@@ -329,7 +329,8 @@ if ($showTable) {
 
 	$table = (new CTag('table', true))->addClass(ZBX_STYLE_LIST_TABLE)->addClass('ep-res-table')->addItem($thead)->addItem($body);
 	if ($data['totals'] !== null) {
-		$tf = (new CTag('tr', true))->addClass('ep-totals')->addItem($expandable ? (new CTag('td', true, ''))->addClass('ep-res-toggle') : null);
+		$tf = (new CTag('tr', true))->addClass('ep-totals')->setAttribute('data-ep-totals', '')
+			->setAttribute('title', _('Over every client the widget lists; hidden while a search, Type or Needs attention filter is on.'))->addItem($expandable ? (new CTag('td', true, ''))->addClass('ep-res-toggle') : null);
 		foreach ($data['totals'] as $i => $t) {
 			$tf->addItem((new CTag('td', true, $t))->addClass($i === 0 ? 'ep-res-first' : null)->addClass(in_array($i, $starts, true) ? 'ep-res-start' : null));
 		}

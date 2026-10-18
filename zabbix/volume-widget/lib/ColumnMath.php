@@ -81,9 +81,8 @@ class ColumnMath {
 		if ($best === null) {
 			return ['level' => '', 'color' => null];
 		}
-		$color = (string) ($best['color'] ?? '');
 		return ['level' => (int) $best['level'] === Columns::LEVEL_HIGH ? 'high' : 'warn',
-			'color' => $color !== '' ? '#'.ltrim($color, '#') : null];
+			'color' => Columns::color($best['color'] ?? '')];
 	}
 
 	/**

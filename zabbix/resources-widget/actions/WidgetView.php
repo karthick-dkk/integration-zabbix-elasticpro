@@ -286,7 +286,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 				$values = array_map(fn($r) => $r['sort'][$col['uid']] ?? null, $rows);
 				$isPct = (int) $col['source'] === Columns::SOURCE_CALC && (int) $col['calc_op'] === Columns::OP_OF;
 				$t = $text ? null : Resources::total($values, $isPct ? '%' : $u, $view['totals_avg']);
-				$data['totals'][] = $i === 0 ? ($view['totals_avg'] ? _('Average') : _('Total')) : ($t === null ? '' : ($isPct ? Resources::pctText($t, $this->cfg) : Resources::text($t, $u, $col, $this->cfg)));
+				$data['totals'][] = $i === 0 ? self::totalsLabel($view) : ($t === null ? '' : ($isPct ? Resources::pctText($t, $this->cfg) : Resources::text($t, $u, $col, $this->cfg)));
 			}
 		}
 
@@ -302,6 +302,18 @@ class WidgetView extends CControllerDashboardWidgetView {
 		}
 		unset($row);
 		$this->setResponse(new CControllerResponseData($data));
+	}
+
+	/**
+	 * What the totals row is over, said in its first cell: every client the widget shows, or its
+	 * top N. A viewer's search, Type filter or Needs attention hides the row (ep-panel.js), since
+	 * these figures are not the visible rows'.
+	 */
+	private static function totalsLabel(array $view): string {
+		if ($view['top_n'] !== null) {
+			return $view['totals_avg'] ? _s('Average (top %1$s)', $view['top_n']) : _s('Total (top %1$s)', $view['top_n']);
+		}
+		return $view['totals_avg'] ? _('Average (all clients)') : _('Total (all clients)');
 	}
 
 	/** The View tab's settings, each read with its default — a widget saved before 2.1.1 has none of them. */
@@ -450,6 +462,9 @@ class WidgetView extends CControllerDashboardWidgetView {
 			elseif ($found && !$numeric) {
 				$why = _('not a number');
 			}
+			elseif ($now !== null && $trend === null && array_intersect_key(array_flip(array_column($numeric, 'itemid')), $this->reader->seriesCapped)) {
+				$why = _('window not read');
+			}
 			elseif ($now !== null && $trend === null) {
 				$why = _('no trend yet');
 			}
@@ -463,6 +478,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$count = !$master && (int) $col['combine'] === Columns::COMBINE_COUNT;
 		return [
 			'now' => $now, 'value' => $value, 'trend' => $trend, 'capped' => (bool) $capped,
+			'trend_capped' => (bool) array_intersect_key(array_flip(array_column($numeric, 'itemid')), $this->reader->seriesCapped),
 			'itemids' => array_column($numeric, 'itemid'), 'hostids' => array_values(array_unique(array_column($found, 'hostid'))),
 			'units' => $count ? '' : (string) ($numeric[0]['units'] ?? ''), 'why' => $why,
 			'newest' => $numeric ? max(array_map(fn($it) => (int) $it['lastclock'], $numeric)) : 0,
@@ -578,6 +594,10 @@ class WidgetView extends CControllerDashboardWidgetView {
 		if ($a['capped']) {
 			$fig['capped'] = _s('The key pattern matches more items than are read (%1$s per server, %2$s in all) — make it narrower.',
 				Columns::PATTERN_PER_HOST, Columns::PATTERN_PER_METRIC);
+		}
+		if ($a['trend_capped']) {
+			$fig['capped'] = trim(($fig['capped'] ?? '').' '._s('The widget asks for more trend than one refresh reads (%1$s item-days): this window was not read — shorten it, or narrow the column.',
+				ColumnReader::MAX_ITEM_DAYS));
 		}
 		if ((int) $col['show'] === Columns::SHOW_SPARKLINE && $a['trend'] !== null) {
 			$fig['series'] = array_values(array_filter($a['trend']['series'], fn($v) => $v !== null));

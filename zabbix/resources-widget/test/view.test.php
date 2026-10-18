@@ -596,8 +596,9 @@ namespace Modules\EpResources\Test {
 	check('a sort by a column no longer there sorts by client', array_column($d['rows'], 'client') === ['acme', 'karthi']);
 	$d = run($plain + ['totals' => '1']);
 	// The stand-in convertUnits writes bytes as bytes: 2 GiB + 300 GiB.
-	check('totals: the sum of the known figures', $d['totals'] === ['Total', (302 * 1073741824).' B'], $d['totals']);
-	check('totals: average when asked', run($plain + ['totals' => '1', 'totals_fn' => WidgetForm::TOTALS_AVG])['totals'] === ['Average', (151 * 1073741824).' B']);
+	check('totals: the sum of the known figures', $d['totals'] === ['Total (all clients)', (302 * 1073741824).' B'], $d['totals']);
+	check('totals: average when asked', run($plain + ['totals' => '1', 'totals_fn' => WidgetForm::TOTALS_AVG])['totals'] === ['Average (all clients)', (151 * 1073741824).' B']);
+	check('totals over the top N say so', run($plain + ['totals' => '1', 'top_n' => '1'])['totals'][0] === 'Total (top 1)');
 	check('totals: unknown adds nothing, and nothing known is no total', Resources::total([null, 4.0], '', false) === 4.0 && Resources::total([null], '', false) === null
 		&& Resources::total([50.0, 70.0], '%', false) === 60.0 && Resources::total([2.0, 4.0], 'B', true) === 3.0);
 

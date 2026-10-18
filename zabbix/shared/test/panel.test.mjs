@@ -238,7 +238,7 @@ const RES = `<div id="w"><div class="ep-panel" data-ep-panel="resources" data-ep
       <tr class="ep-sub" data-parent="c0" hidden><td colspan="3"><table class="ep-servers"><tr><td>acme-es-1 10.0.0.9</td></tr></table></td></tr>
       <tr data-type="DI" data-row="c1" data-attention="1"><td class="ep-res-toggle"><button data-ep-expand="c1" aria-expanded="false">▸</button></td><td class="ep-res-first">beta</td><td>95 %</td></tr>
       <tr class="ep-sub" data-parent="c1" hidden><td colspan="3"><table class="ep-servers"><tr><td>beta-data-1 10.40.1.21</td></tr></table></td></tr>
-    </tbody></table></div>
+    </tbody><tfoot><tr class="ep-totals" data-ep-totals><td></td><td>Total (all clients)</td><td>62 %</td></tr></tfoot></table></div>
   <div class="ep-pie ep-pscroll ep-view-pie" hidden>
     <article class="ep-pie-card" data-type="On-Prem" data-card="c0" data-attention="0" data-search="acme acme-es-1 10.0.0.9">acme <button data-ep-goto="c0">Servers (1)</button></article>
     <article class="ep-pie-card" data-type="DI" data-card="c1" data-attention="1" data-search="beta beta-data-1 10.40.1.21">beta <button data-ep-goto="c1">Servers (1)</button></article>
@@ -334,4 +334,22 @@ test('Client capacity: the palette until a viewer chooses colours, theirs after,
   chosen.body.querySelector('.ep-set [data-reset]').click();
   assert.equal(chosen.root.style.getPropertyValue('--ep-ok'), '#3e9b3a', 'Reset is the palette again');
   assert.ok(!('colors' in JSON.parse(chosen.w.localStorage.getItem('ep-panel:capacity'))), 'and no colours are kept');
+});
+
+test('the totals row, which is over every client, steps aside while a filter is on', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w, body } = resources(lib);
+  const totals = body.querySelector('[data-ep-totals]');
+  assert.equal(totals.hidden, false);
+  body.querySelector('[data-ep-attention]').click();
+  assert.equal(totals.hidden, true, 'Needs attention');
+  body.querySelector('[data-ep-attention]').click();
+  const q = body.querySelector('[data-ep-search]');
+  q.value = 'beta'; q.dispatchEvent(new w.Event('input'));
+  assert.equal(totals.hidden, true, 'a search');
+  q.value = ''; q.dispatchEvent(new w.Event('input'));
+  assert.equal(totals.hidden, false, 'back when the filter is cleared');
+  const sel = body.querySelector('[data-ep-type-filter]');
+  sel.value = 'DI'; sel.dispatchEvent(new w.Event('change'));
+  assert.equal(totals.hidden, true, 'a Type filter');
 });

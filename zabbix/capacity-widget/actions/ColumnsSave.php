@@ -108,6 +108,11 @@ class ColumnsSave extends CController {
 		// Families shown as their roles, or back as one: their columns swap, the new ones shown.
 		$after = $catalogue::forScope($catalogue::columns($roles, $split), 'client');
 		$list = ColumnSettings::resplit($list, $before, $after);
+		// The bound every widget is held to on Apply: report defaults past it would be defaults no
+		// widget could take.
+		if (count($list) > Columns::MAX) {
+			throw new \RuntimeException(_s('The report would have %1$s columns; at most %2$s. Show fewer families as their roles.', count($list), Columns::MAX));
+		}
 		ColumnSettings::saveModel($report, $list, $model['server_columns'], $split);
 	}
 }

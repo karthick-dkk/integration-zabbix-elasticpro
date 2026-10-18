@@ -10,16 +10,34 @@
  */
 namespace {
 	define('ITEM_STATE_NORMAL', 0);
+	/** Records what trend.get is asked; answers one point per hour of each item's window. */
+	class API {
+		public static array $trend = [];
+		public static function __callStatic($name, $args) {
+			return new class($name) {
+				public function __construct(private string $n) {}
+				public function get(array $o) {
+					if ($this->n !== 'Trend') return [];
+					\API::$trend[] = $o;
+					$out = [];
+					foreach ($o['itemids'] as $id) {
+						$out[] = ['itemid' => (string) $id, 'clock' => (string) $o['time_from'], 'value_avg' => '1', 'value_min' => '1', 'value_max' => '1'];
+					}
+					return $out;
+				}
+			};
+		}
+	}
 	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
 	if (!function_exists('_')) { function _($s) { return $s; } }
 	if (!function_exists('_s')) { function _s($s, ...$a) { return vsprintf($s, $a); } }
 	if (!function_exists('_n')) { function _n($one, $many, $n, ...$a) { return vsprintf($n == 1 ? $one : $many, array_merge([$n], $a)); } }
 }
 namespace EpShared\Test {
-	foreach (['Store', 'Settings', 'ClientData', 'Forecast', 'Columns', 'ColumnMath', 'ColumnSettings'] as $f) {
+	foreach (['Store', 'Settings', 'ClientData', 'Forecast', 'Columns', 'ColumnMath', 'ColumnSettings', 'ColumnReader'] as $f) {
 		require __DIR__.'/../php/'.$f.'.php';
 	}
-	use EpShared\{ColumnMath, Columns, ColumnSettings, Settings};
+	use EpShared\{ColumnMath, ColumnReader, Columns, ColumnSettings, Settings};
 
 	$failed = 0; $passed = 0;
 	function check(string $what, bool $ok, $detail = null): void {
@@ -72,8 +90,8 @@ namespace EpShared\Test {
 	check('a pattern needs three plain characters first', $has($errs(['source' => 2, 'key' => 'ab*', 'pattern' => 1]), 'at least 3 plain characters'));
 	check('…and a * at all', $has($errs(['source' => 2, 'key' => 'abc', 'pattern' => 1]), 'A pattern needs a *'));
 	check('a key may be at most 255 characters', $has($errs(['source' => 2, 'key' => str_repeat('a', 256)]), 'longer than 255'));
-	[$c, $e] = $clean(['source' => 2, 'key' => 'es.jvm[*]', 'pattern' => 1, 'roles' => ['es_hot', 'nope', 'es_hot']]);
-	check('a good pattern passes; roles it does not know are dropped, repeats too', $e === [] && $c['roles'] === ['es_hot'], [$e, $c['roles']]);
+	[$c, $e] = $clean(['source' => 2, 'key' => 'es.jvm[*]', 'pattern' => 1, 'roles' => ['es_hot', '', 'es_hot']]);
+	check('a good pattern passes; an empty or repeated role is ignored', $e === [] && $c['roles'] === ['es_hot'], [$e, $c['roles']]);
 	check('the pattern caps are 50 a server and 500 a column', Columns::PATTERN_PER_HOST === 50 && Columns::PATTERN_PER_METRIC === 500 && Columns::PATTERN_PREFIX === 3);
 	check('a pattern matches by its * and nothing else', Columns::keyMatches('es.jvm[heap]', 'es.jvm[*]', true) && !Columns::keyMatches('xes.jvm[heap]', 'es.jvm[*]', true)
 		&& !Columns::keyMatches('es.jvm[heap]', 'es.jvm[*]', false));
@@ -155,7 +173,21 @@ namespace EpShared\Test {
 	[$list] = Columns::cleanList([['uid' => 'same', 'name' => 'a', 'source' => 1, 'builtin' => 'storage.used'], ['uid' => 'same', 'name' => 'b', 'source' => 1, 'builtin' => 'storage.used']], $cat, $roles, false);
 	check('a repeated id is given a fresh one', $list[0]['uid'] === 'same' && $list[1]['uid'] !== 'same');
 	[, $e] = Columns::cleanList(array_fill(0, Columns::MAX + 1, ['name' => 'a', 'source' => 1, 'builtin' => 'storage.used']), $cat, $roles, true);
-	check('too many columns is refused on Apply', $has($e, 'at most 120 columns'), $e);
+	check('too many columns is refused on Apply', $has($e, 'at most 400 columns'), $e);
+	// A site with ES, Parser and Engine shown as their roles: well over a hundred columns, most hidden.
+	$many = array_fill(0, 131, ['name' => 'a', 'source' => 1, 'builtin' => 'storage.used', 'hidden' => 1]);
+	check('131 columns (families split into roles) pass on Apply', Columns::cleanList($many, $cat, $roles, true)[1] === []);
+	[$list, , $dropped] = Columns::cleanList(array_fill(0, Columns::MAX + 2, ['name' => 'Over', 'source' => 1, 'builtin' => 'storage.used']), $cat, $roles, false);
+	check('past the cap, never silently: each column left out is named', count($list) === Columns::MAX && count($dropped) === 2
+		&& strpos($dropped[0], 'Column "Over": more than 400 columns') === 0, $dropped);
+	// A role that is gone.
+	$e = $errs(['source' => 2, 'key' => 'a.b', 'roles' => ['es_hot', 'gone_role']]);
+	check('a column scoped to a role that is gone is refused, not widened to every server', $has($e, 'the role "gone_role" is not in Cluster Management'), $e);
+	[$list, , $dropped] = Columns::cleanList([['name' => 'Hot', 'source' => 2, 'key' => 'a.b', 'roles' => ['gone_role']]], $cat, $roles, false);
+	check('…left out of a saved widget, and named', $list === [] && strpos($dropped[0], 'Column "Hot"') === 0);
+	check('…a master-host figure has no servers, so its roles do not matter', $errs(['source' => 1, 'builtin' => 'storage.used', 'roles' => ['gone_role']]) === []);
+	check('a threshold colour goes through the colour rule', ColumnMath::level(9.0, ['use_settings' => 0, 'worse' => 1,
+		'thresholds' => [['level' => 2, 'value' => '8', 'color' => 'red;}']]], [])['color'] === null);
 	$g = Columns::groupTogether([['uid' => 'a', 'group' => 'X'], ['uid' => 'b', 'group' => ''], ['uid' => 'c', 'group' => 'X'], ['uid' => 'd', 'group' => 'Y']]);
 	check('a group\'s columns stay together, where its first one is', array_column($g, 'uid') === ['a', 'c', 'b', 'd']);
 
@@ -195,6 +227,23 @@ namespace EpShared\Test {
 		&& strpos(ColumnMath::clickUrl(Columns::CLICK_GRAPH, range(1, 31), ['1']), 'zabbix.php?action=latest.view') === 0
 		&& ColumnMath::clickUrl(Columns::CLICK_DASHBOARD, [], [], '101') === 'zabbix.php?action=host.dashboard.view&hostid=101'
 		&& ColumnMath::clickUrl(Columns::CLICK_NONE, ['7'], ['1']) === null);
+
+	/* ---------------- reading trends ---------------- */
+	$now = 1800000000;
+	$reader = new ColumnReader();
+	$series = $reader->series(['1' => ['from' => $now - 7 * 86400, 'till' => $now, 'value_type' => 0], '2' => ['from' => $now - 7 * 86400, 'till' => $now, 'value_type' => 0],
+		'3' => ['from' => $now - 365 * 86400, 'till' => $now, 'value_type' => 0]]);
+	check('one trend.get per window: a year for the year\'s item, a week for the week\'s', count(\API::$trend) === 2
+		&& array_map('strval', \API::$trend[0]['itemids']) === ['1', '2'] && \API::$trend[0]['time_from'] === $now - 7 * 86400
+		&& array_map('strval', \API::$trend[1]['itemids']) === ['3'] && \API::$trend[1]['time_from'] === $now - 365 * 86400, \API::$trend);
+	\API::$trend = [];
+	$reader = new ColumnReader();
+	$reader->maxItemDays = 400;
+	$series = $reader->series(['1' => ['from' => $now - 7 * 86400, 'till' => $now, 'value_type' => 0], '3' => ['from' => $now - 365 * 86400, 'till' => $now, 'value_type' => 0],
+		'4' => ['from' => $now - 365 * 86400, 'till' => $now, 'value_type' => 0]]);
+	check('past the trend budget: shortest windows read first, the rest named, not read', isset($series['1'], $series['3']) && !isset($series['4'])
+		&& array_keys($reader->seriesCapped) === [4], [$reader->seriesCapped, array_keys($series)]);
+	check('the budget a refresh may read', ColumnReader::MAX_ITEM_DAYS === 20000);
 
 	/* ---------------- donuts ---------------- */
 	$p = ColumnMath::pie(2870.0, 3500.0, 4000.0);
@@ -287,6 +336,11 @@ namespace EpShared\Test {
 	check('migrated: the hidden columns', array_map(fn($c) => (bool) $c['hidden'], $migrated) === array_column($old, 'hidden'));
 	check('migrated: a column version 1 never saw is shown, as version 1 showed it', $migrated[array_search('f.es.cpu.usage', array_column($migrated, 'builtin'))]['hidden'] === 0);
 	check('migrated columns pass the column rule', Columns::cleanList($migrated, $clientCat, $roles, true)[1] === []);
+	file_put_contents($dir.'/columns-resources.json', json_encode(['labels' => ['storage.used' => str_repeat('L', 80)], 'hidden' => [], 'order' => []]));
+	$model = ColumnSettings::loadModel('resources');
+	$long = ColumnSettings::resolve(null, $clientCat, $model['legacy'], false);
+	check('a version-1 name of 80 characters is cut to 64, not dropped', $long[1]['name'] === str_repeat('L', 64)
+		&& Columns::cleanList($long, $clientCat, $roles, true)[1] === []);
 
 	// Version 2.
 	$saved = ColumnSettings::saveModel('resources', array_slice($migrated, 0, 3), null, ['es']);

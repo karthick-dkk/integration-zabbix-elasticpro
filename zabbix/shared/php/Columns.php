@@ -28,7 +28,12 @@ namespace EpShared;
  */
 class Columns {
 
-	public const MAX = 120;
+	/**
+	 * Columns a widget may have. Generous on purpose: every family shown as its roles brings
+	 * eleven columns a role, and a widget's own list keeps the report's columns it hides, so a
+	 * site with a dozen roles split is well past a hundred before anyone adds one.
+	 */
+	public const MAX = 400;
 	public const MAX_SERVER = 24;
 	public const MAX_THRESHOLDS = 10;
 	public const MAX_NAME = 64;
@@ -293,11 +298,22 @@ class Columns {
 
 		// Servers: only meaningful for a figure read off the servers; a master-host figure is one per client.
 		$roles = [];
+		$unknown = [];
 		foreach ((array) ($in['roles'] ?? []) as $r) {
 			$r = is_scalar($r) ? trim((string) $r) : '';
-			if ($r !== '' && in_array($r, $roleIds, true) && !in_array($r, $roles, true)) {
+			if ($r === '' || in_array($r, $roles, true)) {
+				continue;
+			}
+			if (in_array($r, $roleIds, true)) {
 				$roles[] = $r;
 			}
+			else {
+				$unknown[] = $r;
+			}
+		}
+		// A role that is gone is not "every server": a column scoped to it would quietly read them all.
+		if ($onServers && $unknown) {
+			$e[] = _s('Servers: the role "%1$s" is not in Cluster Management any more — choose its servers again.', implode('", "', $unknown));
 		}
 		$c['roles'] = $onServers ? $roles : [];
 		$c['combine'] = $int('combine', array_keys(self::combineLabels()));
@@ -558,6 +574,11 @@ class Columns {
 		if (count($columns) > $max) {
 			if ($strict) {
 				$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Columns'), _s('at most %1$s columns', $max));
+			}
+			// Never silently: every column past the cap is named among the dropped.
+			foreach (array_slice($columns, $max) as $i => $col) {
+				$dropped[] = self::named([_s('more than %1$s columns — left out.', $max)], is_scalar($col['name'] ?? null) ? (string) $col['name'] : '',
+					$max + $i + 1, is_scalar($col['group'] ?? null) ? (string) $col['group'] : '')[0];
 			}
 			$columns = array_slice($columns, 0, $max);
 		}

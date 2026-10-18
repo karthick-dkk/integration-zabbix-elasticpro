@@ -216,7 +216,8 @@ class ColumnSettings {
 				$out = [];
 				foreach (self::apply($all, $legacy, true) as $c) {
 					$col = self::builtinColumn($c['id'], $auto[$c['id']]);
-					$col['name'] = $c['label'];
+					// Version 1 allowed 80 characters; the model 64. Cut, not dropped.
+					$col['name'] = mb_substr((string) $c['label'], 0, Columns::MAX_NAME);
 					$col['hidden'] = $c['hidden'] ? 1 : 0;
 					$out[] = $col;
 				}

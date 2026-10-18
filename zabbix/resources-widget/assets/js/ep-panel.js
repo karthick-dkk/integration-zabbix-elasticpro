@@ -138,6 +138,9 @@ window.EpPanel = {
 		if (count && count.dataset.template) count.textContent = count.dataset.template.replace('%n', shown);
 		const button = root.querySelector('[data-ep-attention]');
 		if (button) button.setAttribute('aria-pressed', String(att));
+		// The totals are over every client the widget lists; under a filter they would not be the
+		// visible rows' sum, so the row steps aside until the filter is cleared.
+		for (const t of root.querySelectorAll('[data-ep-totals]')) t.hidden = type !== '' || q !== '' || att;
 		// A filter in force keeps the toolbar showing, so what is hidden is never a mystery.
 		root.classList.toggle('ep-pt-pinned', type !== '' || q !== '' || att);
 	},

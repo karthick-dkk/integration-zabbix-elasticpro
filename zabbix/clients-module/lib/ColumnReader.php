@@ -33,6 +33,19 @@ class ColumnReader {
 	public array $patternCapped = [];
 
 	/**
+	 * The most trend a refresh reads: items times days. Shortest windows are read first; an item
+	 * past this is left out and named in $seriesCapped, so its column can say so instead of
+	 * showing a trend it did not read.
+	 */
+	public const MAX_ITEM_DAYS = 20000;
+
+	/** itemid => true: items whose window was not read because of MAX_ITEM_DAYS. */
+	public array $seriesCapped = [];
+
+	/** MAX_ITEM_DAYS, for this reader (a test reads less). */
+	public int $maxItemDays = self::MAX_ITEM_DAYS;
+
+	/**
 	 * One item.get for every exact key on every host, one more for the patterns.
 	 *
 	 * @param array $exact     key => [hostid => true]
@@ -112,10 +125,11 @@ class ColumnReader {
 	}
 
 	/**
-	 * Every item's points in its window: clock => [avg, min, max]. One trend.get for all of
-	 * them; items whose window is under two hours come from history instead (trends are hourly),
-	 * one history.get per value type, put in one-minute buckets (each item's last value in each)
-	 * so servers polled seconds apart are combined, not counted one at a time.
+	 * Every item's points in its window: clock => [avg, min, max]. One trend.get per distinct
+	 * window — so one 365-day column does not make every 7-day item read a year — and items whose
+	 * window is under two hours from history instead (trends are hourly), one history.get per
+	 * value type, put in one-minute buckets (each item's last value in each) so servers polled
+	 * seconds apart are combined, not counted one at a time. At most MAX_ITEM_DAYS of trend in all.
 	 *
 	 * @param array $want  itemid => ['from' => int, 'till' => int, 'value_type' => int]
 	 */
@@ -123,17 +137,25 @@ class ColumnReader {
 		$out = [];
 		$trend = [];
 		$history = [];
+		uasort($want, fn($a, $b) => ($a['till'] - $a['from']) <=> ($b['till'] - $b['from']));
+		$budget = $this->maxItemDays;
 		foreach ($want as $itemid => $w) {
 			if ($w['till'] - $w['from'] < self::HISTORY_UNDER) {
 				$history[$w['value_type']][$itemid] = $w;
+				continue;
 			}
-			else {
-				$trend[$itemid] = $w;
+			$days = ($w['till'] - $w['from']) / 86400;
+			if ($days > $budget) {
+				$this->seriesCapped[$itemid] = true;
+				continue;
 			}
+			$budget -= $days;
+			$trend[$w['from'].':'.$w['till']][$itemid] = $w;
 		}
-		if ($trend) {
-			$rows = API::Trend()->get(['output' => ['itemid', 'clock', 'value_min', 'value_avg', 'value_max'], 'itemids' => array_keys($trend),
-				'time_from' => min(array_column($trend, 'from')), 'time_till' => max(array_column($trend, 'till'))]);
+		foreach ($trend as $ws) {
+			$first = reset($ws);
+			$rows = API::Trend()->get(['output' => ['itemid', 'clock', 'value_min', 'value_avg', 'value_max'], 'itemids' => array_keys($ws),
+				'time_from' => $first['from'], 'time_till' => $first['till']]);
 			foreach ($rows ?: [] as $r) {
 				$out[$r['itemid']][(int) $r['clock']] = [(float) $r['value_avg'], (float) $r['value_min'], (float) $r['value_max']];
 			}
