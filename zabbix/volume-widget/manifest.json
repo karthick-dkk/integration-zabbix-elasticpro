@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro volume report",
 	"namespace": "EpVolume",
-	"version": "2.1.0",
+	"version": "2.1.1",
 	"author": "ElasticPro",
 	"description": "The Volume report's client plan, one row per cluster host, laid out as in ElasticPro: volume per day, live storage and backup storage. Columns come from the ElasticPro client plan template. CSV and Excel export.",
 	"widget": {

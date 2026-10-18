@@ -4,6 +4,56 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.1
+
+Full customization for the ElasticPro widgets, starting with Client resources: one column engine,
+one palette.
+
+- **The column engine** (`shared/php/Columns.php`, `ColumnMath.php`, `ColumnReader.php`, copied into
+  every module). A column has a group and a name; a source — a built-in column, any Zabbix item key
+  on the client's servers (a pattern needs 3 plain characters before its first `*`, and reads at
+  most 50 items a server and 500 a column) or a figure calculated from two items (x of y with its %,
+  minus, plus, divided by); the servers it reads and how they combine (each server's worst item
+  first); its value now or its average, minimum, maximum or change over N days (one trend.get;
+  history in one-minute buckets under two hours); units, decimals, size unit, short numbers; what an
+  unknown says and when a value is stale; where a click goes (graph, Latest data, client dashboard,
+  nothing — Zabbix pages only); how it shows (value, bar under / in cell / segments / gauge,
+  coloured cell or text, indicators, sparkline, badge) and its thresholds — ElasticPro Settings' or
+  its own levels and colours, higher or lower is worse. One rule checks a column in the editor, on
+  Apply and, leniently, when a widget draws; every error names the column. Colours are `#RRGGBB`
+  only. The Client overview's metrics now use the same rules and arithmetic (its behaviour and tests
+  unchanged).
+- **Colours in ElasticPro → Settings.** One palette — OK, Warn, High, Unknown, Short, Free, Down,
+  Stale, Link for the Blue and the Dark theme, and eight chart series colours — that Client
+  resources, Client capacity, Client overview and Top hosts draw with, chosen by the viewer's Zabbix
+  theme. Text on each colour is checked: below 4.5:1 it is flagged and gets dark text. Reset to
+  defaults; Super admins only, saved with the other settings. The shipped colours are the panel's
+  own. One visible change: Client resources and Client capacity in the Blue theme had painted OK,
+  Warn and High with the Dark theme's colours (the per-browser Table settings wrote them over the
+  sheet); they now use the Blue theme's, as Client overview and Top hosts always did. A viewer who
+  chose colours in Client capacity's Table settings keeps them.
+- **Client resources: Data, Columns, View.** Clients, client types and a trend window. Columns per
+  widget or from the report defaults (*Columns from: Report defaults | This widget*, *Reset to
+  report defaults*); the column list with drag to reorder, Add column, Add group and Add avg / min /
+  max for a column; new roles from Cluster Management arrive unticked; the server rows' columns
+  (Role … Uptime) each in the same editor. A **Pie chart** view — per client, donuts of used, free and
+  short (hatched, solid or hidden) for any figure with used, allocated and requested, a centre of
+  your choice, a legend with percentages and status chips; allocated not set says so and draws no
+  ring — and viewers may switch between it and the table. Table options: server rows on click / all
+  / none, density and row height, group headers, sticky header, frozen first column, striped rows, a
+  totals row, default sort and top N. Toolbar items and position, and what **Needs attention** means
+  (over Warn, over High, server down, short, no data, disk full within 30 days) with its default.
+- **Report defaults, migrated.** The Columns dialog's settings are kept as the full column model.
+  A Columns file written by an earlier release is read onto it unchanged — names, hidden columns,
+  order, families shown as roles — and is only rewritten when a Super admin saves. A Super admin can
+  make a widget's own columns the report defaults from the dialog.
+- **A widget saved before this release looks as it did**: it follows the report defaults, a compact
+  table, the toolbar on hover. Warn / High left empty mean ElasticPro Settings and the boxes say
+  so — the 0 an earlier release stored for an empty box is read as empty. The look is the widget's
+  setting now: colours, row height and server columns are no longer kept per browser; the browser
+  keeps only the search, open clients, Needs attention, Compact, the view switched to and dragged
+  column widths. CSV and Excel export follow the widget's visible columns.
+
 ## 2.1.0
 
 The first numbered release. It is everything on `main` up to this point; from here every change
