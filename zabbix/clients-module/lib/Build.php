@@ -13,11 +13,15 @@ namespace Modules\EpClients\Lib;
  *   modules_version=2.1.0
  *   modules_commit=723f10156ed96353ba0fc8ee69a1aadc3496bda5
  *   modules_commit_short=723f101
+ *   modules_commit_date=2026-10-18T08:49:29+05:30
+ *   modules_tree=clean
  *   elasticpro_version=0.3.20
  *
  * A module copied from a plain checkout has no BUILD file, and then the line says the build is
  * not recorded. A value that is missing, "unknown" or not shaped like what it should be is left
- * out the same way — nothing here guesses.
+ * out the same way — nothing here guesses. A build made from a checkout with uncommitted changes
+ * (`modules_tree=modified`) says "(modified)" after the commit, because the commit alone would
+ * not describe those files.
  */
 class Build {
 
@@ -69,6 +73,9 @@ class Build {
 			return $line.' · build not recorded';
 		}
 		$line .= ' · build '.$short;
+		if (($build['modules_tree'] ?? '') === 'modified') {
+			$line .= ' (modified)';
+		}
 		$from = $build['elasticpro_version'] ?? '';
 		if (preg_match('/^[0-9][0-9A-Za-z.+-]{0,31}$/', $from)) {
 			$line .= ' · from ElasticPro '.$from;

@@ -30,6 +30,10 @@ namespace Modules\EpClients\Test {
 		Build::line($module('plain', '{"version": "2.1.0"}', null)) === 'Zabbix modules 2.1.0 · build not recorded', Build::line($tmp.'/plain'));
 	check('the version is the manifest\'s, not BUILD\'s',
 		Build::line($module('differs', '{"version": "2.1.1"}', $full)) === 'Zabbix modules 2.1.1 · build 723f101 · from ElasticPro 0.3.20');
+	check('a build from a modified checkout says so',
+		Build::line($module('modified', '{"version": "2.1.0"}', $full."modules_tree=modified\n")) === 'Zabbix modules 2.1.0 · build 723f101 (modified) · from ElasticPro 0.3.20', Build::line($tmp.'/modified'));
+	check('a clean tree adds nothing',
+		Build::line($module('clean', '{"version": "2.1.0"}', $full."modules_tree=clean\n")) === 'Zabbix modules 2.1.0 · build 723f101 · from ElasticPro 0.3.20');
 	check('a commit marked unknown is not recorded',
 		Build::line($module('unknown', '{"version": "2.1.0"}', "modules_commit=unknown\nmodules_commit_short=unknown\nelasticpro_version=0.3.20\n")) === 'Zabbix modules 2.1.0 · build not recorded');
 	check('the short commit is taken from the full one when only that is given',

@@ -253,7 +253,7 @@ site that never opens it sees exactly what it saw before.
 The foot of the page says which build is installed: "Zabbix modules 2.1.0 · build 723f101 · from
 ElasticPro 0.3.20". The version is this folder's `manifest.json`. The rest comes from a `BUILD`
 file beside it — `key=value` lines (`modules_version`, `modules_commit`, `modules_commit_short`,
-`elasticpro_version`; `#` lines ignored) — which ElasticPro's release archive writes into every
+`modules_commit_date`, `modules_tree`, `elasticpro_version`; `#` lines ignored) — which ElasticPro's release archive writes into every
 module folder. A folder copied from a plain checkout has none, and the page says "build not
 recorded" rather than guess; a value that is missing, `unknown` or not shaped like a commit or a
 version is left out the same way (`lib/Build.php`, `test/build.test.php`).

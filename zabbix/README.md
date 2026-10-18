@@ -82,7 +82,8 @@ is refused unless `--allow-jump` is added; a version that is not higher is alway
 
 **Which build is installed.** ElasticPro's `tools/zabbix-modules-tarball.sh` writes a `BUILD` file
 into every module folder of the archive it makes: `key=value` lines for `modules_version`,
-`modules_commit`, `modules_commit_short` and `elasticpro_version`. **ElasticPro → Settings** shows
+`modules_commit`, `modules_commit_short`, `modules_commit_date`, `modules_tree` (`clean` or
+`modified`) and `elasticpro_version`. **ElasticPro → Settings** shows
 "Zabbix modules 2.1.0 · build 723f101 · from ElasticPro 0.3.20" from it, and "Zabbix modules 2.1.0 ·
 build not recorded" for a module copied straight from a checkout, which has no `BUILD`. `BUILD` is
 never committed to this repository.
