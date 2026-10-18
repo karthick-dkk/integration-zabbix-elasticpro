@@ -53,6 +53,33 @@ one palette.
   setting now: colours, row height and server columns are no longer kept per browser; the browser
   keeps only the search, open clients, Needs attention, Compact, the view switched to and dragged
   column widths. CSV and Excel export follow the widget's visible columns.
+- **Client capacity, Volume and Top hosts on the same engine.** The three widgets join Client
+  resources: Data, Columns and View tabs (Top hosts on one page, as designed), the same column
+  editor, the same palette, the same table options — and one reading of a figure, a cell, a total and
+  an export (`ColumnReport`, `ColumnCell`, `TableOptions`, `ColumnTable`, shared and copied into
+  every module), so a fix to one is a fix to all four.
+  - **Client capacity**: its 31 columns (`columns.json`) are the built-in columns under the ids they
+    have always had; beside them any item key on the client's servers, two items calculated, now or
+    average / minimum / maximum / change over a window, groups, avg / min / max copies. Report
+    defaults, with the Columns file of every earlier release read onto them unchanged. Table options
+    and **Needs attention** (over Warn, over High, short, storage full within 30 days). Its
+    per-browser Table settings (colours, row height) are the widget's settings now, following the
+    palette.
+  - **Volume**: the plan template's items are the built-in columns (their `plan` tag the section),
+    with the same column editor, copies over a window and any other item of the cluster host.
+    *Thresholds*: from the plan template's macros (the default; the cell and the trigger agree) or
+    per column. Decimals, group headers by plan, totals, **search and sort** (new, from the shared
+    panel), sort and top N; the columns file of earlier releases read unchanged, a column the
+    template gains arriving shown.
+  - **Top hosts**: clients (pick several), client types and **roles**; rank by CPU, memory, disk used,
+    JVM heap or any Zabbix item, now or its average or maximum over the window; how many; which
+    metrics a viewer may switch between; columns (Rank, Host, Value, Client · Role and any column of
+    the model); a list with bars, a table or a bar chart. A widget saved before keeps ranking the same
+    servers the same way: its Client, Client type, Rank by, Hosts and thresholds are read onto the new
+    settings.
+  - A widget saved before this release of each kind looks as it did; Warn / High left empty mean
+    ElasticPro Settings. Export headers say their unit ("(days)", "(GB)" for a unit Zabbix is told not
+    to scale).
 
 ## 2.1.0
 

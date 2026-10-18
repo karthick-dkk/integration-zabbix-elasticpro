@@ -110,7 +110,7 @@ The Settings page's own **Bars** select offers **only** 0–3 — not "From Elas
 | allocated < requested (and requested > 0) | `ep-short` | `outline: 2px dashed #e53935; outline-offset: -3px`, bold, and a **▼** (U+25BC) appended after the figure, red — white when the cell is also `ep-high` |
 | a `requested`/purchased item whose value is exactly **0** | `ep-unset` | text **`not set`**, `opacity: .55`, *italic* |
 | no value at all (item unsupported, never polled, or empty) | — | text **`—`** (U+2014 em dash). **Never `0`** |
-| Volume row with `elasticpro.plan.reachable == 0` | `ep-vol-unreachable` | whole row `opacity: .55` |
+| Volume row with `elasticpro.plan.reachable == 0` | `ep-unreachable` (`shared/ep-table.css`) | whole row `opacity: .55` |
 | bar colour | `--ep-bar` | normal `#2f7fc4`; on `ep-warn` `#b8761b`; on `ep-high` `#c0392b` |
 
 ### 2.4 `Roles::defaults()` — 5 families, 12 roles
@@ -506,7 +506,7 @@ Pre-condition for all: PF-7, PF-14, Super admin unless stated.
 | ID | Area | Pre-condition | Steps | Expected result | Why it matters | Pri |
 |---|---|---|---|---|---|---|
 | WC-01 | Columns, count and first two | PF-12 (no column settings saved) | Open the dashboard; scroll the capacity widget horizontally | **31** columns, in `columns.json` order. First two headers: **Cluster Name**, **ES URL**. The remaining 29 match §2.7 | a column lost here is a figure the business stops seeing | P1 |
-| WC-02 | Toolbar | — | Read the widget's toolbar | **"&lt;n&gt; clients"** count, label **Type** with a dropdown, and buttons **Columns**, **Export CSV**, **Export Excel** | — | P2 |
+| WC-02 | Toolbar | — | Read the widget's toolbar (hover it, or View → Toolbar → Always shown) | **"&lt;n&gt; clients"** count, a search box, label **Type** with a dropdown, and the **⋮** menu holding **Columns…**, **Export CSV**, **Export Excel** — no Table settings (since 2.1.1 colours and row height are the widget's settings, §12b) | — | P2 |
 | WC-03 | **CI is offered in the Type filter** | Settings types = CI, DI, On-Prem | Open the **Type** dropdown | Exactly four options: **All**, **CI**, **DI**, **On-Prem** — in the Settings page's order. **CI is present** | CI was in the shared list from the start and missing from every widget's dropdown; a tenant type nobody can filter by is invisible | **P1** |
 | WC-04 | Type filter follows the Settings page | — | *Settings* → add a type `Lab`, Save. Reload the dashboard. Open the Type dropdown | **All, CI, DI, On-Prem, Lab** | the dropdown is built from the setting, not a literal | P1 |
 | WC-05 | Type filter filters, and the count follows | clients of ≥ 2 types | Choose **DI** | Only DI rows remain visible; the count re-renders as **"&lt;n&gt; clients"** with the filtered number | — | P2 |
@@ -549,7 +549,7 @@ Pre-condition for all: PF-7, PF-14, Super admin unless stated.
 | WV-01 | Columns come from the plan template | PF-4 | Look at the widget | Two header rows: section (from each item's `plan` tag) over columns (from each item's `column` tag, ascending). The first column header is **Cluster**. Labels have the prefix **`Client plan: `** stripped from the item name | the widget keeps no column list of its own, so a column added in ElasticPro reaches it with the template | P1 |
 | WV-02 | Type filter offers CI here too | — | Open the **Type** dropdown | **All, CI, DI, On-Prem** (plus any added type) | — | P1 |
 | WV-03 | Row count label | — | Read the toolbar | **"&lt;n&gt; clusters"** (not "clients") | — | P3 |
-| WV-04 | Decimals field — the only override | — | Edit the widget | The form has exactly **Host groups** and **Decimals**. Decimals offers **From ElasticPro settings** (the default), **0**, **1**, **2**, **3**. There is **no** Display, Warn at or High at field | the Volume report's colours come from the plan template's own macros, which its **triggers** compare against; a dashboard allowed to disagree would show green for a problem that had already alarmed | P1 |
+| WV-04 | Decimals, and where the colours come from | — | Edit the widget (Columns tab) | **Decimals** offers **From ElasticPro settings** (the default), **0**, **1**, **2**, **3**. **Thresholds** is **From the plan template's macros** by default; there is **no** Warn at / High at field. *Per column* is the opt-in (§12b VO-05) | the Volume report's colours come from the plan template's own macros, which its **triggers** compare against; a dashboard allowed to disagree would show green for a problem that had already alarmed — so it is a choice the person makes, once, on purpose | P1 |
 | WV-05 | Decimals inherits, then overrides | — | *Settings*: Decimals — percentages = **3**. Reload: a `%` figure reads 3 places. Then set the widget's **Decimals** = **0** and Apply | The figures read **0** places in this widget only; a second Volume report widget left at *From ElasticPro settings* still reads 3 | — | P2 |
 | WV-06 | Colouring follows the template's own macros | — | On the plan template read `{$ELASTICPRO.PLAN.LIVE_USED.WARN}` and `{$ELASTICPRO.PLAN.LIVE_DAYS.MIN}` (fallbacks **85** and **14** if absent) | A `[live.used.pct]` column **above** the warn value is **yellow**; a `[live.days]` column **below** the min-days value is **red**. Changing the **Settings page's** usage thresholds has **no effect** on these | the triggers and the cells must agree | P1 |
 | WV-07 | A host macro overrides for one cluster | — | On one cluster host set `{$ELASTICPRO.PLAN.LIVE_USED.WARN}` = a value below its current live-used % | That cluster's cell turns **yellow**; other clusters unchanged | per-cluster plan thresholds | P2 |
@@ -705,6 +705,39 @@ CR-09 and CR-14. Check both the Blue and the Dark theme where colours are involv
 | CR-15 | Palette | Super admin | ElasticPro → Settings → Colours: Warn (Blue) `#7a00ff`, Save | Every Client resources / capacity / overview / Top hosts Warn colour follows in the Blue theme; Dark theme unchanged; *Text on it* flags colours under 4.5:1 | one global palette | **P1** |
 | CR-16 | Palette validation | Super admin | Type `orange` in a colour box, Save | Saved with a warning naming the colour; that place keeps the shipped colour | strict #RRGGBB | P1 |
 | CR-17 | Palette reset | CR-15 | *Reset to defaults*, Save | The shipped colours return everywhere | reversible | P2 |
+
+## 12b. Client capacity, Volume and Top hosts on the column engine (2.1.1)
+
+The three widgets use the same engine as Client resources (12a): the same Columns tab and column
+editor, the same palette, the same table options. Test dashboard: one widget of each kind saved by
+2.1.0 (untouched), one placed fresh; for Volume at least one cluster over the plan's warning, one
+under its minimum days and one whose `elasticpro.plan.reachable` is 0; for Top hosts servers with
+CPU, memory and disk figures, one without a memory figure, and one with the item you rank by.
+
+| ID | What | Precondition | Steps | Expected | Why it matters | Pri |
+|---|---|---|---|---|---|---|
+| CC-01 | A 2.1.0 capacity widget looks as it did | the untouched widget | Reload the dashboard | The same **31** columns, names, hidden columns and order as before (a version-1 `columns-capacity.json` is read unchanged), compact rows, the toolbar on hover with search, Type, ⋮ (Columns, export) | "keeps exactly its current look" | **P1** |
+| CC-02 | Its Warn / High are empty | the untouched widget | Edit → Columns | *Warn at, %* and *High at, %* are **empty** with the placeholders *Settings: 80* / *Settings: 90*, not `0`; the bar style it had is kept | the integer box showed 0 for "follow Settings" | **P1** |
+| CC-03 | Table settings are gone, the look is the widget's | — | Open the ⋮ menu; edit → View | No *Table settings* item. Row height, density, header, striped, totals, sort and Top N, toolbar and Needs attention are on the View tab; colours are ElasticPro → Settings' palette | per-browser colours made two people see two colours for one figure | **P1** |
+| CC-04 | A viewer who had chosen colours | a browser that had Table settings stored (`ep-panel:capacity` in localStorage) | Reload | The palette's colours show; the stored colours and row height are ignored (only dragged column widths are read) | nothing of the look comes from a browser | P1 |
+| CC-05 | Columns: This widget | — | *Columns from: This widget*; Add column → *Zabbix item key* on the client servers; Add avg / max of *ES Used %* | The item is read off the client's servers, the window columns come right after it; Warn / High empty means Settings | the same editor as Client resources | P1 |
+| CC-06 | Needs attention | View → *Any of*: Over High, Short, Storage full within 30 d | Apply | The button counts clients over High, with allocated below purchased, or full within 30 days; pressing it filters the table | stated semantics | P1 |
+| CC-07 | Disabled client, export | a disabled client | Look; Export CSV | The cell reads `<client> (disabled)`; the CSV has the client name alone | the export is data | P2 |
+| VO-01 | A 2.1.0 volume widget looks as it did | the untouched widget | Reload | The same columns in the same sections (the template's), the section header, the cluster fixed on the left, the toolbar always shown with the Type filter and the ⋮ menu, comfortable rows, no totals; yellow above the plan's warning, red under its minimum days | no surprise on upgrade | **P1** |
+| VO-02 | Thresholds from the plan template's macros | — | Compare a cluster at exactly the warning value | **Not** coloured at the value, coloured above it; days **at** the minimum are not red, under it are — the triggers' own comparisons | the cell must agree with the trigger | **P1** |
+| VO-03 | A column added to the template | — | Add a `column`-tagged item to the plan template | It appears in the table on its own (report defaults), in its section; in a widget's own list it is offered **unticked** | stated behaviour | P1 |
+| VO-04 | Any other item | Columns: This widget | Add column → *Zabbix item key* (a key the cluster host has) → *Check* | "Found on N of M cluster hosts"; the cell reads the cluster host's own item; no *Servers* / *Combine* choices (a row is one host) | one host per row | P1 |
+| VO-05 | Per column | Thresholds: *Per column* | Edit *Live used %* | Its own thresholds (seeded Warn 85) decide, the macros no longer do | opt-in override | P1 |
+| VO-06 | Search, sort, totals | View: Totals row | Search a cluster name; click a header; look at the totals row | Search filters, headers sort by the figure, the totals row (labelled *Total (all clients)*) is hidden while a filter is on | added with the shared panel | P1 |
+| VO-07 | Unreachable cluster | a cluster with `elasticpro.plan.reachable` 0 | Look; hover the cluster | The row is dimmed; the tooltip says *Cluster unreachable — figures are the last measured · Updated … ago* | not a current figure | P2 |
+| VO-08 | Decimals | Decimals: 0 | Look | Every figure that sets no places of its own reads whole | the widget's override | P2 |
+| TH-01 | A 2.1.0 top-hosts widget looks as it did | the untouched widget | Reload | A list with bars of the busiest servers by CPU, the CPU / Memory switch, each in its client's colours; a *Client* it named is the one client picked, a *Client type* the one type | back-compat | **P1** |
+| TH-02 | Rank by any metric | — | Rank by Disk used; JVM heap; Any item `es.ingest.rate`; Rank value *Maximum over the window* | The list is the servers by that figure (a server with none is **left out, never ranked as 0**); the header names the metric and the window | the design | **P1** |
+| TH-03 | Switch on the widget | Switch: CPU, Memory, Disk used | Press the buttons; wait for a refresh | The ranking changes with no reload; the choice survives the refresh | stated behaviour | P1 |
+| TH-04 | Roles and clients | Roles: Parser; two clients | Apply | Only Parser servers of those clients; the header names what is listed | filters | P1 |
+| TH-05 | Columns | Add *Uptime* and a 7d max of CPU used | Apply; View: Table | A table with Rank, Host, Value, Client · Role and the extras, each with its own look | extra engine columns | P1 |
+| TH-06 | Three views | View: List with bars / Table / Bar chart | Apply each | The same ranking drawn three ways; hosts link to Latest data; the level colours are the palette's | the design | P1 |
+| TH-07 | Warn / High | empty, then 50 / 70 | Apply | Empty follows Settings (placeholder says the value); typed applies to the percentages ranked; a client's own macros still win | precedence | P1 |
 
 ## 13. Regression watch-list
 
