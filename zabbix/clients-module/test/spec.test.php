@@ -720,7 +720,14 @@ namespace Modules\EpClients\Test {
 	$parsed = Csv::parse(Csv::export($roles, [$fm]), $roles);
 	check('export then parse is the same client', $parsed['errors'] === [] && Csv::toForm($parsed['rows'][0], $spec->defaults(), $roles)['es_data_hot_cpu'] === '32');
 	$sv = Csv::parseServers(Csv::exportServers($roles, [$fm], ['karthi' => ['10.0.0.21' => 'karthi-ES-Data-Hot-Coord-1']]), $roles);
-	check('servers.csv round-trips', $sv['errors'] === [] && $spec->canonServers($sv['clients']['karthi']) === $c['servers_json'], $sv['errors']);
+	// The name column is read as the server's own host name; the Importer drops it again when it is
+	// the name the host already has and ElasticPro made it (test/e2e.test.php).
+	check('servers.csv round-trips', $sv['errors'] === [] && $spec->canonServers(array_map(fn($s) => array_merge($s, ['host' => '']), $sv['clients']['karthi'])) === $c['servers_json'], $sv['errors']);
+	check('servers.csv\'s name is read as the host name', in_array('karthi-ES-Data-Hot-Coord-1', array_column($sv['clients']['karthi'], 'host'), true));
+	check('a host name of its own is kept in the server list, and only then', str_contains($spec->canonServers([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => 'edge 01.x_y-z']]), '"host":"edge 01.x_y-z"')
+		&& !str_contains($spec->canonServers([['ip' => '10.9.9.9', 'roles' => ['parser']]]), '"host"'));
+	check('a host name Zabbix would refuse is an error', (bool) preg_grep('/host name "bad\/name" may hold only/', $spec->parseServers(json_encode([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => 'bad/name']]))['errors'])
+		&& (bool) preg_grep('/is already given to 10\.9\.9\.9/', $spec->parseServers(json_encode([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => 'same'], ['ip' => '10.9.9.10', 'roles' => ['parser'], 'host' => 'SAME']]))['errors']));
 	check('servers.csv carries the host name, for reading', strpos(Csv::exportServers($roles, [$fm], ['karthi' => ['10.0.0.21' => 'karthi-ES-Data-Hot-Coord-1']]), 'karthi-ES-Data-Hot-Coord-1') !== false);
 	$byName = Csv::parseServers("client,ip,roles,services,owner\nacme,10.1.1.1,ES Data Hot; ES Coordination,kafka,team-a\n", $roles);
 	check('roles by name, extra columns as attributes', $byName['clients']['acme'][0]['roles'] === ['es_data_hot', 'es_coord'] && $byName['clients']['acme'][0]['attrs'] === ['owner' => 'team-a']);

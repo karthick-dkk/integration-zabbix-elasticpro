@@ -2,7 +2,7 @@
 
 namespace Modules\EpClients\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'ClusterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClientSpec', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'ClientState', 'Csv', 'Backups', 'TemplateInstaller', 'Importer', 'AlertRouting'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'ClusterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClientSpec', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'ClientState', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'TemplateInstaller', 'Importer', 'AlertRouting'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 
@@ -13,7 +13,7 @@ use CControllerResponseRedirect;
 use CMessageHelper;
 use CUrl;
 use CWebUser;
-use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, History, Importer, Lifecycle, Reconciler, Registry, Roles, Store};
+use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, History, Importer, Lifecycle, Reconciler, Registry, Roles, Settings, Store};
 
 /** What every Clients page shares: Super admins only; roles, rules and Zabbix state; backups. */
 abstract class Base extends CController {
@@ -68,6 +68,33 @@ abstract class Base extends CController {
 
 	protected function importer(): Importer {
 		return new Importer($this->spec(), $this->state());
+	}
+
+	/**
+	 * What the workbook's dropdowns offer, read from this Zabbix now: client types (Settings), and
+	 * the proxies and proxy groups a client can be monitored by.
+	 */
+	protected function workbookLists(): array {
+		return ['types' => Settings::types()['all'],
+			'proxies' => array_column(API::Proxy()->get(['output' => ['name'], 'sortfield' => 'name']) ?: [], 'name'),
+			'proxy_groups' => array_column(API::ProxyGroup()->get(['output' => ['name'], 'sortfield' => 'name']) ?: [], 'name')];
+	}
+
+	/** Every client as it is now, for an export: [forms (ClientState::plain), client => ip => host name]. */
+	protected function exportForms(): array {
+		$state = $this->state();
+		$forms = [];
+		$names = [];
+		foreach ($state->clients() as $name => $_) {
+			$form = $state->formFor($name);
+			foreach ($form['_now']['machines'] as $h) {
+				if ($h['_ip'] !== null) {
+					$names[$name][$h['_ip']] = $h['name'];
+				}
+			}
+			$forms[] = ClientState::plain($form);
+		}
+		return [$forms, $names];
 	}
 
 	protected function user(): string {

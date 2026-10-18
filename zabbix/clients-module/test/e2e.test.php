@@ -560,10 +560,10 @@ namespace {
 	}
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
-	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate};
+	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate};
 
 	$failed = 0; $passed = 0; $scene = '';
 	function check(string $what, bool $ok, $detail = null): void {
@@ -1283,6 +1283,132 @@ namespace Modules\EpClients\Test {
 		(bool) preg_grep('/which is not a client yet/', (new Importer($spec, $state($rec())))->analyze(null, Csv::parseServers("client,ip,roles\nnobody,10.1.1.1,parser\n", $roles))['errors']));
 	check('the same client twice in clients.csv is an error, whatever the case',
 		(bool) preg_grep('/is in clients\.csv twice/', (new Importer($spec, $state($rec())))->analyze(Csv::parse("client,type\nacme,On-Prem\nACME,DI\n", $roles), null)['errors']));
+
+	/*
+	 * The same import from clients.xlsx. The workbook is only another way to write the two CSV
+	 * files: Workbook::parse hands the Importer what Csv::parse / Csv::parseServers hand it, so a new
+	 * client and its servers go through the same analyze and the same apply, and the Sample sheet is
+	 * never read.
+	 */
+	$begin('an xlsx import: a new client and its servers');
+	$lists = ['types' => Settings::types()['all'], 'proxies' => [], 'proxy_groups' => []];
+	$book = Xlsx::build([
+		['name' => 'Clients', 'rows' => [1 => [1 => 'Client *', 2 => 'Type ▾', 3 => 'ES URL *', 4 => 'Password in ▾', 5 => 'Vault path', 6 => 'Contract ends', 7 => 'ES Data Hot · CPU cores', 8 => 'ES Data Hot · Other disks'],
+			2 => [1 => 'bajaj', 2 => 'On-Prem', 3 => 'https://es.bajaj.example:9243', 4 => 'Vault', 5 => 'secret/elasticpro/bajaj:password', 6 => ['v' => '2027-03-31', 'style' => 'date'], 7 => 16, 8 => '/data=4000']]],
+		['name' => 'Servers', 'rows' => [1 => [1 => 'Client ▾ *', 2 => 'IP *', 3 => 'Host name', 4 => 'Role 1 ▾ *', 5 => 'Role 2 ▾', 6 => 'Rack'],
+			2 => [1 => 'bajaj', 2 => '10.120.0.11', 4 => 'ES Data Hot', 6 => 'R4'], 3 => [1 => 'bajaj', 2 => '10.120.0.12', 4 => 'ES Master', 5 => 'ES Coordination']]],
+		['name' => 'Sample', 'rows' => [1 => [1 => 'Client *'], 2 => [1 => 'acme-from-the-sample']]]
+	]);
+	$wb = Workbook::parse($book, $roles, $lists);
+	check('the workbook reads with no error, the Sample skipped', $wb['errors'] === [] && $wb['skipped'] === ['Sample'], $wb['errors']);
+	$xplan = (new Importer($spec, $state($rec())))->analyze($wb['clients'], $wb['servers']);
+	check('the Importer plans one new client and no error', $xplan['errors'] === [] && count($xplan['rows']) === 1 && $xplan['rows'][0]['status'] === 'new'
+		&& $xplan['rows'][0]['name'] === 'bajaj', [$xplan['errors'], array_column($xplan['rows'], 'status')]);
+	$csvPlan = (new Importer($spec, $state($rec())))->analyze(
+		Csv::parse("client,type,es_url,es_password_in,es_password_vault,contract_end,es_data_hot_cpu_cores,es_data_hot_disk2_mount,es_data_hot_disk2_gb,es_data_hot_disk3_mount,es_data_hot_disk3_gb,es_data_hot_disk4_mount,es_data_hot_disk4_gb,es_data_hot_disk5_mount,es_data_hot_disk5_gb\n"
+			."bajaj,On-Prem,https://es.bajaj.example:9243,vault,secret/elasticpro/bajaj:password,2027-03-31,16,/data,4000,,,,,,\n", $roles),
+		Csv::parseServers("client,ip,name,roles,rack\nbajaj,10.120.0.11,,es_data_hot,R4\nbajaj,10.120.0.12,,es_master;es_coord,\n", $roles));
+	check('and it is the very plan the same clients.csv and servers.csv give', $csvPlan['errors'] === [] && $csvPlan['rows'][0]['form'] === $xplan['rows'][0]['form'],
+		array_diff_assoc($xplan['rows'][0]['form'], $csvPlan['rows'][0]['form'] ?? []));
+	\Zbx::$wrote = [];
+	$xr = $rec();
+	['client' => $xc] = $spec->fromForm($xplan['rows'][0]['form']);
+	$xr->apply($xc);
+	$now = $state($rec())->formFor('bajaj');
+	$ips = array_column((array) json_decode($now['servers'], true), 'roles', 'ip');
+	check('applied as ImportUpload applies it: the client and both servers are in Zabbix, roles as on the sheet', $ips === ['10.120.0.11' => ['es_data_hot'], '10.120.0.12' => ['es_coord', 'es_master']]
+		|| $ips === ['10.120.0.11' => ['es_data_hot'], '10.120.0.12' => ['es_master', 'es_coord']], $ips);
+	check('the settings from the Clients sheet are on the client, read back', $now['contract_end'] === '2027-03-31' && $now['es_data_hot_cpu'] === '16'
+		&& $now['es_data_hot_disk2_fs'] === '/data' && $now['es_data_hot_disk2'] === '4000', [$now['contract_end'], $now['es_data_hot_cpu'], $now['es_data_hot_disk2_fs']]);
+	check('and the Importer\'s read-back finds nothing different', (new Importer($spec, $state($rec())))->verify($xc) === [], (new Importer($spec, $state($rec())))->verify($xc));
+	check('nothing from the Sample sheet was made', !isset($state($rec())->clients()['acme-from-the-sample']));
+	$bad = Workbook::parse(Xlsx::build([['name' => 'Servers', 'rows' => [1 => [1 => 'Client ▾ *', 2 => 'IP *', 3 => 'Role 1 ▾ *', 4 => 'Role 2 ▾'],
+		14 => [1 => 'bajaj', 2 => '10.120.0.31', 3 => 'ES Master', 4 => 'ES Hot']]]]), $roles, $lists);
+	check('a role not on the Roles page stops the file, saying where and how to fix it',
+		in_array('Servers, row 14 (10.120.0.31): Role 2 is "ES Hot" — not one of the roles. Pick it from the dropdown, or leave it empty.', $bad['errors'], true), $bad['errors']);
+
+	/*
+	 * A client Zabbix refuses is never reported as added. Before: "Backup taken. 1 new client added:
+	 * QA-Excel." and then "Read back — differs: Nothing was saved. These templates are not in
+	 * Zabbix …", with nothing created. Now Check says so first, and an apply that is refused anyway
+	 * comes back as failed, with what it wrote and what is in Zabbix now.
+	 */
+	$begin('a client whose template is missing: told at Check, and never counted as added');
+	foreach (\Zbx::$templates as $id => $t) {
+		if ($t['host'] === Reconciler::ulmTemplate()) { unset(\Zbx::$templates[$id]); }
+	}
+	$diBook = Xlsx::build([['name' => 'Clients', 'rows' => [1 => [1 => 'Client *', 2 => 'Type ▾', 3 => 'ES URL *', 4 => 'Vault path', 5 => 'S3 bucket', 6 => 'S3 region'],
+		2 => [1 => 'QA-Excel', 2 => 'DI', 3 => 'https://es.qa.example:9243', 4 => 'secret/elasticpro/qa:password', 5 => 'qa-archive', 6 => 'ap-south-1']]]]);
+	$dw = Workbook::parse($diBook, $roles, $lists);
+	$dplan = (new Importer($spec, $state($rec())))->analyze($dw['clients'], $dw['servers']);
+	check('Check names the missing template, before anything is applied',
+		(bool) preg_grep('/^QA-Excel: DI needs the template "'.preg_quote(Reconciler::ulmTemplate(), '/').'", which is not in this Zabbix\./', $dplan['errors'])
+		&& $dplan['rows'][0]['status'] === 'error' && \Zbx::$wrote === [], $dplan['errors']);
+	// Applied regardless (a template removed between Check and Apply): reported as failed, not added.
+	$res = (new Importer($spec, $state($rec())))->applyRows([['form' => array_merge(Csv::toForm($dw['clients']['rows'][0], $spec->defaults(), $roles), ['servers' => '[]'])]], $rec, fn($n) => null);
+	check('the apply result has 0 applied and 1 failed, with Zabbix\'s reason, and nothing in Zabbix', $res['applied'] === [] && count($res['failed']) === 1
+		&& $res['failed'][0]['name'] === 'QA-Excel' && str_contains($res['failed'][0]['error'], 'These templates are not in Zabbix') && $res['failed'][0]['exists'] === []
+		&& !isset($state($rec())->clients()['QA-Excel']), $res);
+	// A refusal half-way: the master host is made, then Zabbix refuses the cluster host.
+	$begin('a client refused half-way says what exists now');
+	\Zbx::$deny['UserMacro.create'] = 'No permissions to referred object or it does not exist!';
+	$res = (new Importer($spec, $state($rec())))->applyRows([['form' => $form('halfway', ['servers' => $spec->canonServers([['ip' => '10.130.0.1', 'roles' => ['parser']]])])]], $rec, fn($n) => null);
+	check('partial failure: not applied; what was written before it stopped, and what is in Zabbix now', $res['applied'] === [] && count($res['failed']) === 1
+		&& str_contains($res['failed'][0]['error'], 'No permissions to referred object') && $res['failed'][0]['done'] !== []
+		&& $res['failed'][0]['exists'] === array_values(array_map(fn($h) => $h['name'], array_filter(\Zbx::$hosts, fn($h) => in_array('halfway', array_column($h['hostgroups'], 'name'), true)))), $res['failed']);
+
+	/*
+	 * Host name: empty — named from the client and roles, as before; given — kept as the host's own,
+	 * marked ep-name=own, and no later save takes it away. Checked at Check time: Zabbix's rule for
+	 * a host name, and unique in Zabbix.
+	 */
+	$begin('Host name: a name of the operator\'s own');
+	$hn = fn(array $servers) => Workbook::parse(Xlsx::build([
+		['name' => 'Clients', 'rows' => [1 => [1 => 'Client *', 2 => 'Type ▾', 3 => 'ES URL *', 4 => 'Vault path'], 2 => [1 => 'named', 2 => 'On-Prem', 3 => 'https://es.named.example:9243', 4 => 'secret/elasticpro/named:password']]],
+		['name' => 'Servers', 'rows' => [1 => [1 => 'Client ▾ *', 2 => 'IP *', 3 => 'Host name', 4 => 'Role 1 ▾ *']] + $servers]]), $roles, $lists);
+	$hw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 3 => 'named-edge-01', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 4 => 'Parser']]);
+	$hplan = (new Importer($spec, $state($rec())))->analyze($hw['clients'], $hw['servers']);
+	check('a valid, free host name passes Check', $hplan['errors'] === [] && $hplan['rows'][0]['status'] === 'new', $hplan['errors']);
+	$res = (new Importer($spec, $state($rec())))->applyRows($hplan['rows'], $rec, fn($n) => null);
+	$edge = \Zbx::byHost('named-edge-01');
+	check('the new server keeps the name given; the other is named from client and role', $res['failed'] === [] && $res['applied'][0]['problems'] === []
+		&& $edge !== null && in_array('ep-name=own', \Zbx::tagsOf($edge['hostid']), true) && \Zbx::byHost('named-Parser-1') !== null, [$res, array_column(\Zbx::$hosts, 'host')]);
+	$nform = $state($rec())->formFor('named');
+	check('read back, the server carries its own name; the made-up one does not', str_contains($nform['servers'], '"host":"named-edge-01"') && substr_count($nform['servers'], '"host"') === 1, $nform['servers']);
+	// A later save that changes its roles keeps the name.
+	$again = array_merge(ClientState::plain($nform), ['servers' => $spec->canonServers([['ip' => '10.140.0.1', 'roles' => ['forwarder', 'engine']], ['ip' => '10.140.0.2', 'roles' => ['parser']]])]);
+	['client' => $ac] = $spec->fromForm($again);
+	$rec()->apply($ac);
+	check('a later save (from the client page, no host name in it) changes the roles and keeps the name', \Zbx::byHost('named-edge-01') !== null
+		&& \Zbx::byHost('named-edge-01')['hostid'] === $edge['hostid'], array_column(\Zbx::$hosts, 'host'));
+	// The export carries every host's name; importing it back changes nothing.
+	[$forms0, $names0] = [[ClientState::plain($state($rec())->formFor('named'))], []];
+	foreach ($state($rec())->formFor('named')['_now']['machines'] as $h) { $names0['named'][$h['_ip']] = $h['host']; }
+	$round = Workbook::parse(Workbook::build($roles, $lists, $forms0, $names0), $roles, $lists);
+	$rplan = (new Importer($spec, $state($rec())))->analyze($round['clients'], $round['servers']);
+	check('the export, imported back: the same client, no rename, no host name made own', $rplan['errors'] === [] && $rplan['rows'][0]['status'] === 'same', [$rplan['errors'], $rplan['rows'][0]['diff'] ?? null]);
+	// Renaming an existing server: shown for a tick, then applied, history kept (same host).
+	$rw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 3 => 'named-edge-01', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 3 => 'named-parser-a', 4 => 'Parser']]);
+	$rp = (new Importer($spec, $state($rec())))->analyze($rw['clients'], $rw['servers']);
+	$renames = array_values(array_filter($rp['rows'][0]['diff']['hosts'] ?? [], fn($h) => $h['change'] === 'rename'));
+	check('a new name for an existing server is a change to tick: the rename', $rp['errors'] === [] && $rp['rows'][0]['status'] === 'update'
+		&& count($renames) === 1 && $renames[0]['host'] === 'named-Parser-1' && $renames[0]['as'] === 'named-parser-a', [$rp['errors'], $rp['rows'][0]['diff'] ?? null]);
+	$parserId = \Zbx::byHost('named-Parser-1')['hostid'];
+	$res = (new Importer($spec, $state($rec())))->applyRows($rp['rows'], $rec, fn($n) => null);
+	check('applied: the same host, renamed, marked as its own name', $res['failed'] === [] && \Zbx::byHost('named-parser-a')['hostid'] === $parserId
+		&& in_array('ep-name=own', \Zbx::tagsOf($parserId), true), $res);
+	// Refused at Check: a name Zabbix would not take, one another host has, one given twice.
+	\Zbx::addHost(['host' => 'taken-host', 'groups' => ['Elsewhere']]);
+	foreach ([[3 => 'bad/name', 'want' => '/host name "bad\/name" may hold only letters, digits, spaces, dots, dashes and underscores/'],
+			[3 => 'taken-host', 'want' => '/host name "taken-host" for 10\.140\.0\.9 is already taken in Zabbix \(by host "taken-host"\)/'],
+			[3 => 'named-edge-01', 'want' => '/host name "named-edge-01" is already given to 10\.140\.0\.1\. Host names are unique\./']] as $case) {
+		$bw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 4 => 'Parser'], 4 => [1 => 'named', 2 => '10.140.0.9', 3 => $case[3], 4 => 'Engine']]);
+		$bp = (new Importer($spec, $state($rec())))->analyze($bw['clients'], $bw['servers']);
+		check('Check refuses host name "'.$case[3].'"', (bool) preg_grep($case['want'], $bp['errors']), $bp['errors']);
+	}
+	$tw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 4 => 'Parser'], 4 => [1 => 'named', 2 => '10.140.0.8', 3 => 'twice', 4 => 'Engine'], 5 => [1 => 'named', 2 => '10.140.0.9', 3 => 'Twice', 4 => 'UEBA']]);
+	$tp = (new Importer($spec, $state($rec())))->analyze($tw['clients'], $tw['servers']);
+	check('Check refuses the same host name twice in the file', (bool) preg_grep('/host name "Twice" is already given to 10\.140\.0\.8/', $tp['errors']), $tp['errors']);
 
 	/*
 	 * A backup of an empty client list. Only three backups are kept, so a backup of nothing is not

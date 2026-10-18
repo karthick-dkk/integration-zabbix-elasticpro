@@ -1,0 +1,66 @@
+/*
+ * Cluster Management -> Import: three cards — get the workbook, upload it, review and apply — in a
+ * grid that is one column narrow and three wide; the review spans the width once there is one.
+ *
+ * The colours are tokens on .ep-imp, light by default and dark under the Zabbix dark themes, the
+ * same two selectors as Settings and the client page. Inputs and submit buttons stay Zabbix's own.
+ * Read into the page by ep.clients.import.php, so the view carries no colour.
+ */
+.ep-imp { --ep-card: #ffffff; --ep-card-head: #f5f6f8; --ep-line: #d8dce1; --ep-line-2: #e8eaee; --ep-fg: #24292e; --ep-muted: #646a73; --ep-accent: #1f62e0;
+	--ep-accent-fg: #ffffff; --ep-soft: #f6f8fa; --ep-good: #1f7a36; --ep-bad: #c0352c; --ep-warn: #9a6400; --ep-pop: #ffffff;
+	--ep-shadow: 0 6px 18px rgba(0, 0, 0, .18); font-size: 13px; line-height: 1.4; color: var(--ep-fg); }
+html[color-scheme="dark"] .ep-imp, [theme="dark-theme"] .ep-imp, [theme="hc-dark"] .ep-imp {
+	--ep-card: #1f2227; --ep-card-head: #25292f; --ep-line: #383c42; --ep-line-2: #2c3035; --ep-fg: #ccccdc; --ep-muted: #9aa1ab; --ep-accent: #6e9fff;
+	--ep-accent-fg: #10131a; --ep-soft: #2c3035; --ep-good: #5cc97a; --ep-bad: #ff7a70; --ep-warn: #f0b04a; --ep-pop: #2c3036;
+	--ep-shadow: 0 6px 18px rgba(0, 0, 0, .55); }
+.ep-imp *, .ep-imp *::before, .ep-imp *::after { box-sizing: border-box; }
+.ep-imp .ep-box { margin: 0 0 10px; padding: 8px 12px; }
+.ep-imp .ep-box ul { margin: 6px 0 0 18px; list-style: disc; }
+
+/* ---- the grid ---- */
+.ep-imp .ep-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (min-width: 1100px) { .ep-imp .ep-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.ep-imp .ep-wide { grid-column: 1 / -1; }
+
+/* ---- a card ---- */
+.ep-imp .ep-card { background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 4px; min-width: 0; }
+.ep-imp .ep-card-head { background: var(--ep-card-head); border-bottom: 1px solid var(--ep-line); padding: 7px 12px; border-radius: 4px 4px 0 0; }
+.ep-imp .ep-card-head h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ep-fg); }
+.ep-imp .ep-card-body { padding: 10px 12px; display: grid; gap: 10px; }
+.ep-imp .ep-card-foot { border-top: 1px solid var(--ep-line-2); padding: 6px 12px; color: var(--ep-muted); font-size: 12px; }
+.ep-imp .ep-muted { color: var(--ep-muted); font-size: 12px; }
+
+/* ---- card 1: the two downloads ---- */
+.ep-imp .ep-dl-row { display: grid; gap: 4px; }
+.ep-imp .ep-dl { display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 6px 12px; border-radius: 4px; font-weight: 600;
+	text-decoration: none; border: 1px solid var(--ep-accent); color: var(--ep-accent); background: transparent; }
+.ep-imp .ep-dl.ep-dl-main { background: var(--ep-accent); color: var(--ep-accent-fg); }
+.ep-imp .ep-dl:hover, .ep-imp .ep-dl:focus-visible { filter: brightness(1.08); outline: 2px solid var(--ep-accent); outline-offset: 1px; }
+.ep-imp .ep-dl svg { flex: none; }
+
+/* ---- card 2: the file ---- */
+.ep-imp .ep-drop { display: grid; gap: 6px; justify-items: start; padding: 12px; border: 1.5px dashed var(--ep-line); border-radius: 4px; background: var(--ep-soft); }
+.ep-imp .ep-drop label { margin: 0; padding: 0; float: none; width: auto; font-weight: 600; color: var(--ep-fg); }
+.ep-imp .ep-drop input[type="file"] { max-width: 100%; }
+.ep-imp .ep-rules { margin: 0; padding: 0 0 0 16px; color: var(--ep-muted); font-size: 12px; list-style: disc; }
+.ep-imp .ep-rules li + li { margin-top: 2px; }
+
+/* ---- card 3: the review ---- */
+.ep-imp .ep-sheets { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ep-imp .ep-sheets th, .ep-imp .ep-sheets td { padding: 4px 8px; border-bottom: 1px solid var(--ep-line-2); text-align: right; }
+.ep-imp .ep-sheets th:first-child, .ep-imp .ep-sheets td:first-child { text-align: left; }
+.ep-imp .ep-sheets th { color: var(--ep-muted); font-weight: 600; font-size: 12px; }
+.ep-imp .ep-sheets .ep-n-err { color: var(--ep-bad); font-weight: 700; }
+.ep-imp .ep-sheets .ep-n-new { color: var(--ep-good); font-weight: 600; }
+.ep-imp .ep-errors { margin: 0; padding: 0 0 0 16px; list-style: disc; }
+.ep-imp .ep-errors li + li { margin-top: 3px; }
+.ep-imp .ep-line { margin: 2px 0 2px 12px; }
+.ep-imp .ep-old { color: var(--ep-bad); text-decoration: line-through; }
+.ep-imp .ep-new-text { color: var(--ep-good); font-weight: 600; }
+.ep-imp .ep-bad-text { color: var(--ep-bad); font-weight: 600; }
+.ep-imp .ep-plain { list-style: none; margin: 0; padding: 0; }
+.ep-imp .ep-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 0; }
+.ep-imp .ep-grow { margin-right: auto; }
+.ep-imp .ep-pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 700; border: 1px solid currentColor; }
+.ep-imp .ep-h { margin: 6px 0 0; font-size: 13px; font-weight: 600; }
+.ep-imp .ep-table-wrap { overflow-x: auto; }
