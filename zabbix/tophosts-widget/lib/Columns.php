@@ -23,6 +23,8 @@ namespace Modules\EpTophosts\Lib;
  * A catalogue entry (what a widget offers as built-in columns) has at least: label, group, on
  * (ON_MASTER, ON_SERVERS, ON_CLIENT or ON_ROW), units, text (true: not a number) and settings
  * (true: a usage percentage, the only kind ElasticPro -> Settings' thresholds are written for).
+ * Optionally now (true: the figure is only ever the value now — the widget decides any window
+ * itself, as Top hosts' ranked value does).
  *
  * Copied from ../../shared/php by ../../sync-assets.mjs — edit it there.
  */
@@ -255,6 +257,7 @@ class Columns {
 		$row = $scope === 'row';
 		$c['source'] = $int('source', $row ? [self::SOURCE_BUILTIN] : [self::SOURCE_BUILTIN, self::SOURCE_ITEM, self::SOURCE_CALC]);
 		$builtin = null;
+		$nowOnly = false;
 		$onServers = false;
 		$numeric = true;
 		$percent = false;
@@ -271,6 +274,7 @@ class Columns {
 				$c['units'] = (string) ($builtin['units'] ?? '');
 				$onServers = $builtin['on'] === self::ON_SERVERS;
 				$numeric = empty($builtin['text']);
+				$nowOnly = !empty($builtin['now']);
 				$percent = !empty($builtin['settings']) || !empty($builtin['pct']);
 			}
 		}
@@ -319,8 +323,10 @@ class Columns {
 		$c['combine'] = $int('combine', array_keys(self::combineLabels()));
 
 		$c['value'] = $int('value', array_keys(self::valueLabels()));
-		if ((!$numeric || $row) && $c['value'] !== self::VALUE_NOW) {
-			$e[] = $row ? _('A server row column shows its value now.') : _('A text column shows its value now; average, minimum, maximum and change are for numbers.');
+		if ((!$numeric || $row || $nowOnly) && $c['value'] !== self::VALUE_NOW) {
+			$e[] = $row ? _('A server row column shows its value now.') : ($nowOnly
+				? _('This column is the widget\'s own figure; it shows its value now.')
+				: _('A text column shows its value now; average, minimum, maximum and change are for numbers.'));
 			$c['value'] = self::VALUE_NOW;
 		}
 		$win = $str('window');

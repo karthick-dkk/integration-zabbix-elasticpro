@@ -1,11 +1,27 @@
-/* Top hosts, inside the dark panel (ep-panel.css). */
+/* Top hosts, inside the dark panel (ep-panel.css): the list with bars, the table, the bar chart. */
+.ep-panel .ep-top-pane[hidden] { display: none !important; }
 .ep-panel .ep-top10 { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); column-gap: 18px; }
-.ep-panel .ep-top10 li { display: grid; grid-template-columns: 18px 1fr 54px; gap: 2px 8px; align-items: center; font-variant-numeric: tabular-nums; }
+.ep-panel .ep-top10 li { display: grid; grid-template-columns: 18px 1fr minmax(54px, auto); gap: 2px 8px; align-items: center; font-variant-numeric: tabular-nums; }
 .ep-panel .ep-top10 .rk { color: var(--ep-muted); font-size: 12px; grid-row: span 2; }
 .ep-panel .ep-top10 .hn { color: var(--ep-strong); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-panel .ep-top10 .hn:hover { color: var(--ep-blue); text-decoration: underline; }
 .ep-panel .ep-top10 .hc { color: var(--ep-muted); font-size: 11px; grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ep-panel .ep-top10 .hv { text-align: right; font-weight: 500; grid-row: span 2; }
+.ep-panel .ep-top10 .hv { text-align: right; font-weight: 500; grid-row: span 2; color: var(--ep-ok); }
+.ep-panel .ep-top10 .hxs { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 10px; color: var(--ep-muted); font-size: 11px; }
 .ep-panel .ep-top10 .hb { grid-column: 2 / -1; height: 6px; border-radius: 1px; background: var(--ep-track); position: relative; }
-.ep-panel .ep-top10 .hb i { position: absolute; inset: 0 auto 0 0; border-radius: 1px; }
+.ep-panel .ep-top10 .hb i { position: absolute; inset: 0 auto 0 0; border-radius: 1px; background: var(--ep-ok); }
 .ep-panel .ep-top10 li.ep-empty { display: block; color: var(--ep-muted); }
+.ep-panel .ep-top10 li.lv-warn .hv { color: var(--ep-warn); } .ep-panel .ep-top10 li.lv-warn .hb i { background: var(--ep-warn); }
+.ep-panel .ep-top10 li.lv-high .hv { color: var(--ep-high); } .ep-panel .ep-top10 li.lv-high .hb i { background: var(--ep-high); }
+.ep-panel .ep-top10 li.ep-lvc .hv { color: var(--ep-lv); } .ep-panel .ep-top10 li.ep-lvc .hb i { background: var(--ep-lv); }
+
+.ep-panel .ep-tchart { display: grid; gap: 6px; }
+.ep-panel .ep-tc-row { display: grid; grid-template-columns: minmax(90px, 30%) 1fr 64px; gap: 8px; align-items: center; font-variant-numeric: tabular-nums; }
+.ep-panel .ep-tc-row .hn { color: var(--ep-strong); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-panel .ep-tc-row .hn:hover { color: var(--ep-blue); text-decoration: underline; }
+.ep-panel .ep-tc-bar { height: 12px; border-radius: 2px; background: var(--ep-track); position: relative; overflow: hidden; }
+.ep-panel .ep-tc-bar i { position: absolute; inset: 0 auto 0 0; background: var(--ep-ok); }
+.ep-panel .ep-tc-row .hv { text-align: right; font-weight: 500; color: var(--ep-ok); }
+.ep-panel .ep-tc-row.lv-warn .hv { color: var(--ep-warn); } .ep-panel .ep-tc-row.lv-warn .ep-tc-bar i { background: var(--ep-warn); }
+.ep-panel .ep-tc-row.lv-high .hv { color: var(--ep-high); } .ep-panel .ep-tc-row.lv-high .ep-tc-bar i { background: var(--ep-high); }
+.ep-panel .ep-tc-row.ep-lvc .hv { color: var(--ep-lv); } .ep-panel .ep-tc-row.ep-lvc .ep-tc-bar i { background: var(--ep-lv); }

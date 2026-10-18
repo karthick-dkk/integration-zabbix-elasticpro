@@ -6,7 +6,7 @@
 	"namespace": "EpTophosts",
 	"version": "2.1.1",
 	"author": "ElasticPro",
-	"description": "The busiest client servers, ranked by CPU or memory, coloured at each client's thresholds. Settings choose the host groups, the client and the client type; the ranking can be switched on the widget.",
+	"description": "The busiest client servers, ranked by CPU, memory, disk used, JVM heap or any Zabbix item \u2014 now, or its average or maximum over a window \u2014 as a list with bars, a table or a bar chart, coloured at each client's thresholds. Settings choose the clients, client types and roles, how many, the columns each row shows (any figure of the server through the column model, with its own thresholds and look) and the metrics a viewer may switch between on the widget.",
 	"widget": {
 		"js_class": "WidgetEpTophosts",
 		"size": {
@@ -18,6 +18,11 @@
 	"actions": {
 		"widget.ep_tophosts.view": {
 			"class": "WidgetView"
+		},
+		"widget.ep_tophosts.column.edit": {
+			"class": "ColumnEdit",
+			"view": "column.edit",
+			"layout": "layout.json"
 		}
 	},
 	"assets": {
@@ -25,6 +30,8 @@
 			"class.widget.js"
 		],
 		"css": [
+			"ep-table.css",
+			"ep-form.css",
 			"ep-panel.css",
 			"widget.css"
 		]
