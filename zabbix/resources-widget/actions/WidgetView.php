@@ -14,7 +14,7 @@ use API,
 	CControllerResponseData,
 	CCsrfTokenHelper;
 use Modules\EpResources\Includes\{Catalogue, Resources, WidgetForm};
-use Modules\EpResources\Lib\{Bars, ClientData, ColumnMath, ColumnReader, ColumnReport, Columns, ColumnSettings, Forecast, Roles, Settings, Store, TableOptions};
+use Modules\EpResources\Lib\{Bars, ClientData, ColumnCell, ColumnMath, ColumnReader, ColumnReport, Columns, ColumnSettings, Forecast, Roles, Settings, Store, TableOptions};
 
 /**
  * Client resources: one row per client master host, its columns as the widget (or the report
@@ -151,6 +151,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 		foreach ($clients as $mid => $c) {
 			['cells' => $cells, 'flags' => $flags, 'sort' => $sort, 'export' => $export] = $report->cells((string) $mid, $c, $visible, $clientCat, $widgetBars);
 			$flags += ['nodata' => 0, 'down' => 0, 'full_days' => null];
+			// Nothing of the client reports — no servers sending, no figure — is "no data" too (QA 2.1.1: it was OK).
+			$flags['silent'] = ColumnCell::silent($cells, $servers[$c['name']] ?? []);
 			// The forecast, when "disk full within 30 days" is part of Needs attention.
 			$fi = Resources::forecast(ColumnReader::value($items[$mid][Forecast::KEY] ?? null), $this->cfg);
 			$flags['full_days'] = $fi['days'];

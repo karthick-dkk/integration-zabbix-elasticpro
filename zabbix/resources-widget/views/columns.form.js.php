@@ -282,12 +282,17 @@ window.EpColumnsForm = class {
 		const values = [['avg', '<?= Columns::VALUE_AVG ?>', <?= json_encode(_('avg')) ?>], ['min', '<?= Columns::VALUE_MIN ?>', <?= json_encode(_('min')) ?>],
 			['max', '<?= Columns::VALUE_MAX ?>', <?= json_encode(_('max')) ?>]];
 		let after = anchor;
+		// The window the form says now, not the one it opened with.
+		const days = fields.trend_days || this._trend_days;
 		for (const [k, value, label] of values) {
 			const box = document.getElementById('ep_cf_window_' + k);
 			if (box === null || !box.checked) {
 				continue;
 			}
-			const copy = {...base, uid: '', value, window: '0', hidden: '0', name: `${this._trend_days}d ${label}`};
+			// In the column's group, "7d avg" reads as that group's; a column of no group (Client capacity's) names its
+			// copies after itself, or the headers would be a row of bare "7d avg".
+			const name = String(base.group || '') !== '' ? `${days}d ${label}` : `${base.name} · ${days}d ${label}`;
+			const copy = {...base, uid: '', value, window: '0', hidden: '0', name};
 			this._index = this._nextIndex('columns');
 			after = this._write(copy, 'columns', after);
 		}

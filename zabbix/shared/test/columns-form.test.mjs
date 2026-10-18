@@ -141,7 +141,8 @@ test('Add avg / min / max: copies of the column over the widget\'s window, right
   assert.equal(doc.getElementById('ep_cf_window').style.display, '');
   doc.querySelector('button[name="add_window_go"]').click();
   const n = names(doc);
-  assert.ok(n.includes('columns[1][name]=7d avg') && n.includes('columns[1][value]=2') && n.includes('columns[2][name]=7d max') && n.includes('columns[2][value]=4'), n.join('\n'));
+  // The fixture's column has no group (as Client capacity's): its copies are named after it. The window is the form's (14), not the one it opened with.
+  assert.ok(n.includes('columns[1][name]=Used · 14d avg') && n.includes('columns[1][value]=2') && n.includes('columns[2][name]=Used · 14d max') && n.includes('columns[2][value]=4'), n.join('\n'));
   assert.ok(!n.some((x) => x.startsWith('columns[3]')), 'min was not ticked');
   assert.ok(n.includes('columns[1][uid]='), 'a new uid is made by the editor\'s rule, not copied');
   const order = [...doc.querySelectorAll('[name="sortorder[columns][]"]')].map((e) => e.value);

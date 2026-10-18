@@ -113,6 +113,8 @@ namespace {
 		/** itemid => [clock => [avg, min, max]]: the trends the window columns read. */
 		public static $trends = [];
 		public static $extra_items = [];
+		/** A third client, "example": a master host and nothing else — no servers, no figures (QA 2.1.1). */
+		public static $silent_client = false;
 		/** "host|key" => a last value in place of the one below (the export's places). */
 		public static $override = [];
 		public static function items(): array {
@@ -154,7 +156,8 @@ namespace {
 					return self::$template ? [['templateid' => 9]] : [];
 				case 'Host':
 					if (isset($o['templateids'])) {
-						return [101 => ['hostid' => 101, 'name' => 'karthi-Master'], 102 => ['hostid' => 102, 'name' => 'acme-Master']];
+						return [101 => ['hostid' => 101, 'name' => 'karthi-Master'], 102 => ['hostid' => 102, 'name' => 'acme-Master']]
+							+ (self::$silent_client ? [103 => ['hostid' => 103, 'name' => 'example-Master']] : []);
 					}
 					$if = fn($ip, $a) => [['ip' => $ip, 'type' => 1, 'main' => 1, 'available' => $a]];
 					$g = fn(...$n) => array_map(fn($x) => ['name' => $x], $n);
@@ -167,7 +170,7 @@ namespace {
 						204 => ['hostid' => 204, 'name' => 'karthi-Forwarder-1', 'hostgroups' => $g('karthi', 'Forwarders'), 'interfaces' => $if('10.0.0.4', 0)]
 					];
 				case 'HostGroup':
-					return array_values(array_filter([['groupid' => 1, 'name' => 'karthi'], ['groupid' => 2, 'name' => 'acme']],
+					return array_values(array_filter([['groupid' => 1, 'name' => 'karthi'], ['groupid' => 2, 'name' => 'acme'], ['groupid' => 3, 'name' => 'example']],
 						fn($g) => in_array($g['name'], $o['filter']['name'], true)));
 				case 'UserMacro':
 					$base = [
@@ -177,6 +180,9 @@ namespace {
 						['hostid' => 101, 'macro' => '{$EP.ES_DATA_HOT.DISK2.FS}', 'value' => '/data'],
 						['hostid' => 102, 'macro' => '{$GRP.CLIENT}', 'value' => 'acme']
 					];
+					if (self::$silent_client) {
+						$base[] = ['hostid' => 103, 'macro' => '{$GRP.CLIENT}', 'value' => 'example'];
+					}
 					return array_merge($base, array_map(fn($m) => ['hostid' => 101, 'macro' => $m[0], 'value' => $m[1]], self::$extra_macros));
 				case 'Item':
 					$out = [];
@@ -226,7 +232,7 @@ namespace Modules\EpResources\Test {
 	require __DIR__.'/../actions/WidgetView.php';
 	use Modules\EpResources\Actions\WidgetView;
 	use Modules\EpResources\Includes\{Catalogue, Resources, WidgetForm};
-	use Modules\EpResources\Lib\{Bars, ColumnMath, Columns, ColumnSettings, Roles, Settings};
+	use Modules\EpResources\Lib\{Bars, ColumnCell, ColumnMath, Columns, ColumnSettings, Roles, Settings};
 
 	$failed = 0; $passed = 0;
 	function check(string $what, bool $ok, $detail = null): void {
@@ -659,6 +665,18 @@ namespace Modules\EpResources\Test {
 	check('chips: a server down, a high, a short, a server sending no data', array_column($karthi['chips'], 'text') === ['1 down', '1 high', '1 short', '1 no data'],
 		$karthi['chips']);
 	check('chips: nothing wrong is OK', Resources::chips([]) === [['text' => 'OK', 'level' => 'ok']]);
+	// A client of which nothing reports — no servers, no figure — is no data, not OK (QA 2.1.1: "No data" matched none).
+	\FakeApi::$silent_client = true;
+	$ds = run(['attention' => ['nodata'], 'attention_default' => WidgetForm::ATTENTION_ONLY]);
+	$byName = array_column($ds['rows'], null, 'client');
+	check('a client with no servers and no figure: Needs attention "No data" matches it, its chip says no data', isset($byName['example'])
+		&& $byName['example']['attention'] && $byName['example']['flags']['silent'] && array_column($byName['example']['chips'], 'text') === ['no data'],
+		$byName['example'] ?? array_keys($byName));
+	check('…not acme, which has no servers but reports figures, nor karthi\'s count of servers sending nothing changed', !$byName['acme']['attention']
+		&& !$byName['acme']['flags']['silent'] && $byName['karthi']['attention'] && $byName['karthi']['flags']['nodata'] === 1);
+	\FakeApi::$silent_client = false;
+	check('silent: no figure and no server sending; any figure or any server up or down is not', ColumnCell::silent([['value' => null], ['value' => 'x']], [])
+		&& ColumnCell::silent([], [['status' => 'unknown']]) && !ColumnCell::silent([['value' => 0.0]], []) && !ColumnCell::silent([], [['status' => 'down']]));
 	check('Needs attention (High, server down): karthi, not acme — whose only fault is a short', $karthi['attention'] && !$acme['attention'] && $acme['flags']['short'] === 1,
 		[$acme['flags'], $karthi['flags']]);
 	check('…by what the widget says it means', !Resources::attention(['warn' => 2], ['high']) && Resources::attention(['warn' => 2], ['warn'])

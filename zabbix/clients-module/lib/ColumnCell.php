@@ -276,8 +276,31 @@ class ColumnCell {
 	 * over High, a server down, allocated short of requested, a server sending no data, ES storage
 	 * full within 30 days.
 	 *
-	 * @param array $flags  warn, high, short (cells), down, nodata (servers), full_days (?float)
+	 * @param array $flags  warn, high, short (cells), down, nodata (servers), silent (nothing of the client reports:
+	 *                      no figure, and no server sending), full_days (?float)
 	 */
+	/**
+	 * Whether nothing of a client reports: not one of its cells has a figure, and no server of it sends
+	 * anything (it has none, or every one is "no data"). Such a client is "no data", never OK.
+	 *
+	 * @param array $cells    the client's cells (ColumnCell::cell)
+	 * @param array $servers  its servers, each with status up / down / unknown
+	 */
+	public static function silent(array $cells, array $servers): bool {
+		foreach ($cells as $cell) {
+			if (is_int($cell['value'] ?? null) || is_float($cell['value'] ?? null)) {
+				return false;
+			}
+		}
+		foreach ($servers as $s) {
+			if (($s['status'] ?? 'unknown') !== 'unknown') {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	public static function attention(array $flags, array $criteria): bool {
 		foreach ($criteria as $c) {
 			switch ($c) {
@@ -286,10 +309,15 @@ class ColumnCell {
 						return true;
 					}
 					break;
+				case 'nodata':
+					// A server sending nothing — or a client of which nothing reports at all (no servers, no figure).
+					if (($flags['nodata'] ?? 0) > 0 || !empty($flags['silent'])) {
+						return true;
+					}
+					break;
 				case 'high':
 				case 'down':
 				case 'short':
-				case 'nodata':
 					if (($flags[$c] ?? 0) > 0) {
 						return true;
 					}
@@ -312,6 +340,10 @@ class ColumnCell {
 			if (($flags[$k] ?? 0) > 0) {
 				$out[] = ['text' => _s($text, $flags[$k]), 'level' => $level];
 			}
+		}
+		// Nothing of the client reports: no data, not OK — and no count, since no server is behind it.
+		if (!empty($flags['silent']) && ($flags['nodata'] ?? 0) === 0) {
+			$out[] = ['text' => _('no data'), 'level' => 'warn'];
 		}
 		return $out ?: [['text' => _('OK'), 'level' => 'ok']];
 	}
