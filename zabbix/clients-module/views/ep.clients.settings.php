@@ -174,6 +174,10 @@ if (!$ro) {
 			->onClick('return confirm('.json_encode(_('Put every setting here back to the one ElasticPro ships?')).');')]))->addClass('ep-bar'));
 }
 
-$page->addItem((new CDiv(array_merge($top, [$form])))->addClass('ep-set'))->show();
+// Which build of the modules this is, read from the manifest and the BUILD file the release archive
+// carries (lib/Build.php). A plain string in a CDiv, so Zabbix escapes it.
+$build = (new CDiv(\Modules\EpClients\Lib\Build::line()))->addClass('ep-build');
+
+$page->addItem((new CDiv(array_merge($top, [$form, $build])))->addClass('ep-set'))->show();
 ?>
 <style><?php readfile(__DIR__.'/css/ep.hint.css'); readfile(__DIR__.'/css/ep.clients.settings.css'); ?></style>
