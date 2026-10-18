@@ -3,7 +3,7 @@
 namespace Modules\EpVolume\Includes;
 
 use API;
-use Modules\EpVolume\Lib\{Columns, Roles};
+use Modules\EpVolume\Lib\{Columns, KeyGenerations, Roles};
 
 /**
  * What Volume offers as built-in columns: the "ElasticPro client plan" template's items — the ones
@@ -36,6 +36,7 @@ class Catalogue {
 	 */
 	public const LABEL_PREFIX = 'Client plan: ';
 
+	/** The newest spelling; an older template's {$ESPRO.PLAN.…} is read too (KeyGenerations). */
 	public const MACRO_WARN = '{$ELASTICPRO.PLAN.LIVE_USED.WARN}';
 	public const MACRO_DAYS = '{$ELASTICPRO.PLAN.LIVE_DAYS.MIN}';
 	/** What the template's triggers fall back to when neither the host nor the template says. */
@@ -45,8 +46,14 @@ class Catalogue {
 	public const KEY_USED = '[live.used.pct]';
 	public const KEY_DAYS = '[live.days]';
 
+	/** The newest spelling; an older template's espro.plan.epoch / .reachable is read too (KeyGenerations). */
 	public const KEY_EPOCH = 'elasticpro.plan.epoch';
 	public const KEY_REACHABLE = 'elasticpro.plan.reachable';
+
+	/** Every key the report reads beside its columns: the epoch and the reachable flag, in every generation. */
+	public static function freshnessKeys(): array {
+		return array_merge(KeyGenerations::keys(self::KEY_EPOCH), KeyGenerations::keys(self::KEY_REACHABLE));
+	}
 
 	/** How the report's own columns look until somebody changes them: no link, an unknown is "—". */
 	private const PLAIN = ['click' => Columns::CLICK_NONE, 'nodata' => Columns::NODATA_DASH];
@@ -191,7 +198,8 @@ class Catalogue {
 
 	/** A plan macro's number: the host's own, else the template's, else what the triggers fall back to. */
 	public static function macro(array $source, string $name, float $fallback): float {
-		$value = $source[$name] ?? null;
+		// The newest spelling the source has: {$ELASTICPRO.…}, else an older template's {$ESPRO.…}.
+		$value = KeyGenerations::first($source, $name);
 
 		return is_numeric($value) ? (float) $value : $fallback;
 	}

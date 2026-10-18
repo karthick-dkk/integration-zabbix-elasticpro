@@ -121,8 +121,11 @@ namespace {
 		public static $trends = [];
 		/** "host|key" => a last value in place of the one below (the export's places). */
 		public static $override = [];
+		/** The older template generation still live on the test Zabbix: espro.plan.* keys and {$ESPRO.PLAN.*} macros. */
+		public static $older = false;
 		public static function values(): array {
-			return array_map(fn($r) => array_key_exists($r[0].'|'.$r[1], self::$override) ? [$r[0], $r[1], self::$override[$r[0].'|'.$r[1]]] : $r, [
+			$gen = fn($r) => self::$older ? [$r[0], preg_replace('/^elasticpro\./', 'espro.', $r[1]), $r[2]] : $r;
+			return array_map(fn($r) => array_key_exists($r[0].'|'.$r[1], self::$override) ? [$r[0], $r[1], self::$override[$r[0].'|'.$r[1]]] : $gen($r), [
 				[301, 'plan[live.used.pct]', '90.5'], [301, 'plan[live.days]', '9'], [301, 'plan[note]', 'hot tier'], [301, 'plan[backup.bytes]', '3'],
 				[301, 'elasticpro.plan.epoch', '1700000000'], [301, 'elasticpro.plan.reachable', '1'], [301, 'es.docs.rate', '1500'],
 				[302, 'elasticpro.plan.reachable', '0'], [302, 'plan[live.used.pct]', '85'], [302, 'plan[live.days]', '14']
@@ -147,7 +150,11 @@ namespace {
 					}
 					// The mapped template is asked for first; Zabbix answers in its own order, so
 					// the shipped one is deliberately returned FIRST here.
-					$mapped = ['templateid' => 9, 'host' => self::$two_plans ? 'ACME plan' : 'ElasticPro client plan', 'macros' => [
+					$mapped = ['templateid' => 9, 'host' => self::$two_plans ? 'ACME plan' : 'ElasticPro client plan', 'macros' => self::$older ? [
+						// The older generation, with a Warn of its own: proof it is the macro read, not the fallback of 85.
+						['macro' => '{$ESPRO.PLAN.LIVE_USED.WARN}', 'value' => '95'],
+						['macro' => '{$ESPRO.PLAN.LIVE_DAYS.MIN}', 'value' => '7']
+					] : [
 						['macro' => '{$ELASTICPRO.PLAN.LIVE_USED.WARN}', 'value' => '85'],
 						['macro' => '{$ELASTICPRO.PLAN.LIVE_DAYS.MIN}', 'value' => '14']
 					]];
@@ -327,6 +334,37 @@ namespace Modules\EpVolume\Test {
 	run(['decimals' => Settings::INHERIT_CHOICE]);
 	check('and the inherit value is never used as a number of places', ($GLOBALS['ep_decimals']['%'] ?? null) === 3);
 	Settings::reset();
+
+	/* ---------------- the older template generation: espro.plan.* and {$ESPRO.PLAN.*} ---------------- */
+	// What the test Zabbix (7.0.31) still runs. Reading only elasticpro.plan.* left every cluster "Never updated", never dimmed.
+	\FakeApi::$older = true;
+	$d = run();
+	$lv = fn(array $c) => $c['level'];
+	check('older generation: an unreachable cluster is dimmed and a reachable one says when it was updated (espro.plan.reachable, espro.plan.epoch)',
+		$d['rows'][0]['row_class'] === 'ep-unreachable' && strpos($d['rows'][0]['first_title'], 'Cluster unreachable') === 0
+		&& $d['rows'][1]['first_title'] === 'Updated 5m ago', array_column($d['rows'], 'first_title'));
+	check('…its plan thresholds are its own macros, {$ESPRO.PLAN.LIVE_USED.WARN} 95 and {$ESPRO.PLAN.LIVE_DAYS.MIN} 7, not the fallbacks of 85 and 14',
+		$lv(cell($d, $K, $USED)) === '' && $lv(cell($d, $K, $DAYS)) === '', [cell($d, $K, $USED)['level'], cell($d, $K, $DAYS)['level']]);
+	check('…both generations are asked for in the one item.get', (function () {
+		foreach (\FakeApi::$asked as $o) {
+			$keys = (array) ($o['filter']['key_'] ?? []);
+			if (in_array('elasticpro.plan.epoch', $keys, true) && in_array('espro.plan.epoch', $keys, true) && in_array('espro.plan.reachable', $keys, true)) {
+				return true;
+			}
+		}
+		return false;
+	})());
+	\FakeApi::$extra_macros = [['{$ESPRO.PLAN.LIVE_USED.WARN}', '80']];
+	check('…a cluster host\'s own older-generation macro beats the template\'s', $lv(cell(run(), $K, $USED)) === 'warn');
+	\FakeApi::$extra_macros = [];
+	\FakeApi::$older = false;
+	// A host carrying both generations (half migrated): the newest wins.
+	\FakeApi::$override = ['301|elasticpro.plan.reachable' => '1'];
+	\FakeApi::$extra_macros = [['{$ELASTICPRO.PLAN.LIVE_USED.WARN}', '95'], ['{$ESPRO.PLAN.LIVE_USED.WARN}', '50']];
+	$d = run();
+	check('both generations on one host: elasticpro.* and {$ELASTICPRO.*} win', $lv(cell($d, $K, $USED)) === '');
+	\FakeApi::$override = [];
+	\FakeApi::$extra_macros = [];
 
 	/* ---------------- the export's places: two, as Volume has always exported ---------------- */
 	// 2.1.0 wrote round($raw, 2) for every number, whatever Decimals said; the shared engine's own

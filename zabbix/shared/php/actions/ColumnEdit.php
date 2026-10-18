@@ -2,7 +2,7 @@
 
 namespace EpShared\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ClientData', 'Columns', 'ColumnMath', 'ColumnReader', 'ColumnSettings'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ClientData', 'Columns', 'ColumnMath', 'ColumnReader', 'ColumnSettings', 'KeyGenerations'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 require_once __DIR__.'/../includes/Catalogue.php';

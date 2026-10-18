@@ -26,7 +26,7 @@ export const PANEL_WIDGETS = ['capacity-widget', 'resources-widget', 'volume-wid
 /** The panel look alone, without the table controls: Top hosts is a list, not a table. */
 export const PANEL_CSS_ONLY = ['tophosts-widget', 'overview-widget'];
 export const SHARED_PHP = ['Store.php', 'Settings.php', 'Roles.php', 'ColumnSettings.php', 'Forecast.php', 'ClientTypes.php', 'Bars.php', 'ClientData.php',
-  'Columns.php', 'ColumnMath.php', 'ColumnReader.php', 'ColumnCell.php', 'ColumnReport.php', 'TableOptions.php'];
+  'Columns.php', 'ColumnMath.php', 'ColumnReader.php', 'ColumnCell.php', 'ColumnReport.php', 'TableOptions.php', 'KeyGenerations.php'];
 /** The widgets that have their columns in the shared column model (Columns.php) and so its editor and fields. */
 export const COLUMN_WIDGETS = ['resources-widget', 'capacity-widget', 'volume-widget', 'tophosts-widget'];
 /** Their table, cells and column editor, and their settings form. */

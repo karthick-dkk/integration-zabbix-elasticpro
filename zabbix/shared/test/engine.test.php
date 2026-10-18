@@ -44,10 +44,10 @@ namespace {
 	if (!function_exists('_n')) { function _n($one, $many, $n, ...$a) { return vsprintf($n == 1 ? $one : $many, array_merge([$n], $a)); } }
 }
 namespace EpShared\Test {
-	foreach (['Store', 'Settings', 'ClientData', 'Forecast', 'Bars', 'Columns', 'ColumnMath', 'ColumnSettings', 'ColumnReader', 'ColumnCell', 'ColumnReport', 'TableOptions'] as $f) {
+	foreach (['Store', 'Settings', 'ClientData', 'Forecast', 'Bars', 'Columns', 'ColumnMath', 'ColumnSettings', 'ColumnReader', 'ColumnCell', 'ColumnReport', 'TableOptions', 'KeyGenerations'] as $f) {
 		require __DIR__.'/../php/'.$f.'.php';
 	}
-	use EpShared\{ColumnCell, ColumnMath, ColumnReader, ColumnReport, Columns, ColumnSettings, Settings, TableOptions};
+	use EpShared\{ColumnCell, ColumnMath, ColumnReader, ColumnReport, Columns, ColumnSettings, KeyGenerations, Settings, TableOptions};
 
 	$failed = 0; $passed = 0;
 	function check(string $what, bool $ok, $detail = null): void {
@@ -254,6 +254,15 @@ namespace EpShared\Test {
 	check('past the trend budget: shortest windows read first, the rest named, not read', isset($series['1'], $series['3']) && !isset($series['4'])
 		&& array_keys($reader->seriesCapped) === [4], [$reader->seriesCapped, array_keys($series)]);
 	check('the budget a refresh may read', ColumnReader::MAX_ITEM_DAYS === 20000);
+
+	/* ---------------- template names that changed: every generation, newest first ---------------- */
+	check('a key in every generation, newest first; a key of none is itself', KeyGenerations::keys('elasticpro.plan.epoch') === ['elasticpro.plan.epoch', 'espro.plan.epoch']
+		&& KeyGenerations::keys('espro.plan.reachable') === ['elasticpro.plan.reachable', 'espro.plan.reachable'] && KeyGenerations::keys('ep.es.storage.used') === ['ep.es.storage.used']);
+	check('a macro in every generation', KeyGenerations::macros('{$ELASTICPRO.PLAN.LIVE_USED.WARN}') === ['{$ELASTICPRO.PLAN.LIVE_USED.WARN}', '{$ESPRO.PLAN.LIVE_USED.WARN}']
+		&& KeyGenerations::macros('{$GRP.CLIENT}') === ['{$GRP.CLIENT}']);
+	check('the newest present wins; an older one when it is all there is; null when none', KeyGenerations::first(['espro.plan.epoch' => 1, 'elasticpro.plan.epoch' => 2], 'elasticpro.plan.epoch') === 2
+		&& KeyGenerations::first(['espro.plan.epoch' => 1], 'elasticpro.plan.epoch') === 1 && KeyGenerations::first([], 'elasticpro.plan.epoch') === null
+		&& KeyGenerations::first(['{$ESPRO.PLAN.STALE}' => '30m'], '{$ELASTICPRO.PLAN.STALE}') === '30m');
 
 	/* ---------------- a column read where the widget says, for one row ---------------- */
 	// Top hosts: a server's JVM heap is its Elasticsearch node's item on the cluster host.

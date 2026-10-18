@@ -3,7 +3,7 @@
 namespace Modules\EpVolume\Actions;
 
 foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'ClientData', 'Bars', 'Forecast', 'Columns', 'ColumnMath', 'ColumnReader', 'ColumnCell', 'ColumnReport',
-		'TableOptions'] as $lib) {
+		'TableOptions', 'KeyGenerations'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 foreach (['CWidgetFieldStrings', 'CWidgetFieldOptionalNumber', 'CWidgetFieldColumns', 'TableFields', 'Catalogue', 'WidgetForm'] as $inc) {
@@ -15,7 +15,7 @@ use API,
 	CControllerResponseData,
 	CCsrfTokenHelper;
 use Modules\EpVolume\Includes\{Catalogue, WidgetForm};
-use Modules\EpVolume\Lib\{Bars, ClientData, ColumnCell, ColumnReader, ColumnReport, ColumnSettings, Columns, Roles, Settings, Store, TableOptions};
+use Modules\EpVolume\Lib\{Bars, ClientData, KeyGenerations, ColumnCell, ColumnReader, ColumnReport, ColumnSettings, Columns, Roles, Settings, Store, TableOptions};
 
 /**
  * The Volume report's client plan: one row per cluster host.
@@ -156,7 +156,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 			return;
 		}
 
-		$report->read($rowsIn, $visible, $catalogue, (int) ($f['trend_days'] ?? 7), [Catalogue::KEY_EPOCH, Catalogue::KEY_REACHABLE]);
+		$report->read($rowsIn, $visible, $catalogue, (int) ($f['trend_days'] ?? 7), Catalogue::freshnessKeys());
 		$items = $report->items();
 
 		$widgetBars = Bars::styleOf(Bars::isInherit($f['bars'] ?? Bars::INHERIT) ? Settings::bars($cfg) : $f['bars']);
@@ -164,8 +164,9 @@ class WidgetView extends CControllerDashboardWidgetView {
 		foreach ($rowsIn as $hostid => $in) {
 			$c = $in['client'];
 			['cells' => $cells, 'flags' => $flags, 'sort' => $sort, 'export' => $export] = $report->cells((string) $hostid, $c, $visible, $catalogue, $widgetBars);
-			$epoch = ColumnReader::value($items[$hostid][Catalogue::KEY_EPOCH] ?? null);
-			$reach = ColumnReader::value($items[$hostid][Catalogue::KEY_REACHABLE] ?? null);
+			// The newest generation's item the cluster host has: elasticpro.plan.*, else an older template's espro.plan.*.
+			$epoch = ColumnReader::value(KeyGenerations::first($items[$hostid] ?? [], Catalogue::KEY_EPOCH));
+			$reach = ColumnReader::value(KeyGenerations::first($items[$hostid] ?? [], Catalogue::KEY_REACHABLE));
 			$unreachable = $reach !== null && $reach == 0;
 			$hint = $epoch !== null ? _s('Updated %1$s ago', zbx_date2age((int) $epoch)) : _('Never updated');
 			$rows[] = [
