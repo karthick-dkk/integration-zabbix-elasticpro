@@ -23,7 +23,7 @@ namespace {
 	if (!function_exists('_n')) { function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); } }
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'Columns', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	use Modules\EpClients\Lib\{AlertRouting, Backups, Bars, ClientSpec, ClientTypes, ClusterTemplate, ColumnSettings, Csv, DevicesTemplate, Forecast, History, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Registry, Roles, Settings, SetupChecks, Store};
@@ -648,6 +648,16 @@ namespace Modules\EpClients\Test {
 	check('full in: unknown stays unknown', Forecast::fullIn(null) === null);
 	check('full in: red under 7 days, yellow under 30', Forecast::fullIn(3 * 86400.0)['level'] === 'bad' && Forecast::fullIn(20 * 86400.0)['level'] === 'warn'
 		&& Forecast::fullIn(45 * 86400.0)['level'] === 'ok' && Forecast::fullIn(45 * 86400.0)['text'] === '45 days' && Forecast::fullIn(1e12)['level'] === 'flat');
+	// One definition of "a share of what": the widgets' Columns::shareOf must agree with every share the master template writes.
+	$shares = [];
+	foreach ((new MasterTemplate(Roles::defaults()))->export()['zabbix_export']['templates'][0]['items'] as $it) {
+		if (preg_match('#^100\*last\(//([^)]+)\)/last\(//([^)]+)\)$#', (string) ($it['params'] ?? ''), $m)) {
+			$shares[$it['key']] = $m[2];
+		}
+	}
+	check('every share the master template computes is known to the widgets, with what it is a share of', count($shares) >= 4
+		&& !array_filter($shares, fn($of, $key) => \Modules\EpClients\Lib\Columns::shareOf($key) !== $of, ARRAY_FILTER_USE_BOTH),
+		array_filter(array_map(fn($of, $key) => [$key, $of, \Modules\EpClients\Lib\Columns::shareOf($key)], $shares, array_keys($shares)), fn($r) => $r[1] !== $r[2]));
 	check('the master template measures what the forecast reads', in_array(Forecast::KEY, array_column((new MasterTemplate(Roles::defaults()))->export()['zabbix_export']['templates'][0]['items'], 'key'), true));
 
 	/* ---------------- status and the register ---------------- */

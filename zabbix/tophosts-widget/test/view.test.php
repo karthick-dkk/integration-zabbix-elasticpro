@@ -379,7 +379,9 @@ namespace Modules\EpTophosts\Test {
 	check('Update: a column of the server\'s figures, a window of it, no roles', ($r['builtin'] ?? '') === 'srv.cpu' && $r['value'] === 4 && $r['roles'] === [] && !isset($r['error']), $r);
 	$r = $edit(['update' => 1, 'scope' => 'client', 'name' => 'Value', 'source' => '1', 'builtin' => 'top.value', 'value' => '2']);
 	check('…Value only ever the value now', isset($r['error']) && strpos(implode(' ', $r['error']['messages']), 'it shows its value now') !== false, $r);
-	check('Check counts the client servers that have the key', $edit(['coverage' => 1, 'key' => 'es.ingest.rate', 'pattern' => '0', 'roles' => []]) === ['found' => 2, 'total' => 4]);
+	$cov = $edit(['coverage' => 1, 'key' => 'es.ingest.rate', 'pattern' => '0', 'roles' => []]);
+	check('Check counts the client servers that have the key, and says so', $cov === ['found' => 2, 'total' => 4,
+		'text' => 'Found on 2 of 4 client servers. Clients without it show "not collected", never 0.'], $cov);
 
 	// A single node: ES, Parser, Forwarder and Engine on one box (the shared reading).
 	$r = fn($fam, $extra = []) => ['id' => $fam, 'family' => $fam] + $extra;

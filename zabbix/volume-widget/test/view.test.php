@@ -541,7 +541,9 @@ namespace Modules\EpVolume\Test {
 		return json_decode($a->response->data['main_block'], true);
 	};
 	Catalogue::forget();
-	check('Check counts the cluster hosts that have the key — not the client servers', $edit(['coverage' => 1, 'key' => 'plan[live.days]', 'pattern' => '0', 'roles' => []]) === ['found' => 2, 'total' => 2]);
+	$cov = $edit(['coverage' => 1, 'key' => 'plan[live.days]', 'pattern' => '0', 'roles' => []]);
+	check('Check counts the cluster hosts that have the key — not the client servers — and says so in those words (QA 2.1.1: it said "client servers")',
+		$cov === ['found' => 2, 'total' => 2, 'text' => 'Found on 2 of 2 cluster hosts. Clusters without it show "not collected", never 0.'], $cov);
 	$r = $edit(['update' => 1, 'scope' => 'client', 'name' => 'Docs/s', 'source' => '2', 'key' => 'es.docs.rate', 'roles' => ['es_data_hot'], 'combine' => '3']);
 	check('Update returns the column by the one rule, with no roles (a cluster has none)', ($r['key'] ?? '') === 'es.docs.rate' && $r['roles'] === [] && !isset($r['error']), $r);
 	$r = $edit(['update' => 1, 'scope' => 'client', 'name' => 'Bad', 'source' => '2', 'key' => 'bad key']);

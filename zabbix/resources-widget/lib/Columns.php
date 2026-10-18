@@ -170,6 +170,30 @@ class Columns {
 		];
 	}
 
+	/**
+	 * The figure a share is a share of, as the client master template computes it
+	 * (MasterTemplate: 100*last(//used)/last(//allocated)): ES storage usage of ES storage allocated,
+	 * storage used of purchased of purchased, devices seen of purchased of purchased, a family's or a
+	 * role's disk usage of its disk allocated. Null for anything else — CPU and memory usage are
+	 * averages over the servers, not shares of what was allocated. Lets a share nobody can work out
+	 * say which figure is missing ("ES storage allocated not set"), not "no value yet".
+	 */
+	public static function shareOf(string $key): ?string {
+		$fixed = ['ep.es.storage.usage' => 'ep.es.storage.allocated', 'ep.es.storage.purchased.usage' => 'ep.es.storage.purchased',
+			'ep.devices.usage' => 'ep.devices.purchased'];
+		if (isset($fixed[$key])) {
+			return $fixed[$key];
+		}
+		if (preg_match('/^ep\.role\.disk\.usage\[([^\]]+)\]$/', $key, $m)) {
+			return 'ep.role.disk.allocated['.$m[1].']';
+		}
+		if (preg_match('/^ep\.([a-z0-9_]+)\.disk\.usage$/', $key, $m) && $m[1] !== 'role') {
+			return 'ep.'.$m[1].'.disk.allocated';
+		}
+
+		return null;
+	}
+
 	public static function opLabels(): array {
 		return [
 			self::OP_OF => _('of (x of y, %)'),
@@ -251,7 +275,8 @@ class Columns {
 		$uid = $str('uid');
 		$c['uid'] = preg_match('/^[a-z0-9]{1,16}$/', $uid) ? $uid : self::newUid();
 		$c['group'] = $text('group', self::MAX_GROUP, _('Group'), false);
-		$c['name'] = $text('name', self::MAX_NAME, _('Name'), true);
+		// Required for an item or a calculated column; a built-in left unnamed is named by its label (below).
+		$c['name'] = $text('name', self::MAX_NAME, _('Name'), false);
 		$c['hidden'] = $flag('hidden');
 
 		$row = $scope === 'row';
@@ -271,6 +296,9 @@ class Columns {
 				$e[] = $c['builtin'] === '' ? _('Choose a built-in column.') : _s('There is no built-in column "%1$s".', $c['builtin']);
 			}
 			else {
+				if ($c['name'] === '') {
+					$c['name'] = (string) $builtin['label'];
+				}
 				$c['units'] = (string) ($builtin['units'] ?? '');
 				$onServers = $builtin['on'] === self::ON_SERVERS;
 				$numeric = empty($builtin['text']);
@@ -278,7 +306,10 @@ class Columns {
 				$percent = !empty($builtin['settings']) || !empty($builtin['pct']);
 			}
 		}
-		elseif ($c['source'] === self::SOURCE_ITEM) {
+		elseif ($c['name'] === '') {
+			$e[] = _s('%1$s cannot be empty.', _('Name'));
+		}
+		if ($c['source'] === self::SOURCE_ITEM) {
 			$c['pattern'] = $flag('pattern');
 			$c['key'] = $str('key');
 			$keyError = self::keyError($c['key'], (bool) $c['pattern']);
@@ -287,7 +318,7 @@ class Columns {
 			}
 			$onServers = true;
 		}
-		else {
+		elseif ($c['source'] === self::SOURCE_CALC) {
 			$c['calc_op'] = $int('calc_op', array_keys(self::opLabels()));
 			foreach (['calc_a' => _('First item'), 'calc_b' => _('Second item')] as $k => $label) {
 				$c[$k] = $str($k);

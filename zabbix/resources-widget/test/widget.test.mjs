@@ -122,6 +122,7 @@ function editorScript() {
   src = src.slice(src.indexOf('?>') + 2);
   src = src.replace(/<\?= Columns::(\w+) \?>/g, (_, k) => { assert.ok(k in COLS, k); return String(COLS[k]); });
   src = src.replace(/<\?= ZBX_STYLE_COLOR_PICKER \?>/g, 'color-picker');
+  src = src.replace(/<\?= ZBX_STYLE_FIELD_LABEL_ASTERISK \?>/g, 'form-label-asterisk');
   src = src.replace(/<\?= json_encode\(_\('((?:[^'\\]|\\.)*)'\)\) \?>/g, (_, s) => JSON.stringify(s.replace(/\\'/g, "'")));
   assert.ok(!src.includes('<?'), 'every PHP tag replaced');
   return src;
@@ -129,7 +130,7 @@ function editorScript() {
 /** A colour field as Zabbix 7.0.31's CColor renders it (appendColorPickerJs(false)): a hidden input in div.color-picker. */
 const color = (name) => `<div class="color-picker"><input type="hidden" id="${name}" name="${name}" value=""></div>`;
 const EDITOR = `<div class="overlay-dialogue-body"><form name="ep_column_edit" style="display:none">
-  <input name="group" value=""><input name="name" value="">
+  <input name="group" value=""><label id="ep_ce_name_label" class="form-label-asterisk">Name</label><input name="name" value="">
   <input type="radio" name="source" value="1" checked><input type="radio" name="source" value="2"><input type="radio" name="source" value="3">
   <div class="js-builtin"><select name="builtin"><option value="storage.used">x</option><option value="storage.usage">y</option></select><span id="ep_ce_builtin_key"></span></div>
   <div class="js-item"><input name="key"><input type="checkbox" name="pattern" id="ep_ce_pattern"><div id="ep_ce_coverage"></div></div>
@@ -220,6 +221,21 @@ test('the column editor\'s colour boxes get Zabbix 7.0\'s colour picker — swat
   assert.equal(previewed, 1);
   // Opening the editor again, or a threshold row added, never gives a box a second picker.
   f.querySelectorAll('.color-picker input').forEach((i) => assert.equal(i.dataset.epInit, '1'));
+});
+
+test('Name: optional for a built-in (its label as the placeholder, no required mark), required for an item or a calculation (DOM)', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { f, set } = editor(lib);
+  const label = f.querySelector('#ep_ce_name_label');
+  const name = f.querySelector('[name="name"]');
+  assert.ok(!label.classList.contains('form-label-asterisk'), 'a built-in: not marked required');
+  assert.equal(name.placeholder, 'Used', 'left empty it is the built-in\'s label, and the box says so');
+  set('[name="source"][value="2"]', true);
+  assert.ok(label.classList.contains('form-label-asterisk'), 'an item key: required');
+  assert.equal(name.placeholder, '');
+  assert.equal(name.getAttribute('aria-required'), 'true');
+  set('[name="source"][value="1"]', true);
+  assert.ok(!label.classList.contains('form-label-asterisk'));
 });
 
 test('the column editor sends every box, ticked or not, and the operands as stored (DOM)', (t) => {

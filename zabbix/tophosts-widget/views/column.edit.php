@@ -41,9 +41,11 @@ $dataGrid->addItem([
 		->setAttribute('placeholder', _('none: a column of its own')))
 ]);
 $dataGrid->addItem([
-	(new CLabel(_('Name'), 'ep_ce_name'))->setAsteriskMark(),
+	// Required for an item or a calculated column; a built-in left unnamed takes its label (the script keeps
+	// the mark and the placeholder with the source chosen).
+	(new CLabel(_('Name'), 'ep_ce_name'))->setAsteriskMark((int) $c['source'] !== Columns::SOURCE_BUILTIN)->setId('ep_ce_name_label'),
 	new CFormField((new CTextBox('name', $c['name'], false, Columns::MAX_NAME))->setId('ep_ce_name')->setWidth(ZBX_TEXTAREA_STANDARD_WIDTH)
-		->setAriaRequired()->setAttribute('autofocus', 'autofocus'))
+		->setAriaRequired((int) $c['source'] !== Columns::SOURCE_BUILTIN)->setAttribute('autofocus', 'autofocus'))
 ]);
 
 // Source: a built-in column, any item key on the client's servers, or two of those calculated.
@@ -76,13 +78,12 @@ $dataGrid->addItem([
 	(new CLabel(_('Item key'), 'ep_ce_key'))->setAsteriskMark()->addClass('js-item'),
 	(new CFormField([
 		(new CTextBox('key', $c['key'], false, Columns::MAX_KEY))->setId('ep_ce_key')->setWidth(ZBX_TEXTAREA_STANDARD_WIDTH)
-			->setAttribute('list', 'ep_ce_keys')->setAttribute('autocomplete', 'off')->setAttribute('placeholder', _('type to pick from the keys on client servers')),
+			->setAttribute('list', 'ep_ce_keys')->setAttribute('autocomplete', 'off')->setAttribute('placeholder', _s('type to pick from the keys on %1$s', $data['host_words']['hosts'] ?? _('client servers'))),
 		(new CTag('datalist', true, array_map(fn($k) => (new CTag('option', true, ''))->setAttribute('value', $k), $data['keys'])))->setId('ep_ce_keys'),
 		' ',
 		(new CButtonLink(_('Check')))->setId('ep_ce_check'),
 		(new CDiv((new CCheckBox('pattern'))->setChecked((int) $c['pattern'] === 1)->setLabel(_('Key is a pattern (* wildcard)'))->setId('ep_ce_pattern'))),
-		(new CDiv($coverage === null || $coverage['found'] === null ? ''
-			: _s('Found on %1$s of %2$s client servers. Clients without it show "not collected", never 0.', $coverage['found'], $coverage['total'])))
+		(new CDiv((string) ($data['coverage_text'] ?? '')))
 			->setId('ep_ce_coverage')->addClass('ep-ce-hint'),
 		$hint(_s('A pattern needs %1$s plain characters before its first *; it reads at most %2$s items a server and %3$s a column.',
 			Columns::PATTERN_PREFIX, Columns::PATTERN_PER_HOST, Columns::PATTERN_PER_METRIC))->addClass('ep-ce-block')

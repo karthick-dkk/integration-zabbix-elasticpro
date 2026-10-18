@@ -412,6 +412,18 @@ class ColumnReport {
 				$out[$k] = ['on' => Columns::ON_MASTER, 'servers' => 1, 'want' => [[$mid, $b[$k], false]], 'label' => $k];
 			}
 		}
+		// A share (used of allocated): the figure it is taken of, read too, so an unknown share can say which one is missing.
+		$of = $b['on'] === Columns::ON_MASTER ? Columns::shareOf((string) $b['key']) : null;
+		if ($of !== null) {
+			$named = null;
+			foreach ($catalogue as $e) {
+				if (($e['key'] ?? null) === $of) {
+					$named = self::operandLabel($e);
+					break;
+				}
+			}
+			$out['of'] = ['on' => Columns::ON_MASTER, 'servers' => 1, 'want' => [[$mid, $of, false]], 'label' => $named ?? $of];
+		}
 		return $out;
 	}
 
@@ -591,6 +603,14 @@ class ColumnReport {
 			}
 			if ($a['value'] === null && isset($entry['fix'])) {
 				$fig['fix'] = $entry['fix'];
+			}
+			// A share Zabbix has but could not work out, because what it is a share of is not set: that is the reason.
+			// (A share not collected at all keeps saying so.)
+			if ($a['value'] === null && isset($plan['of']) && $a['hostids']) {
+				$of = $this->evaluate($plan['of'], $col, $items, $series, $trendDays, $usage);
+				if ($of['now'] === null || $of['now'] == 0) {
+					$fig['why'] = _s('%1$s not set', $plan['of']['label']);
+				}
 			}
 		}
 

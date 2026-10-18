@@ -21,8 +21,9 @@ use Modules\EpTophosts\Includes\Catalogue;
  *
  * The widget's own Includes\Catalogue says which built-in columns there are, and may say more:
  * editorHosts() — the hosts "Check" and the key suggestions look at, when they are not the
- * client servers (Volume's cluster hosts); single() — true when a row is one host, so there are no
- * servers to pick roles of and combine (Volume, Top hosts).
+ * client servers (Volume's cluster hosts); hostWords() — what "Check" calls those hosts and their
+ * rows, when they are not client servers and clients; single() — true when a row is one host, so
+ * there are no servers to pick roles of and combine (Volume, Top hosts).
  *
  * Shared: ../../sync-assets.mjs copies this into each widget that offers the column editor, under its namespace.
  */
@@ -64,10 +65,11 @@ class ColumnEdit extends CController {
 		$roleIds = $single ? [] : array_column(Roles::allRoles($roles), 'id');
 		$input = $this->getInputAll();
 		$hosts = fn() => method_exists($cat, 'editorHosts') ? $cat::editorHosts($roles, Settings::all()) : ColumnReader::clientServers($roles, Settings::all());
+		$words = self::hostWords($cat);
 
 		if ($this->hasInput('coverage')) {
-			$this->json(ColumnReader::coverage(trim((string) ($input['key'] ?? '')), ($input['pattern'] ?? '0') === '1', (array) ($input['roles'] ?? []),
-				$hosts()));
+			$found = ColumnReader::coverage(trim((string) ($input['key'] ?? '')), ($input['pattern'] ?? '0') === '1', (array) ($input['roles'] ?? []), $hosts());
+			$this->json($found + ['text' => self::coverageText($found, $words)]);
 			return;
 		}
 
@@ -107,10 +109,26 @@ class ColumnEdit extends CController {
 			'decimals' => ['%' => Settings::decimals('%', $cfg), '' => Settings::decimals('', $cfg), 'B' => Settings::decimals('B', $cfg)],
 			'trend_days' => (int) ($input['trend_days'] ?? 7) ?: 7,
 			'keys' => $scope === 'client' ? ColumnReader::keySuggestions($servers) : [],
-			'coverage' => (int) $column['source'] === Columns::SOURCE_ITEM && $column['key'] !== ''
-				? ColumnReader::coverage((string) $column['key'], (string) $column['pattern'] === '1', $column['roles'], $servers) : null,
+			'coverage' => $coverage = ((int) $column['source'] === Columns::SOURCE_ITEM && $column['key'] !== ''
+				? ColumnReader::coverage((string) $column['key'], (string) $column['pattern'] === '1', $column['roles'], $servers) : null),
+			'coverage_text' => self::coverageText($coverage, $words),
+			'host_words' => $words,
 			'user' => ['debug_mode' => $this->getDebugMode()]
 		]));
+	}
+
+	/** What "Check" calls the hosts it looks at and the rows they belong to: client servers and clients, or the widget's own. */
+	public static function hostWords(string $cat): array {
+		return method_exists($cat, 'hostWords') ? $cat::hostWords() : ['hosts' => _('client servers'), 'rows' => _('Clients')];
+	}
+
+	/** "Found on 3 of 4 client servers. …" — one wording for the drawn editor and for Check's answer. */
+	public static function coverageText(?array $coverage, array $words): ?string {
+		if ($coverage === null || $coverage['found'] === null) {
+			return null;
+		}
+
+		return _s('Found on %1$s of %2$s %3$s. %4$s without it show "not collected", never 0.', $coverage['found'], $coverage['total'], $words['hosts'], $words['rows']);
 	}
 
 	private function json(array $out): void {

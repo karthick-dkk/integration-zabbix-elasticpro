@@ -84,7 +84,9 @@ namespace EpShared\Test {
 	check('…and every property of the model is there', array_keys($c) === array_keys(Columns::DEFAULT));
 	[$c] = Columns::clean(['name' => 'x', 'source' => 1, 'builtin' => 'storage.used'], $cat, $roles);
 	check('a column with no id is given one', preg_match('/^[a-z0-9]{10}$/', $c['uid']) === 1, $c['uid']);
-	check('a name is needed', $has($errs(['name' => ' ', 'source' => 1, 'builtin' => 'storage.used']), 'Name cannot be empty'));
+	// QA 2.1.1: a built-in's Name is optional (its label), an item's or a calculation's required — one rule, in the editor and here.
+	check('a name is needed for an item column; a built-in left blank takes its label', $has($errs(['name' => ' ', 'source' => 2, 'key' => 'es.indexing.rate']), 'Name cannot be empty')
+		&& !$has($errs(['name' => ' ', 'source' => 1, 'builtin' => 'storage.used']), 'Name cannot be empty'));
 	check('a name has a length', $has($errs(['name' => str_repeat('n', 65), 'source' => 1, 'builtin' => 'storage.used']), 'longer than 64'));
 	check('a name has no control characters', $has($errs(['name' => "a\x07b", 'source' => 1, 'builtin' => 'storage.used']), 'control characters'));
 	check('an unknown built-in is refused, by name', $has($errs(['source' => 1, 'builtin' => 'nope']), 'There is no built-in column "nope"'));
@@ -254,6 +256,17 @@ namespace EpShared\Test {
 	check('past the trend budget: shortest windows read first, the rest named, not read', isset($series['1'], $series['3']) && !isset($series['4'])
 		&& array_keys($reader->seriesCapped) === [4], [$reader->seriesCapped, array_keys($series)]);
 	check('the budget a refresh may read', ColumnReader::MAX_ITEM_DAYS === 20000);
+
+	/* ---------------- a column's name ---------------- */
+	$nameCat = ['storage.used' => ['label' => 'Used', 'group' => 'ES storage', 'on' => Columns::ON_MASTER, 'key' => 'ep.es.storage.used', 'units' => 'B']];
+	[$named, $errs] = Columns::clean(['name' => '', 'source' => Columns::SOURCE_BUILTIN, 'builtin' => 'storage.used'], $nameCat, []);
+	check('a built-in left unnamed is named by its label — said, not silently: the name is optional there', $errs === [] && $named['name'] === 'Used', $errs);
+	[, $errs] = Columns::clean(['name' => ' ', 'source' => Columns::SOURCE_ITEM, 'key' => 'es.indexing.rate'], $nameCat, []);
+	check('an item column needs a name', in_array('Name cannot be empty.', $errs, true), $errs);
+	[, $errs] = Columns::clean(['name' => '', 'source' => Columns::SOURCE_CALC, 'calc_a' => 'storage.used', 'calc_op' => Columns::OP_MINUS, 'calc_b' => 'storage.used'], $nameCat, []);
+	check('…and so does a calculated one', in_array('Name cannot be empty.', $errs, true), $errs);
+	[$named, $errs] = Columns::clean(['name' => 'Mine', 'source' => Columns::SOURCE_BUILTIN, 'builtin' => 'storage.used'], $nameCat, []);
+	check('a built-in\'s own name is kept', $errs === [] && $named['name'] === 'Mine');
 
 	/* ---------------- template names that changed: every generation, newest first ---------------- */
 	check('a key in every generation, newest first; a key of none is itself', KeyGenerations::keys('elasticpro.plan.epoch') === ['elasticpro.plan.epoch', 'espro.plan.epoch']

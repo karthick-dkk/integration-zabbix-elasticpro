@@ -175,6 +175,14 @@ window.ep_column_form = new class {
 		const source = this._val('source');
 		const b = this._builtin();
 		const text = b !== null && b.text;
+		// Name: optional for a built-in (left empty it is the built-in's label, which the box shows), required otherwise.
+		const nameBox = this._form.querySelector('[name="name"]');
+		const nameLabel = this._form.querySelector('#ep_ce_name_label');
+		if (nameLabel !== null) {
+			nameLabel.classList.toggle('<?= ZBX_STYLE_FIELD_LABEL_ASTERISK ?>', b === null);
+		}
+		nameBox.placeholder = b !== null ? b.label : '';
+		nameBox.setAttribute('aria-required', b === null ? 'true' : 'false');
 		const operandOnServers = (name) => {
 			const op = this._operand(name);
 			return op.startsWith('<?= Columns::KEY_OPERAND ?>') || (this._catalogue[op] && this._catalogue[op].on === '<?= Columns::ON_SERVERS ?>');
@@ -336,10 +344,8 @@ window.ep_column_form = new class {
 		fetch(this._coverage_url, {method: 'POST', body})
 			.then((r) => r.json())
 			.then((r) => {
-				out.textContent = r.found === null
-					? <?= json_encode(_('Not an item key yet.')) ?>
-					: <?= json_encode(_('Found on %1$s of %2$s client servers. Clients without it show "not collected", never 0.')) ?>
-						.replace('%1$s', r.found).replace('%2$s', r.total);
+				// The words are the widget's (Volume: cluster hosts), from the server.
+				out.textContent = r.found === null ? <?= json_encode(_('Not an item key yet.')) ?> : String(r.text || '');
 			})
 			.catch(() => out.textContent = <?= json_encode(_('Could not check.')) ?>);
 	}

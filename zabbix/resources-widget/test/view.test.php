@@ -277,6 +277,27 @@ namespace Modules\EpResources\Test {
 	check('export: types beside the rows', $e['types'] === ['On-Prem', 'DI']);
 	// The export's places, as 2.1.0 wrote them: a size in the export unit to two, a percentage to one,
 	// any other number to two — never the places the table is drawn with.
+	// A share that cannot be worked out because what it is a share of is not set says so (QA 2.1.1: it said "no value yet").
+	\FakeApi::$extra_items = [[101, 'ep.es.storage.usage', '', '%'], [102, 'ep.es.storage.usage', 30, '%']];
+	// The column with No data = "Say why", as the person had it.
+	$whyCols = array_map(fn($c) => $c['builtin'] === 'storage.usage' ? ['nodata' => Columns::NODATA_WHY] + $c : $c,
+		WidgetForm::upgrade(['columns_from' => '1'], Roles::load(), ColumnSettings::loadModel('resources'))['columns']);
+	$d = run(['columns_from' => '1', 'columns' => $whyCols]);
+	$used = fn($row) => $row['cells'][col($d, 'storage.usage')];
+	[$acmeRow, $karthiRow] = $d['rows'];
+	check('Used % with allocated not set, No data "Say why": "ES storage allocated not set", the reason, not "no value yet"', col($d, 'storage.usage') !== null
+		&& $used($karthiRow)['text'] === 'ES storage allocated not set' && $used($karthiRow)['value'] === null, $used($karthiRow));
+	$d = run();
+	check('…and with No data "—" the cell is a dash and the reason is its tooltip', strpos((string) $d['rows'][1]['cells'][col($d, 'storage.usage')]['hint'], 'ES storage allocated not set') === 0);
+	check('…and one that has its figure shows it', $used($acmeRow)['value'] === 30.0, $used($acmeRow));
+	\FakeApi::$extra_items = [];
+	$d = run();
+	check('…while a share not collected at all still says "not collected"', col($d, 'storage.usage') === null
+		|| strpos((string) $d['rows'][1]['cells'][col($d, 'storage.usage')]['text'], 'allocated not set') === false);
+	check('shareOf: as the master template computes the shares', Columns::shareOf('ep.es.storage.usage') === 'ep.es.storage.allocated'
+		&& Columns::shareOf('ep.devices.usage') === 'ep.devices.purchased' && Columns::shareOf('ep.es.storage.purchased.usage') === 'ep.es.storage.purchased'
+		&& Columns::shareOf('ep.parser.disk.usage') === 'ep.parser.disk.allocated' && Columns::shareOf('ep.role.disk.usage[es_data_hot]') === 'ep.role.disk.allocated[es_data_hot]'
+		&& Columns::shareOf('ep.es.cpu.usage') === null && Columns::shareOf('ep.es.mem.usage') === null);
 	\FakeApi::$override = ['101|ep.es.storage.used' => 2.3456 * 1073741824, '101|ep.es.cpu.usage' => 95.456, '101|ep.es.cpu.requested' => 16.456];
 	$places = function (array $d) {
 		$at = array_search('karthi', array_column($d['rows'], 'client'), true);

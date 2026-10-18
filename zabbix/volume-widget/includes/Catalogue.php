@@ -187,6 +187,11 @@ class Catalogue {
 	}
 
 	/** The cluster hosts the column editor's key suggestions and Check look at: hostid => [] (no roles). */
+	/** "Check" looks at cluster hosts, a row a cluster. */
+	public static function hostWords(): array {
+		return ['hosts' => _('cluster hosts'), 'rows' => _('Clusters')];
+	}
+
 	public static function editorHosts(array $roles, array $cfg): array {
 		$plan = self::plan();
 		if (!$plan['templateids']) {
