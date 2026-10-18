@@ -180,7 +180,7 @@ class Metrics {
 	 * A metric as it came in (form, editor or a saved widget: strings or numbers), made into the
 	 * stored shape — or the reasons it cannot be.
 	 *
-	 * @param array $roleIds  the role ids Cluster Management has; others are dropped from Servers
+	 * @param array $roleIds  the role ids Cluster Management has; a metric that names another is refused
 	 *
 	 * @return array{0: array, 1: string[]}  [clean metric, errors]
 	 */
@@ -237,11 +237,22 @@ class Metrics {
 		// Servers: only meaningful for a figure read off the servers; a master-host figure is one per client.
 		$onServers = $m['source'] === self::SOURCE_ITEM || ($builtin !== null && $builtin['on'] === self::ON_SERVERS);
 		$roles = [];
+		$unknown = [];
 		foreach ((array) ($in['roles'] ?? []) as $r) {
 			$r = is_scalar($r) ? trim((string) $r) : '';
-			if ($r !== '' && in_array($r, $roleIds, true) && !in_array($r, $roles, true)) {
+			if ($r === '' || in_array($r, $roles, true)) {
+				continue;
+			}
+			if (in_array($r, $roleIds, true)) {
 				$roles[] = $r;
 			}
+			else {
+				$unknown[] = $r;
+			}
+		}
+		// A role that is gone is not "every server": a metric scoped to it would quietly read them all.
+		if ($onServers && $unknown) {
+			$e[] = _s('Servers: the role "%1$s" is not in Cluster Management any more — choose its servers again.', implode('", "', $unknown));
 		}
 		$m['roles'] = $onServers ? $roles : [];
 		$m['combine'] = $int('combine', array_keys(self::combineLabels()));

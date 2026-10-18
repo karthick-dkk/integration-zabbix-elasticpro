@@ -389,3 +389,16 @@ test('chart: clients cycle through the palette\'s eight series colours, and garb
   assert.equal(S.seriesColor('x'), 'var(--ep-s1)');
   assert.ok(!/#[0-9a-f]{6}/i.test(fs.readFileSync(path.join(HERE, 'assets/js/ep-overview-summary.js'), 'utf8').split('\n').filter((l) => /seriesColor|SERIES/.test(l)).join('\n')), 'no colour list in the chart code');
 });
+
+test('a metric the widget cannot draw is said above the Summary view, and a client the chart could not read says so', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const d = newData({}, { clients: [{ name: 'acme', i: 0, legend: null, points: [], not_read: true }, { name: 'beta<b>', i: 1, legend: null, points: [] }] });
+  d.dropped = ['Metric "Gone <b>role</b>": Servers: the role "x" is not in Cluster Management any more — choose its servers again.'];
+  const { body } = setup(lib, d);
+  assert.match(body.querySelector('.ep-ov-dropped').textContent, /^Metric "Gone <b>role<\/b>": Servers: the role "x"/, 'named, as text');
+  assert.equal(body.querySelectorAll('.ep-ov-dropped b').length, 0);
+  const rows = [...panelOf(body).querySelectorAll('.ep-ov-legend tbody tr')].map((r) => r.lastElementChild.textContent);
+  assert.deepEqual(rows, ['window not read', 'no data'], 'unread is not no data');
+  assert.match(panelOf(body).querySelector('.ep-ov-note').textContent, /1 client was not read/);
+  assert.equal(html(setup(lib, data()).body).includes('ep-ov-dropped'), false);
+});

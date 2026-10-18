@@ -62,6 +62,10 @@ one palette.
   history, long ones from trends, in one call per refresh. A client with no data in the period
   says "no data" and has no line, never zeros. The lines are drawn in the palette's eight chart
   series colours (ElasticPro → Settings → Colours).
+  A period too long to read for a client's items at once says "window not read" for that client,
+  not "no data". The Client overview's metrics follow the column rule for roles: a metric that
+  names a role Cluster Management no longer has is refused on Apply, and on the dashboard it is
+  left out and named above the cards instead of quietly reading every server.
   The Layout tab, with View set to Summary, now sets the Summary view's panels (on or off, drag
   order, full / half / third / quarter width: Summary by client, Usage chart, Used of allocated,
   Servers by role), its cards (family, tiles, bars, status line, columns), the chart (metric,

@@ -226,3 +226,13 @@ test('names are text, never markup, and only Zabbix pages are links', (t) => {
   assert.match(body.querySelector('.ep-ov').innerHTML, /beta&lt;b&gt;/);
   assert.ok(![...body.querySelectorAll('a')].some((a) => /^(javascript|https?):/.test(a.getAttribute('href'))), 'no foreign link');
 });
+
+test('a metric the widget cannot draw is named above the cards, as text; none left out says nothing', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const d = data();
+  d.dropped = ['Metric "Gone <i>role</i>": Servers: the role "x" is not in Cluster Management any more — choose its servers again.'];
+  const { body } = setup(lib, d);
+  assert.match(body.querySelector('.ep-ov-dropped').textContent, /^Metric "Gone <i>role<\/i>": Servers: the role "x"/);
+  assert.equal(body.querySelectorAll('.ep-ov-dropped i').length, 0);
+  assert.equal(setup(lib).body.querySelectorAll('.ep-ov-dropped').length, 0);
+});

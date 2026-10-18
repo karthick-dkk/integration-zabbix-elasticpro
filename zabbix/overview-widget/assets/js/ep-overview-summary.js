@@ -114,7 +114,7 @@ window.EpOverviewSummary = {
 		if (st.client && !data.clients.some((c) => c.name === st.client)) st.client = '';
 		const list = this.visible(root, data, st);
 		const e = this.esc.bind(this);
-		const picker = `<div class="ep-ov-bar"><label>${e('Client')} <select data-ep-ov-client aria-label="Client"><option value="">${e('All clients')}</option>`
+		let picker = `<div class="ep-ov-bar"><label>${e('Client')} <select data-ep-ov-client aria-label="Client"><option value="">${e('All clients')}</option>`
 			+ data.clients.map((c) => `<option${c.name === st.client ? ' selected' : ''}>${e(c.name)}</option>`).join('')
 			+ `</select></label><span class="ep-ov-note">${st.client ? e(st.client) + ': every panel shows this client only' : 'All clients: every panel shows one block per client'}</span></div>`;
 		if (!list.length) {
@@ -123,6 +123,7 @@ window.EpOverviewSummary = {
 		}
 		const set = data.settings || {};
 		const fam = data.families.find((f) => f.id === set.family) || data.families[0] || { id: 'es', label: 'ES' };
+		picker += this.dropped(data);
 		if (set.legacy || !set.cards) {
 			this.drawLegacy(pane, data, st, list, picker, set, fam);
 			return;
@@ -143,6 +144,12 @@ window.EpOverviewSummary = {
 			}
 		}).join('');
 		pane.innerHTML = picker + (panels ? `<div class="ep-ov-lay">${panels}</div>` : '<div class="ep-empty">Every panel is turned off in this widget\'s settings.</div>');
+	},
+
+	/** The metrics the widget names but cannot draw, each with why: said, never just missing. */
+	dropped(data) {
+		const list = Array.isArray(data.dropped) ? data.dropped : [];
+		return list.length ? `<ul class="ep-ov-dropped" role="status">${list.map((t) => `<li>${this.esc(t)}</li>`).join('')}</ul>` : '';
 	},
 
 	/** A widget saved before the Summary view had settings of its own: drawn as it always was. */
@@ -455,13 +462,17 @@ window.EpOverviewSummary = {
 			const who = cs.isolate === false ? `<span>${name}</span>`
 				: `<button type="button" class="ep-ov-iso" data-ep-ov-iso="${e(c.name)}" aria-pressed="${pressed ? 'true' : 'false'}" title="${pressed ? 'Show every client' : 'Show only ' + e(c.name)}">${name}</button>`;
 			return `<tr${iso && !pressed ? ' class="ep-ov-dim"' : ''}><th scope="row">${who}</th>`
-				+ (c.legend ? cols.map((k) => cell(c.legend[k])).join('') : `<td colspan="${cols.length}" class="ep-ov-nodata">no data</td>`) + `</tr>`;
+				+ (c.legend ? cols.map((k) => cell(c.legend[k])).join('')
+					: c.not_read ? `<td colspan="${cols.length}" class="ep-ov-nodata" title="The period is longer than Zabbix can be asked for at once for this client's items. Choose a shorter period.">window not read</td>`
+						: `<td colspan="${cols.length}" class="ep-ov-nodata">no data</td>`) + `</tr>`;
 		}).join('');
+		const unread = shown.filter((c) => c.not_read).length;
 		const lines = chart.lines || {};
 		const dashed = [typeof lines.warn === 'number' ? `Warn ${this.axis(lines.warn, chart.metric.units)}` : '', typeof lines.high === 'number' ? `High ${this.axis(lines.high, chart.metric.units)}` : ''].filter(Boolean);
 		const note = [dashed.length ? `Dashed lines: ${dashed.join(' and ')}.` : '',
 			cs.isolate === false ? '' : 'Click a client to show only it; click again for all.',
 			chart.total > chart.clients.length ? `Showing ${chart.clients.length} of ${chart.total} clients.` : '',
+			unread ? `${unread} ${unread === 1 ? 'client was' : 'clients were'} not read: the period is too long to read for all its items at once — choose a shorter one.` : '',
 			`Points: ${cs.point || 'average'} per ${chart.period.source === 'history' ? 'step, from Zabbix history' : 'hour, from Zabbix trends'}.`].filter(Boolean).join(' ');
 		const body = shown.length
 			? (drawn.length ? this.chartSvg(chart, set, drawn) : '<div class="ep-empty">No data in this period.</div>')

@@ -13,7 +13,7 @@ use API,
 	CControllerDashboardWidgetView,
 	CControllerResponseData,
 	CSeverityHelper;
-use Modules\EpOverview\Includes\{Chart, Metrics, Overview, WidgetForm};
+use Modules\EpOverview\Includes\{Chart, CWidgetFieldMetrics, Metrics, Overview, WidgetForm};
 use Modules\EpOverview\Lib\{ClientData, ColumnMath, ColumnReader, Forecast, Roles, Settings};
 
 /**
@@ -56,7 +56,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$this->roles = Roles::load();
 		$this->f = $this->fields_values;
 		$this->now = time();
-		$this->reader = new ColumnReader();
+		$this->reader = $this->newReader();
 		$data = [
 			'name' => $this->getInput('name', $this->widget->getDefaultName()),
 			'error' => null,
@@ -65,11 +65,26 @@ class WidgetView extends CControllerDashboardWidgetView {
 		];
 		try {
 			$data['overview'] = $this->overview();
+			// A metric the widget names but cannot draw (a role that is gone, say) is said, never just missing.
+			$data['overview']['dropped'] = $this->droppedMetrics();
 		}
 		catch (OverviewError $e) {
 			$data['error'] = $e->getMessage();
 		}
 		$this->setResponse(new CControllerResponseData($data));
+	}
+
+	/** The reader of items and trends; a test hands in one with a smaller trend budget. */
+	protected function newReader(): ColumnReader {
+		return new ColumnReader();
+	}
+
+	/** The metrics left out of the list when the widget's form was read, each named with why. */
+	private function droppedMetrics(): array {
+		$fields = isset($this->form) ? $this->form->getFields() : [];
+		$field = $fields['metrics'] ?? null;
+
+		return $field instanceof CWidgetFieldMetrics ? $field->getDropped() : [];
 	}
 
 	private function overview(): array {
@@ -881,6 +896,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 				}
 			}
 		}
+		$this->reader->seriesCapped = [];
 		$series = $want ? $this->series($want, Chart::HISTORY_UNDER + 1, Chart::bucketSeconds($seconds), true) : [];
 
 		$warnOverride = ($f['summary_warn'] ?? '') === '' ? Settings::INHERIT : $f['summary_warn'];
@@ -903,7 +919,13 @@ class WidgetView extends CControllerDashboardWidgetView {
 					$byHost[$it['hostid']][$it['itemid']] = $series[$it['itemid']];
 				}
 			}
-			$line = Chart::line($byHost, $lower, $fn, $from, $till, $overWarn, $point);
+			// A period too long to read for all its items at once leaves some of them unread: the client says so,
+			// instead of drawing the rest as if they were all of it, or calling it "no data".
+			$notRead = false;
+			foreach ($this->matched($target, $items) as $it) {
+				$notRead = $notRead || isset($this->reader->seriesCapped[$it['itemid']]);
+			}
+			$line = $notRead ? [] : Chart::line($byHost, $lower, $fn, $from, $till, $overWarn, $point);
 			$stats = Chart::stats($line);
 			[, $fmt] = $this->figure($m, $master);
 			$legend = null;
@@ -915,7 +937,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 					$legend[$stat] = ['v' => round($v, 4), 'text' => $fmt($v), 'level' => $level['level'], 'color' => $level['color']];
 				}
 			}
-			$rows[] = ['name' => $c['name'], 'stats' => $stats, 'legend' => $legend, 'points' => Chart::thin($line, $point)];
+			$rows[] = ['name' => $c['name'], 'stats' => $stats, 'legend' => $legend, 'points' => Chart::thin($line, $point), 'not_read' => $notRead];
 		}
 		usort($rows, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
 		// A client keeps its colour whatever else is drawn: its place among all the widget's clients.
@@ -936,7 +958,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'percent' => $m['units'] === '%' && (int) ($f['chart_yaxis'] ?? Chart::Y_PERCENT) === Chart::Y_PERCENT,
 			'lines' => $lines,
 			'total' => count($rows),
-			'clients' => array_map(fn($r) => ['name' => $r['name'], 'i' => $r['i'], 'legend' => $r['legend'], 'points' => $r['points']], $drawn)
+			'clients' => array_map(fn($r) => ['name' => $r['name'], 'i' => $r['i'], 'legend' => $r['legend'], 'points' => $r['points'],
+				'not_read' => $r['not_read']], $drawn)
 		];
 	}
 

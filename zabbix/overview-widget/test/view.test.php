@@ -49,6 +49,7 @@ namespace {
 		public $response;
 		public function __construct() { $this->widget = new class { public function getDefaultName() { return 'Client overview'; } }; }
 		public function getInput($k, $d = null) { return $d; }
+		public $form = null;
 		public function getDebugMode() { return 0; }
 		public function setResponse($r) { $this->response = $r; }
 	}
@@ -257,9 +258,22 @@ namespace Modules\EpOverview\Test {
 
 	/* ---------------------------------- config validation ---------------------------------- */
 
-	[$m, $e] = $metric(['source' => 2, 'key' => 'es.ingest.rate', 'roles' => ['es_data_hot', 'nope'], 'combine' => 1, 'units' => '/s',
+	[, $e] = $metric(['source' => 2, 'key' => 'es.ingest.rate', 'roles' => ['es_data_hot', 'nope', 'gone']]);
+	check('a role that is gone is refused, not dropped: a metric scoped to it would quietly read every server', $e === ['Servers: the role "nope", "gone" is not in Cluster Management any more — choose its servers again.'], $e);
+	[$m, $e] = $metric(['source' => 1, 'builtin' => 'storage.usage', 'roles' => ['nope']]);
+	check('…but not for a figure read off the client master host, which has no servers to scope', $e === [] && $m['roles'] === [], [$m['roles'], $e]);
+	[, $e] = $metric(['source' => 1, 'builtin' => 'srv.cpu', 'roles' => ['nope']]);
+	check('…and a built-in read off the servers is refused like an item', count($e) === 1 && strpos($e[0], 'the role "nope"') !== false, $e);
+	[, $e] = CWidgetFieldMetrics::cleanList([['name' => 'Gone role', 'source' => 2, 'key' => 'k', 'roles' => ['nope']], ['name' => 'ok', 'source' => 1, 'builtin' => 'srv.cpu']], $cat, $roleIds, true);
+	check('on Apply the metric is named with the refusal', $e === ['Metric "Gone role": Servers: the role "nope" is not in Cluster Management any more — choose its servers again.'], $e);
+	[$list, $e, $dropped] = CWidgetFieldMetrics::cleanList([['name' => 'Gone role', 'source' => 2, 'key' => 'k', 'roles' => ['nope']], ['name' => 'ok', 'source' => 1, 'builtin' => 'srv.cpu']], $cat, $roleIds, false);
+	check('on the dashboard it is left out, named with why, and the rest kept', $e === [] && array_column($list, 'name') === ['ok']
+		&& $dropped === ['Metric "Gone role": Servers: the role "nope" is not in Cluster Management any more — choose its servers again.'], [$list, $dropped]);
+	[, , $dropped] = CWidgetFieldMetrics::cleanList(array_fill(0, Metrics::MAX + 2, ['name' => 'cpu', 'source' => 1, 'builtin' => 'srv.cpu']), $cat, $roleIds, false);
+	check('the metrics past the cap are named among the dropped, never silently', count($dropped) === 2 && strpos($dropped[0], 'more than 20 metrics') !== false, $dropped);
+	[$m, $e] = $metric(['source' => 2, 'key' => 'es.ingest.rate', 'roles' => ['es_data_hot'], 'combine' => 1, 'units' => '/s',
 		'use_settings' => 1, 'thresholds' => [['level' => 2, 'color' => '#ff0000', 'value' => '1000'], ['level' => 1, 'color' => '', 'value' => '5000']], 'worse' => 2]);
-	check('a custom item metric is accepted, unknown roles dropped, thresholds sorted, colour without #', $e === [] && $m['roles'] === ['es_data_hot']
+	check('a custom item metric is accepted, thresholds sorted, colour without #', $e === [] && $m['roles'] === ['es_data_hot']
 		&& $m['use_settings'] === 0 && $m['thresholds'][0]['value'] === '1000' && $m['thresholds'][0]['color'] === 'FF0000' && $m['worse'] === 2, [$m, $e]);
 	foreach (['bad key!' => false, 'es.jvm[*]' => false, str_repeat('a', 256) => false, 'a b' => false] as $key => $pattern) {
 		[, $e] = $metric(['source' => 2, 'key' => $key, 'pattern' => $pattern ? 1 : 0]);
@@ -751,6 +765,43 @@ namespace Modules\EpOverview\Test {
 		&& !array_key_exists('time_period', WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'chart_period_source' => 0], $roles, Settings::all())), $up);
 	$up = WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'summary_version' => 1, 'trend_source' => 0], $roles, Settings::all());
 	check('the Summary view has no trend window: Cards\' choice of the dashboard period does not make it follow', !array_key_exists('time_period', $up));
+
+	// A metric the widget cannot draw is said on the dashboard, in both views.
+	$field = (new CWidgetFieldMetrics('metrics', null, $cat, $roleIds))->setValue([['name' => 'Gone role', 'source' => 2, 'key' => 'k', 'roles' => ['nope']],
+		['name' => 'ok', 'source' => 1, 'builtin' => 'srv.cpu', 'uid' => 'okok']]);
+	$field->validate(false);
+	foreach ([['view' => 0, 'config_version' => 2], $sv] as $fields) {
+		\FakeApi::$calls = [];
+		$v = new WidgetView();
+		$v->fields_values = values($fields + ['metrics' => $field->getValue()]);
+		$v->form = new class($field) { public function __construct(private $f) {} public function getFields() { return ['metrics' => $this->f]; } };
+		(new \ReflectionMethod($v, 'doAction'))->invoke($v);
+		check('the draw names a metric it left out ('.($fields['view'] ? 'Summary' : 'Cards').')', $v->response->data['overview']['dropped']
+			=== ['Metric "Gone role": Servers: the role "nope" is not in Cluster Management any more — choose its servers again.'], $v->response->data['overview']['dropped']);
+	}
+	check('…and says nothing when nothing was left out', run($sv)['overview']['dropped'] === []);
+
+	// A chart period too long to read for every item at once: those clients say "not read", never "no data".
+	$cap = new class extends WidgetView {
+		protected function newReader(): \Modules\EpOverview\Lib\ColumnReader { $r = parent::newReader(); $r->maxItemDays = 400; return $r; }
+	};
+	$runCapped = function (array $fields) use ($cap) {
+		\FakeApi::$calls = [];
+		$v = new $cap();
+		$v->fields_values = values($fields);
+		(new \ReflectionMethod($v, 'doAction'))->invoke($v);
+		return $v->response->data['overview']['chart'];
+	};
+	$long = $custom + $sv + ['chart_metric' => 'm:cpu', 'chart_period_n' => 365, 'chart_period_unit' => 1];
+	$c = $runCapped($long);
+	$by = array_column($c['clients'], null, 'name');
+	check('a year of three servers\' CPU is more than the reader will read: the clients say "not read", with no line and no legend figures', $by['karthi']['not_read'] === true
+		&& $by['karthi']['legend'] === null && $by['karthi']['points'] === [] && $by['acme']['not_read'] === true, array_map(fn($x) => $x['not_read'], $by));
+	$c = $runCapped($long + ['clients' => ['acme']]);
+	check('…a client whose items fit in the budget is drawn as usual', $c['clients'][0]['not_read'] === false && count($c['clients'][0]['points']) > 100 && $c['clients'][0]['legend'] !== null);
+	check('…and a client with no data is "no data", not "not read"', array_column(run($sv + ['chart_metric' => 'mem'])['overview']['chart']['clients'], 'not_read', 'name')['acme'] === false);
+	$c = run($long)['overview']['chart'];
+	check('…and nothing is capped at the reader\'s own limit', !in_array(true, array_column($c['clients'], 'not_read'), true));
 
 	/* ---------------------------------- the arithmetic ---------------------------------- */
 
