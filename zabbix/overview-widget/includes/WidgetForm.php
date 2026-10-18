@@ -28,6 +28,45 @@ class WidgetForm extends CWidgetForm {
 
 	public const CONFIG_VERSION = 2;
 
+	/**
+	 * Marks a widget saved by a form that has the Summary view's own settings (2.1.1). A Summary
+	 * widget saved before has none of them, and is read as it always drew: no usage chart, no
+	 * status line, its panels in their old two-column row.
+	 */
+	public const SUMMARY_VERSION = 1;
+
+	/** The Summary view's panels in their default order, and the widths a panel may take of a row of twelve. */
+	public const PANELS = ['summary', 'chart', 'used', 'roles'];
+	public const WIDTH_FULL = 0;
+	public const WIDTH_HALF = 1;
+	public const WIDTH_THIRD = 2;
+	public const WIDTH_QUARTER = 3;
+	public const WIDTH_NAMES = [self::WIDTH_FULL => 'full', self::WIDTH_HALF => 'half', self::WIDTH_THIRD => 'third', self::WIDTH_QUARTER => 'quarter'];
+	public const WIDTH_DEFAULTS = ['summary' => self::WIDTH_FULL, 'chart' => self::WIDTH_HALF, 'used' => self::WIDTH_QUARTER, 'roles' => self::WIDTH_QUARTER];
+
+	/** What a Summary card shows: tiles, bars and the status line's items, in the order drawn. */
+	public const TILES = ['up', 'down', 'devices', 'problems'];
+	public const TILES_ON = ['up', 'down', 'devices'];
+	public const BARS = ['cpu', 'mem', 'storage'];
+	public const STATUS = ['down', 'high', 'warn', 'short', 'nodata'];
+	public const SUMMARY_COLUMNS = [0 => 'Auto', 2 => '2', 3 => '3', 4 => '4'];
+
+	/** Used of allocated: which groups, how the rows are ordered, and the bar. */
+	public const UA_GROUPS = ['cpu', 'mem', 'storage', 'devices'];
+	public const UA_GROUPS_ON = ['cpu', 'mem', 'storage'];
+	public const UA_SORT_NAME = 0;
+	public const UA_SORT_VALUE = 1;
+	public const UA_BAR_SEGMENTED = 0;
+	public const UA_BAR_SOLID = 1;
+
+	/** Servers by role in the Summary view. */
+	public const SR_DONUT = 0;
+	public const SR_BAR = 1;
+	public const SR_PILLS = 2;
+
+	/** The longest period the chart may be asked for, in days. */
+	public const CHART_MAX_DAYS = 365;
+
 	public const VIEW_CARDS = 0;
 	public const VIEW_SUMMARY = 1;
 
@@ -105,9 +144,10 @@ class WidgetForm extends CWidgetForm {
 			unset($values['roles_shown']);
 		}
 
-		// The dashboard's time period is referred to only while the trend window follows it, so a
+		// The dashboard's time period is referred to only while something follows it — the trend
+		// window of the Cards view, or the usage chart's period in the Summary view — so a
 		// dashboard shows its time selector for this widget only when it means something here.
-		if ((int) ($values['trend_source'] ?? self::TREND_DAYS) === self::TREND_DASHBOARD) {
+		if (self::followsDashboard($values)) {
 			if (!array_key_exists('time_period', $values)) {
 				$values['time_period'] = [CWidgetField::FOREIGN_REFERENCE_KEY => self::dashboardPeriod()];
 			}
@@ -117,7 +157,7 @@ class WidgetForm extends CWidgetForm {
 		}
 
 		if ((int) ($values['config_version'] ?? 0) >= self::CONFIG_VERSION) {
-			return array_diff_key($values, array_flip(self::LEGACY));
+			return self::summaryAsSaved(array_diff_key($values, array_flip(self::LEGACY)));
 		}
 
 		// Before 2.1. It looked like the Summary view, so it stays the Summary view — its family,
@@ -194,7 +234,41 @@ class WidgetForm extends CWidgetForm {
 			$values['metrics'] = Metrics::defaults($roles, $family, $values['usage_warn'] ?? '', $values['usage_high'] ?? '');
 		}
 
-		return array_diff_key($values, array_flip(self::LEGACY));
+		return self::summaryAsSaved(array_diff_key($values, array_flip(self::LEGACY)));
+	}
+
+	/** Whether the dashboard's time period is what this widget's view follows. */
+	private static function followsDashboard(array $values): bool {
+		if ((int) ($values['view'] ?? self::VIEW_CARDS) !== self::VIEW_SUMMARY) {
+			return (int) ($values['trend_source'] ?? self::TREND_DAYS) === self::TREND_DASHBOARD;
+		}
+		// The Summary view has no trend window; only its usage chart can follow the dashboard.
+		return (int) ($values['summary_version'] ?? 0) >= self::SUMMARY_VERSION
+			&& in_array('chart', CWidgetFieldStrings::clean($values['summary_panels'] ?? self::PANELS), true)
+			&& (int) ($values['chart_period_source'] ?? Chart::PERIOD_LAST) === Chart::PERIOD_DASHBOARD;
+	}
+
+	/**
+	 * A Summary widget saved before the view had settings of its own keeps exactly the look it
+	 * had: its panels without the usage chart (the ones it had turned off stay off), no status
+	 * line on the cards, and Used of allocated beside Servers by role, half a row each. Only the
+	 * settings whose defaults for a new widget differ are named here; the rest already match.
+	 * Once the form saves it, SUMMARY_VERSION is stored and these are the widget's own choices.
+	 * A Cards widget, or one being added, gets the defaults of the design.
+	 */
+	public static function summaryAsSaved(array $values): array {
+		if ((int) ($values['view'] ?? self::VIEW_CARDS) !== self::VIEW_SUMMARY
+				|| (int) ($values['summary_version'] ?? 0) >= self::SUMMARY_VERSION) {
+			return $values;
+		}
+		$legacy = ['summary_panels' => ['summary', 'used', 'roles'], 'summary_status' => '', 'summary_w_used' => self::WIDTH_HALF,
+			'summary_w_roles' => self::WIDTH_HALF];
+		foreach ($legacy as $key => $value) {
+			if (!array_key_exists($key, $values)) {
+				$values[$key] = $value;
+			}
+		}
+		return $values;
 	}
 
 	/**
@@ -220,6 +294,16 @@ class WidgetForm extends CWidgetForm {
 			$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Summary view: Warn at, %'),
 				_s('must not be above High at, %% (%1$s > %2$s)', $v['summary_warn'], $v['summary_high']));
 		}
+		// The usage chart: a period under a year, and a metric the widget still has.
+		$days = (int) ($v['chart_period_n'] ?? 0) * ((int) ($v['chart_period_unit'] ?? 0) === Chart::UNIT_DAYS ? 1 : 1 / 24);
+		if ((int) ($v['chart_period_source'] ?? Chart::PERIOD_LAST) === Chart::PERIOD_LAST && $days > self::CHART_MAX_DAYS) {
+			$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Usage chart: Period'), _s('must not be longer than %1$s days', self::CHART_MAX_DAYS));
+		}
+		if (isset($v['chart_metric']) && is_array($v['metrics'] ?? null)
+				&& !in_array((string) $v['chart_metric'], Chart::metricIds($v['metrics']), true)) {
+			$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Usage chart: Metric'),
+				_s('"%1$s" is not CPU, memory, ES storage or a metric of the Metrics list', $v['chart_metric']));
+		}
 		if ($set('forecast_warn') && $set('forecast_high') && (float) $v['forecast_high'] > (float) $v['forecast_warn']) {
 			$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Forecast: High at'),
 				_s('must not be more days left than Warn at (%1$s > %2$s)', $v['forecast_high'], $v['forecast_warn']));
@@ -240,6 +324,7 @@ class WidgetForm extends CWidgetForm {
 		$roles = Roles::load();
 		$cfg = Settings::all();
 		$role_ids = array_column(Roles::allRoles($roles), 'id');
+		$widths = [self::WIDTH_FULL => _('Full width'), self::WIDTH_HALF => _('Half'), self::WIDTH_THIRD => _('Third'), self::WIDTH_QUARTER => _('Quarter')];
 
 		return $this
 			->addField((new CWidgetFieldIntegerBox('config_version', null, 0, 99))->setDefault(0))
@@ -277,10 +362,75 @@ class WidgetForm extends CWidgetForm {
 				self::VIEW_SUMMARY => _('Summary')
 			]))->setDefault(self::VIEW_CARDS))
 			->addField((new CWidgetFieldTextBox('summary_family', _('Cards show')))->setDefault('es'))
-			->addField((new CWidgetFieldStrings('summary_panels', _('Panels'), 3, 16))->setAllowed(['summary', 'used', 'roles'])
-				->setDefault(['summary', 'used', 'roles']))
+			->addField((new CWidgetFieldIntegerBox('summary_version', null, 0, 99))->setDefault(0))
+			->addField((new CWidgetFieldStrings('summary_panels', _('Panels'), 4, 16))->setAllowed(self::PANELS)->setDefault(self::PANELS))
+			->addField((new CWidgetFieldStrings('summary_order', null, 4, 16))->setAllowed(self::PANELS)->setDefault(self::PANELS))
+			->addField((new CWidgetFieldSelect('summary_w_summary', _('Summary by client width'), $widths))->setDefault(self::WIDTH_DEFAULTS['summary']))
+			->addField((new CWidgetFieldSelect('summary_w_chart', _('Usage chart width'), $widths))->setDefault(self::WIDTH_DEFAULTS['chart']))
+			->addField((new CWidgetFieldSelect('summary_w_used', _('Used of allocated width'), $widths))->setDefault(self::WIDTH_DEFAULTS['used']))
+			->addField((new CWidgetFieldSelect('summary_w_roles', _('Servers by role width'), $widths))->setDefault(self::WIDTH_DEFAULTS['roles']))
 			->addField(new CWidgetFieldOptionalNumber('summary_warn', _('Warn at, %'), 1, 100))
 			->addField(new CWidgetFieldOptionalNumber('summary_high', _('High at, %'), 1, 100))
+			// Summary cards.
+			->addField((new CWidgetFieldStrings('summary_tiles', _('Tiles'), 4, 16))->setAllowed(self::TILES)->setDefault(self::TILES_ON))
+			->addField((new CWidgetFieldStrings('summary_bars', _('Bars'), 3, 16))->setAllowed(self::BARS)->setDefault(self::BARS))
+			->addField((new CWidgetFieldStrings('summary_status', _('Status line'), 5, 16))->setAllowed(self::STATUS)->setDefault(self::STATUS))
+			->addField((new CWidgetFieldRadioButtonList('summary_columns', _('Columns'), [0 => _('Auto'), 2 => '2', 3 => '3', 4 => '4']))->setDefault(0))
+			// Usage chart. chart_view_* are the viewer's own choices, sent with a refresh and never saved.
+			->addField((new CWidgetFieldTextBox('chart_metric', _('Metric')))->setDefault('cpu'))
+			->addField((new CWidgetFieldCheckBox('chart_switch', null, _('Viewers may switch the metric in the chart')))->setDefault(1))
+			->addField((new CWidgetFieldRadioButtonList('chart_period_source', _('Period'), [
+				Chart::PERIOD_DASHBOARD => _('Dashboard time period'),
+				Chart::PERIOD_LAST => _('Last')
+			]))->setDefault(Chart::PERIOD_LAST))
+			->addField((new CWidgetFieldIntegerBox('chart_period_n', _('Period amount'), 1, 999))->setDefault(6))
+			->addField((new CWidgetFieldSelect('chart_period_unit', _('Period unit'), [Chart::UNIT_HOURS => _('hours'), Chart::UNIT_DAYS => _('days')]))
+				->setDefault(Chart::UNIT_HOURS))
+			->addField((new CWidgetFieldCheckBox('chart_quick', null, _('Quick buttons 1h · 6h · 24h · 7d')))->setDefault(1))
+			->addField((new CWidgetFieldRadioButtonList('chart_clients', _('Clients'), [
+				Chart::CLIENTS_ALL => _('All in the widget'),
+				Chart::CLIENTS_TOP => _('Top')
+			]))->setDefault(Chart::CLIENTS_TOP))
+			->addField((new CWidgetFieldIntegerBox('chart_top_n', _('Top clients'), 1, 100))->setDefault(5))
+			->addField((new CWidgetFieldSelect('chart_top_by', _('Top by'), [
+				Chart::BY_MAX => _('Max'), Chart::BY_MEAN => _('Mean'), Chart::BY_LAST => _('Last')
+			]))->setDefault(Chart::BY_MAX))
+			->addField((new CWidgetFieldCheckBox('chart_isolate', null, _('Click a client to show only it')))->setDefault(1))
+			->addField((new CWidgetFieldRadioButtonList('chart_style', _('Style'), [
+				Chart::STYLE_LINE => _('Line'), Chart::STYLE_AREA => _('Area'), Chart::STYLE_STACKED => _('Stacked area')
+			]))->setDefault(Chart::STYLE_LINE))
+			->addField((new CWidgetFieldSelect('chart_point', _('Each point'), [
+				Chart::POINT_AVG => _('Average'), Chart::POINT_MAX => _('Max'), Chart::POINT_MIN => _('Min')
+			]))->setDefault(Chart::POINT_AVG))
+			->addField((new CWidgetFieldSelect('chart_height', _('Height'), [
+				Chart::HEIGHT_S => _('Small'), Chart::HEIGHT_M => _('Medium'), Chart::HEIGHT_L => _('Large')
+			]))->setDefault(Chart::HEIGHT_M))
+			->addField((new CWidgetFieldRadioButtonList('chart_yaxis', _('Y axis'), [
+				Chart::Y_PERCENT => _('0–100% for percentages, else auto'), Chart::Y_AUTO => _('Always auto')
+			]))->setDefault(Chart::Y_PERCENT))
+			->addField((new CWidgetFieldCheckBox('chart_lines', null, _('Warn and High lines')))->setDefault(1))
+			->addField((new CWidgetFieldStrings('chart_legend', _('Legend'), 4, 8))->setAllowed(Chart::LEGEND)->setDefault(Chart::LEGEND))
+			->addField((new CWidgetFieldSelect('chart_sort', _('Legend sorted by'), [
+				Chart::SORT_MEAN => _('Mean, highest first'), Chart::SORT_MAX => _('Max, highest first'),
+				Chart::SORT_LAST => _('Last, highest first'), Chart::SORT_NAME => _('Client name')
+			]))->setDefault(Chart::SORT_MEAN))
+			->addField((new CWidgetFieldCheckBox('chart_color', null, _('Colour values over Warn/High')))->setDefault(1))
+			->addField(new CWidgetFieldTextBox('chart_view_metric', null))
+			->addField((new CWidgetFieldIntegerBox('chart_view_period', null, 0, Chart::MAX_SECONDS))->setDefault(0))
+			// Used of allocated.
+			->addField((new CWidgetFieldStrings('ua_groups', _('Groups'), 4, 16))->setAllowed(self::UA_GROUPS)->setDefault(self::UA_GROUPS_ON))
+			->addField((new CWidgetFieldSelect('ua_sort', _('Rows sorted by'), [
+				self::UA_SORT_NAME => _('Client name'), self::UA_SORT_VALUE => _('Value, highest first')
+			]))->setDefault(self::UA_SORT_NAME))
+			->addField((new CWidgetFieldRadioButtonList('ua_bar', _('Bar'), [
+				self::UA_BAR_SEGMENTED => _('Segmented'), self::UA_BAR_SOLID => _('Solid')
+			]))->setDefault(self::UA_BAR_SEGMENTED))
+			// Servers by role in the Summary view.
+			->addField((new CWidgetFieldRadioButtonList('sr_style', _('Style'), [
+				self::SR_DONUT => _('Donut'), self::SR_BAR => _('Bar'), self::SR_PILLS => _('Pills')
+			]))->setDefault(self::SR_DONUT))
+			->addField((new CWidgetFieldCheckBox('sr_count', null, _('Count')))->setDefault(1))
+			->addField((new CWidgetFieldCheckBox('sr_percent', null, _('Percent')))->setDefault(1))
 			// Layout and production: sections.
 			->addField((new CWidgetFieldStrings('section_order', null, 20, 16))->setAllowed(Overview::SECTIONS)->setDefault(Overview::SECTIONS))
 			->addField((new CWidgetFieldStrings('sections', null, 20, 16))->setAllowed(Overview::SECTIONS)->setDefault(Overview::SECTIONS_ON))

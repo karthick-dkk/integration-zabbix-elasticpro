@@ -21,6 +21,9 @@ class CWidgetFieldMetrics extends CWidgetField {
 	private array $catalogue;
 	private array $role_ids;
 
+	/** Metrics left out when the widget last drew, each named with why: never silently. */
+	private array $dropped = [];
+
 	public function __construct(string $name, ?string $label, array $catalogue, array $role_ids) {
 		parent::__construct($name, $label);
 
@@ -42,12 +45,18 @@ class CWidgetFieldMetrics extends CWidgetField {
 		return $this;
 	}
 
+	/** The metrics left out of the list as it was read, one line each naming the metric and why. */
+	public function getDropped(): array {
+		return $this->dropped;
+	}
+
 	public function validate(bool $strict = false): array {
-		[$clean, $errors] = self::cleanList($this->getValue(), $this->catalogue, $this->role_ids, $strict);
+		[$clean, $errors, $dropped] = self::cleanList($this->getValue(), $this->catalogue, $this->role_ids, $strict);
 
 		if (!$errors) {
 			$this->value = $clean;
 		}
+		$this->dropped = $dropped;
 
 		return $errors;
 	}
@@ -56,16 +65,21 @@ class CWidgetFieldMetrics extends CWidgetField {
 	 * The list as stored, and what is wrong with it. Not strict: what fails is dropped and the
 	 * rest kept. Strict: every failure is reported.
 	 *
-	 * @return array{0: array, 1: string[]}
+	 * @return array{0: array, 1: string[], 2: string[]}  [metrics, errors, dropped] — what is left out is named in $dropped
 	 */
 	public static function cleanList(array $metrics, array $catalogue, array $role_ids, bool $strict): array {
 		$errors = [];
+		$dropped = [];
 		$out = [];
 		$uids = [];
 
 		if (count($metrics) > Metrics::MAX) {
 			if ($strict) {
 				$errors[] = _s('Invalid parameter "%1$s": %2$s.', _('Metrics'), _s('at most %1$s metrics', Metrics::MAX));
+			}
+			foreach (array_slice(array_values($metrics), Metrics::MAX) as $i => $m) {
+				$dropped[] = Metrics::named([_s('more than %1$s metrics — left out.', Metrics::MAX)], is_scalar($m['name'] ?? null) ? (string) $m['name'] : '',
+					Metrics::MAX + $i + 1)[0];
 			}
 			$metrics = array_slice($metrics, 0, Metrics::MAX);
 		}
@@ -74,8 +88,12 @@ class CWidgetFieldMetrics extends CWidgetField {
 			[$clean, $e] = Metrics::clean((array) $m, $catalogue, $role_ids);
 
 			if ($e) {
+				$named = Metrics::named($e, is_scalar($m['name'] ?? null) ? (string) $m['name'] : '', $i + 1);
 				if ($strict) {
-					$errors = array_merge($errors, Metrics::named($e, is_scalar($m['name'] ?? null) ? (string) $m['name'] : '', $i + 1));
+					$errors = array_merge($errors, $named);
+				}
+				else {
+					$dropped[] = $named[0];
 				}
 				continue;
 			}
@@ -88,7 +106,7 @@ class CWidgetFieldMetrics extends CWidgetField {
 			$out[] = $clean;
 		}
 
-		return [$out, $errors];
+		return [$out, $errors, $dropped];
 	}
 
 	public function toApi(array &$widget_fields = []): void {

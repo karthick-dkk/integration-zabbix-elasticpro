@@ -6,8 +6,8 @@ How a version is chosen and released is in [README.md](README.md#versions-and-re
 
 ## 2.1.1
 
-Full customization for the ElasticPro widgets, starting with Client resources: one column engine,
-one palette.
+Full customization for the ElasticPro widgets — Client resources, Client capacity, Volume, Top hosts
+and the Client overview's Summary view: one column engine, one palette.
 
 - **The column engine** (`shared/php/Columns.php`, `ColumnMath.php`, `ColumnReader.php`, copied into
   every module). A column has a group and a name; a source — a built-in column, any Zabbix item key
@@ -80,6 +80,29 @@ one palette.
   - A widget saved before this release of each kind looks as it did; Warn / High left empty mean
     ElasticPro Settings. Export headers say their unit ("(days)", "(GB)" for a unit Zabbix is told not
     to scale).
+- **Client overview: a usage chart in the Summary view, and more Summary settings.** One line per
+  client over time for CPU or memory of the family the Summary shows, ES storage used, or any
+  metric of the widget's Data and metrics list — combined per client exactly as the Cards combine
+  a metric, with dashed Warn and High lines, a legend table (Mean, Min, Max, Last) coloured over
+  Warn and High, quick 1h / 6h / 24h / 7d buttons and a metric switch on the panel (when the
+  widget allows them), and click a client to show only it. Short periods are read from Zabbix
+  history, long ones from trends, in one call per refresh. A client with no data in the period
+  says "no data" and has no line, never zeros. The lines are drawn in the palette's eight chart
+  series colours (ElasticPro → Settings → Colours).
+  A period too long to read for a client's items at once says "window not read" for that client,
+  not "no data". The Client overview's metrics follow the column rule for roles: a metric that
+  names a role Cluster Management no longer has is refused on Apply, and on the dashboard it is
+  left out and named above the cards instead of quietly reading every server.
+  The Layout tab, with View set to Summary, now sets the Summary view's panels (on or off, drag
+  order, full / half / third / quarter width: Summary by client, Usage chart, Used of allocated,
+  Servers by role), its cards (family, tiles, bars, status line, columns), the chart (metric,
+  period, top N clients, line / area / stacked area, point average / max / min, height, Y axis,
+  legend), Used of allocated (groups, row order, segmented or solid bar) and Servers by role
+  (donut, bar or pills; count and percent). Warn and High keep their place; empty still follows
+  ElasticPro → Settings.
+  A Summary widget saved before this release is drawn exactly as it was, byte for byte: no
+  usage chart, no status line, Used of allocated beside Servers by role. Turn the chart on in
+  the widget's settings; a widget being added starts with the chart on.
 
 ## 2.1.0
 

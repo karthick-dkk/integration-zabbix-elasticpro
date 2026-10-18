@@ -55,7 +55,11 @@ test('the form has both tabs and every setting of the design, and still reads th
     'forecast_warn', 'forecast_high', 'contract_badge', 'contract_warn', 'contract_high', 'roles_style', 'role_order', 'roles_hidden', 'roles_servers',
     'down_red', 'down_after', 'severities', 'problems_ack', 'problems_suppressed', 'hide_zero', 'stale_after', 'warn_agent', 'warn_nodata',
     'warn_maintenance', 'link_client', 'link_severity', 'link_target', 'config_version', 'view', 'summary_family', 'summary_panels',
-    'summary_warn', 'summary_high']) {
+    'summary_warn', 'summary_high', 'summary_version', 'summary_order', 'summary_w_summary', 'summary_w_chart', 'summary_w_used', 'summary_w_roles',
+    'summary_tiles', 'summary_bars', 'summary_status', 'summary_columns', 'chart_metric', 'chart_switch', 'chart_period_source', 'chart_period_n',
+    'chart_period_unit', 'chart_quick', 'chart_clients', 'chart_top_n', 'chart_top_by', 'chart_isolate', 'chart_style', 'chart_point', 'chart_height',
+    'chart_yaxis', 'chart_lines', 'chart_legend', 'chart_sort', 'chart_color', 'chart_view_metric', 'chart_view_period', 'ua_groups', 'ua_sort', 'ua_bar',
+    'sr_style', 'sr_count', 'sr_percent']) {
     assert.ok(form.includes(`'${field}'`), field);
   }
   for (const old of ['client', 'client_type', 'show_summary', 'show_used', 'show_roles', 'family', 'usage_warn', 'usage_high']) {
@@ -68,7 +72,9 @@ test('the form has both tabs and every setting of the design, and still reads th
   // jQuery UI tabs are started on the id CTabView was constructed with: setId() alone leaves bare links.
   assert.match(edit, /new CTabView\(\['id' => 'ep_ov_tabs'\]\)/);
   assert.ok(!/->setId\('ep_ov_tabs'\)/.test(edit), 'no setId on the tab view');
-  assert.ok(edit.includes("_('Summary view')") && edit.includes('ep-ov-cards-only'), 'each view\'s settings are grouped');
+  assert.ok(edit.includes("_('Summary cards')") && edit.includes("_('Usage chart')") && edit.includes('ep-ov-cards-only'), 'each view\'s settings are grouped');
+  assert.ok(edit.includes("addVar('summary_version'"), 'a saved form is marked as having the Summary view\'s settings');
+  assert.ok(read('views/widget.edit.js.php').includes("'ep-ov-panels'"), 'the panels are dragged into order');
   // Warn and High: empty means Settings, never a 0 in the box.
   assert.ok(!/CWidgetFieldIntegerBox\('(usage_warn|usage_high)'/.test(form), 'no integer box for thresholds');
   assert.ok(read('views/metric.edit.php').includes("_s('Settings: %1\$s'"), 'the editor shows the Settings value as the placeholder');
@@ -77,6 +83,17 @@ test('the form has both tabs and every setting of the design, and still reads th
   // Client resources has its own Table / Pie chart switch since 2.1.1 — a view of its own figures,
   // not the Client overview drawn inside it.
   assert.ok(!res.includes('ep_overview') && !res.includes('ep-ov-'), 'Client resources has no overview of its own');
+});
+
+test('the usage chart reads and combines with the shared column engine and draws in the palette', () => {
+  const chart = read('includes/Chart.php');
+  assert.ok(chart.includes('ColumnMath::trend(ColumnMath::hostSeries('), 'a client\'s line is the engine\'s combine, the one the cards use');
+  assert.ok(!/function (trend|hostSeries|combine|bucket)\(/.test(chart), 'no second copy of the arithmetic');
+  const php = read('actions/WidgetView.php');
+  assert.ok(php.includes('$this->reader->series($want, $historyUnder, $bucket, $stats)') && php.includes('$this->targets($m, $catalogue, $mid'), 'read through ColumnReader');
+  assert.ok(read('lib/ColumnMath.php').includes('function bucketStats(') && read('lib/ColumnReader.php').includes('bool $stats = false'), 'the engine has what the chart needs');
+  const js = read('assets/js/ep-overview-summary.js');
+  assert.ok(js.includes('var(--ep-s${'), 'series colours are the palette\'s variables');
 });
 
 test('the Summary view is the 2.0 widget restored, with its own scoped styles', () => {

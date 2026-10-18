@@ -131,16 +131,24 @@ class ColumnReader {
 	 * value type, put in one-minute buckets (each item's last value in each) so servers polled
 	 * seconds apart are combined, not counted one at a time. At most MAX_ITEM_DAYS of trend in all.
 	 *
+	 * The Client overview's usage chart asks for its own history limit and bucket (a six-hour
+	 * chart is read from history, in buckets of its own width) and, with $stats, keeps each
+	 * bucket's mean, lowest and highest as a trend hour does (ColumnMath::bucketStats).
+	 *
 	 * @param array $want  itemid => ['from' => int, 'till' => int, 'value_type' => int]
+	 * @param ?int  $historyUnder  windows shorter than this many seconds come from history (default HISTORY_UNDER)
+	 * @param ?int  $bucket        seconds per history bucket (default HISTORY_BUCKET)
 	 */
-	public function series(array $want): array {
+	public function series(array $want, ?int $historyUnder = null, ?int $bucket = null, bool $stats = false): array {
+		$historyUnder ??= self::HISTORY_UNDER;
+		$bucket ??= self::HISTORY_BUCKET;
 		$out = [];
 		$trend = [];
 		$history = [];
 		uasort($want, fn($a, $b) => ($a['till'] - $a['from']) <=> ($b['till'] - $b['from']));
 		$budget = $this->maxItemDays;
 		foreach ($want as $itemid => $w) {
-			if ($w['till'] - $w['from'] < self::HISTORY_UNDER) {
+			if ($w['till'] - $w['from'] < $historyUnder) {
 				$history[$w['value_type']][$itemid] = $w;
 				continue;
 			}
@@ -168,7 +176,7 @@ class ColumnReader {
 				$byItem[$r['itemid']][] = [(int) $r['clock'], $r['value']];
 			}
 			foreach ($byItem as $itemid => $points) {
-				$out[$itemid] = ColumnMath::bucket($points, self::HISTORY_BUCKET);
+				$out[$itemid] = $stats ? ColumnMath::bucketStats($points, $bucket) : ColumnMath::bucket($points, $bucket);
 			}
 		}
 		return $out;

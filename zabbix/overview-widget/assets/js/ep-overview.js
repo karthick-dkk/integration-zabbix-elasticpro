@@ -62,7 +62,10 @@ window.EpOverview = {
 		const set = data.settings || {};
 		const list = this.visible(data, st);
 		const sections = set.sections || [];
-		let html = sections.includes('summary') ? this.summary(data, set) : '';
+		// A metric the widget names but cannot draw (a role that is gone, say) is said, never just missing.
+		const gone = Array.isArray(data.dropped) ? data.dropped : [];
+		let html = (gone.length ? `<ul class="ep-ov-dropped" role="status">${gone.map((t) => `<li>${this.esc(t)}</li>`).join('')}</ul>` : '')
+			+ (sections.includes('summary') ? this.summary(data, set) : '');
 		if (!data.clients.length) {
 			pane.innerHTML = html + `<div class="ep-empty">${data.total ? 'No client passes the widget\'s "Only show clients" setting.' : 'No client matches the widget\'s settings.'}</div>`;
 			return;
