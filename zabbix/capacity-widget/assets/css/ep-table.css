@@ -1,0 +1,122 @@
+/* The ElasticPro table on the column model: sections over their columns, values centred, the first column fixed on the left.
+   Shared by Client resources, Client capacity and Volume; copied into each by sync-assets.mjs, edit it in shared/. */
+
+.ep-res-toolbar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; padding: 0 0 6px; }
+.ep-res-count { margin-right: auto; opacity: .75; }
+.ep-res-scroll { overflow-x: auto; }
+.ep-res-table { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The frozen first column must hide what scrolls under it in every Zabbix theme: rows and row
+   groups pass the table's own (theme) background down to it, instead of staying transparent. */
+.ep-res-table thead, .ep-res-table tbody, .ep-res-table tr { background: inherit; }
+.ep-res-table th, .ep-res-table td { text-align: center; }
+.ep-res-table .ep-res-first { position: sticky; left: 0; z-index: 1; text-align: left; background: inherit; font-weight: bold; }
+.ep-res-table thead .ep-res-first { z-index: 2; }
+.ep-res-table th.ep-res-group { font-weight: bold; }
+.ep-res-table .ep-res-start { border-left: 2px solid rgba(128, 128, 128, .45); }
+.ep-res-table td .ep-res-sub { opacity: .8; font-size: 11px; }
+/* Used: yellow at {$EP.USAGE.WARN} (80), red at {$EP.USAGE.HIGH} (90). */
+.ep-res-table td.ep-warn { background: #ffd54f; color: #1f1f1f; }
+.ep-res-table td.ep-high { background: #e53935; color: #fff; }
+/* Allocated below requested (or below purchased): outlined, marked, the request in the tooltip. */
+.ep-res-table td.ep-short { outline: 2px dashed #e53935; outline-offset: -3px; font-weight: bold; }
+.ep-res-table td.ep-short::after { content: ' \25BC'; color: #e53935; }
+.ep-res-table td.ep-high.ep-short::after { color: #fff; }
+/* A request nobody entered. */
+.ep-res-table td.ep-unset { opacity: .55; font-style: italic; }
+/* The empty state, in view at the left rather than centred across a very wide table. */
+.ep-empty { text-align: left; padding: 14px 4px; }
+/* The expand column, and the type pills. */
+.ep-res-table .ep-res-toggle { width: 22px; padding: 0 2px; }
+.ep-pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: bold; }
+.ep-res-table td.ep-di { color: #0d47a1; } .ep-res-table td.ep-op { color: #4527a0; }
+.ep-res-toolbar select { font: inherit; padding: 3px 4px; }
+/* A cluster that cannot be reached: its figures are the last measured. */
+.ep-res-table tr.ep-unreachable td { opacity: .55; }
+
+/* ===================== 2.1.1: columns, palette, view options, pie chart ===================== */
+/* Every colour below is a palette custom property (ElasticPro -> Settings, on the panel's style
+   attribute) or one a column chose (--ep-lv, --ep-bar, --ep-track on the cell, strict #RRGGBB). */
+
+/* Toolbar position: always shown, or (the default) on hover. Hidden draws none at all. */
+.ep-panel.ep-pt-always .ep-pt { max-height: none; opacity: 1; padding-bottom: 6px; overflow: visible; }
+.ep-panel .ep-pt .ep-att[aria-pressed="true"], .ep-panel .ep-pt [data-ep-compact][aria-pressed="true"] { border-color: var(--ep-sel-line) !important; background: var(--ep-sel-bg) !important; }
+.ep-panel .ep-att-n { font-weight: 600; }
+.ep-panel [hidden] { display: none !important; }
+
+/* Table options. */
+/* No sticky header: the header scrolls away (the first column still frozen, unless that is off too).
+   No frozen first column: the client scrolls sideways with the rest (its header still sticks to the top). */
+.ep-panel.ep-nosticky .ep-res-table thead th { position: static; }
+.ep-panel.ep-nosticky:not(.ep-nofreeze) .ep-res-table thead th.ep-res-first { position: sticky; top: auto; }
+.ep-panel.ep-nofreeze .ep-res-table tbody .ep-res-first, .ep-panel.ep-nofreeze .ep-res-table tfoot .ep-res-first { position: static; }
+.ep-panel.ep-nofreeze .ep-res-table thead th.ep-res-first { left: auto; }
+.ep-panel.ep-striped .ep-res-table > tbody > tr[data-type]:nth-of-type(even) > td { background: var(--ep-bg-2); }
+.ep-panel .ep-pscroll[style*="--ep-row-h"] .ep-res-table > tbody > tr[data-type] > td { height: var(--ep-row-h); padding-top: 0; padding-bottom: 0; }
+.ep-panel .ep-res-table tfoot td { font-weight: 600; border-top: 2px solid var(--ep-line); position: sticky; bottom: 0; background: var(--ep-bg); }
+.ep-panel .ep-res-table .ep-al-l { text-align: left !important; }
+.ep-panel .ep-res-table .ep-al-c { text-align: center !important; }
+.ep-panel .ep-res-table .ep-al-r { text-align: right !important; }
+.ep-panel .ep-res-table .ep-wrap { white-space: normal; }
+.ep-panel .ep-cell-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--ep-link); }
+.ep-panel .ep-cell-link:hover { color: var(--ep-link); }
+
+/* Unknown with its reason, and stale. */
+.ep-panel td.ep-nodata { color: var(--ep-faint) !important; font-style: italic; font-size: 11.5px; }
+.ep-panel td.ep-stale { box-shadow: inset 0 -2px 0 var(--ep-stale); }
+
+/* Coloured cell, coloured text, a level colour a column or threshold chose. */
+.ep-panel td.ep-fill-warn { background: var(--ep-warn) !important; color: var(--ep-warn-fg) !important; }
+.ep-panel td.ep-fill-high { background: var(--ep-high) !important; color: var(--ep-high-fg) !important; }
+.ep-panel td.ep-lvc.ep-warn, .ep-panel td.ep-lvc.ep-high, .ep-panel td.ep-lvc.ep-warn .ep-bar-val, .ep-panel td.ep-lvc.ep-high .ep-bar-val { color: var(--ep-lv) !important; }
+.ep-panel td.ep-lvc.ep-fill { background: var(--ep-lv) !important; color: var(--ep-lv-fg) !important; }
+.ep-panel .ep-barcell.ep-barfixed .ep-bar-fill { background: var(--ep-bar); }
+.ep-panel .ep-barcell.ep-barfixed .ep-bar-segs i.ep-seg-on { background: var(--ep-bar); }
+
+/* Badge. */
+.ep-panel .ep-badge { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; background: var(--ep-bg-2); color: var(--ep-fg); }
+.ep-panel td.ep-badge-ok .ep-badge { background: var(--ep-ok); color: var(--ep-ok-fg); }
+.ep-panel td.ep-badge-warn .ep-badge { background: var(--ep-warn); color: var(--ep-warn-fg); }
+.ep-panel td.ep-badge-high .ep-badge { background: var(--ep-high); color: var(--ep-high-fg); }
+.ep-panel td.ep-lvc .ep-badge { background: var(--ep-lv); color: var(--ep-lv-fg); }
+
+/* Gauge, indicators, sparkline. */
+.ep-panel .ep-bar-gauge, .ep-panel .ep-bar-ind, .ep-panel .ep-bar-spark { display: inline-flex; align-items: center; gap: 6px; }
+.ep-panel .ep-gauge { display: inline-block; width: 18px; height: 18px; border-radius: 50%; flex: none;
+	background: conic-gradient(var(--ep-bar, var(--ep-ok)) calc(var(--p, 0) * 1%), var(--ep-track) 0);
+	-webkit-mask: radial-gradient(circle, transparent 5px, #000 5.5px); mask: radial-gradient(circle, transparent 5px, #000 5.5px); }
+.ep-panel .ep-ind { display: inline-flex; gap: 2px; }
+.ep-panel .ep-ind i { width: 5px; height: 5px; border-radius: 50%; background: var(--ep-track); }
+.ep-panel .ep-ind i.on { background: var(--ep-bar, var(--ep-ok)); }
+.ep-panel .ep-spark polyline { stroke: var(--ep-link); stroke-width: 1.5; }
+.ep-panel td.ep-warn .ep-spark polyline { stroke: var(--ep-warn); }
+.ep-panel td.ep-high .ep-spark polyline { stroke: var(--ep-high); }
+.ep-panel .ep-mount { color: var(--ep-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+
+.ep-panel .ep-dropped { color: var(--ep-muted); font-size: 11px; padding: 4px 2px 0; cursor: help; }
+
+/* ---- The column editor (its own overlay, outside the widget form) ---- */
+.ep-ce { display: grid; gap: 12px; }
+.ep-ce .ep-ce-inline { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.ep-ce .ep-ce-inline > * { min-width: 0; max-width: 100%; }
+.ep-ce .ep-ce-hint { opacity: .7; font-size: 11px; white-space: normal; }
+.ep-ce .ep-ce-block { display: block; margin-top: 3px; }
+.ep-ce .ep-ce-set { margin: 0; }
+.ep-ce .ep-ce-color { display: inline-block; }
+.ep-ce .ep-ce-preview.ep-panel { height: auto; padding: 8px 12px; border: 1px solid var(--ep-line); border-radius: 3px; display: grid; gap: 6px; }
+.ep-ce .ep-ce-preview-title { color: var(--ep-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.ep-ce .ep-ce-pv { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 10px; font-size: 12.5px; }
+.ep-ce .ep-ce-pv-cell { display: inline-flex; align-items: center; gap: 8px; padding: 2px 6px; border-radius: 2px; color: var(--ep-fg); }
+.ep-ce .ep-ce-pv-cell.ep-warn { color: var(--ep-warn); } .ep-ce .ep-ce-pv-cell.ep-high { color: var(--ep-high); }
+.ep-ce .ep-ce-pv-cell.ep-fill-warn { background: var(--ep-warn); color: var(--ep-warn-fg); }
+.ep-ce .ep-ce-pv-cell.ep-fill-high { background: var(--ep-high); color: var(--ep-high-fg); }
+.ep-ce .ep-ce-pv-cell.ep-nodata { color: var(--ep-faint); font-style: italic; }
+.ep-ce .ep-ce-pv-track { display: inline-block; width: 80px; height: 8px; border-radius: 2px; background: var(--ep-track); overflow: hidden; }
+.ep-ce .ep-ce-pv-track .ep-bar-fill { display: block; height: 100%; background: var(--ep-bar, var(--ep-ok)); }
+.ep-ce .ep-barcell { --ep-bar: var(--ep-ok); } .ep-ce .ep-barcell.ep-warn { --ep-bar: var(--ep-warn); } .ep-ce .ep-barcell.ep-high { --ep-bar: var(--ep-high); }
+.ep-ce .ep-badge { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; }
+.ep-ce .ep-badge-ok { background: var(--ep-ok); color: var(--ep-ok-fg); } .ep-ce .ep-badge-warn { background: var(--ep-warn); color: var(--ep-warn-fg); }
+.ep-ce .ep-badge-high { background: var(--ep-high); color: var(--ep-high-fg); }
+.ep-ce .ep-gauge { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(var(--ep-bar, var(--ep-ok)) calc(var(--p, 0) * 1%), var(--ep-track) 0); }
+/* The type pill in a card, coloured as in the table. */
+.ep-panel .ep-pill.ep-di { color: var(--ep-blue); }
+.ep-panel .ep-pill.ep-op { color: var(--ep-purple); }

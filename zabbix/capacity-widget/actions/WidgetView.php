@@ -2,239 +2,144 @@
 
 namespace Modules\EpCapacity\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'ClientData', 'Bars', 'Forecast', 'Columns', 'ColumnMath', 'ColumnReader', 'ColumnCell', 'ColumnReport',
+		'TableOptions'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
+foreach (['CWidgetFieldStrings', 'CWidgetFieldOptionalNumber', 'CWidgetFieldColumns', 'TableFields', 'Catalogue', 'WidgetForm'] as $inc) {
+	require_once __DIR__.'/../includes/'.$inc.'.php';
+}
 
-use API,
-	CControllerDashboardWidgetView,
+use CControllerDashboardWidgetView,
 	CControllerResponseData,
 	CCsrfTokenHelper;
-use Modules\EpCapacity\Lib\{Bars, ColumnSettings, Forecast, Roles, Settings, Store};
+use Modules\EpCapacity\Includes\{Catalogue, WidgetForm};
+use Modules\EpCapacity\Lib\{Bars, ClientData, ColumnCell, ColumnReader, ColumnReport, ColumnSettings, Forecast, Roles, Settings, Store, TableOptions};
 
 /**
- * The capacity table: one row per client master host, the columns columns.json lists — the
- * master template's family-level items, which the Clients page writes (tests check the keys).
+ * The capacity table: one row per client master host, the columns the widget (or the report
+ * defaults) lists — the master template's family-level items columns.json names, which the Clients
+ * page writes (tests check the keys), any Zabbix item key on the client's servers, or figures
+ * calculated from two items, each now or over a window.
  *
- * Every figure is the master host's own item, so this reads, computes nothing that a
- * trigger or the host's dashboard does not also show, and needs no configuration beyond
- * which host groups to look in. Columns are renamed, hidden and reordered in the Columns dialog
- * (one setting for everyone, kept by ColumnSettings) and apply to the export too. A figure Zabbix does not have — an item unsupported, or
- * never measured — is shown as "—" and exported as an empty cell, never as 0.
+ * Every figure of the report's own columns is the master host's own item, so this reads, computes
+ * nothing that a trigger or the host's dashboard does not also show, and needs no configuration
+ * beyond which clients to list. A figure Zabbix does not have — an item unsupported, or never
+ * measured — is shown as "—" and exported as an empty cell, never as 0; a request of 0 is one
+ * nobody entered ("not set"). The figures, their cells and the export are the shared column
+ * model's (ColumnReport), the same as Client resources draws with.
+ *
+ * Zabbix is asked a fixed number of times per refresh, never once per client, always as the user
+ * viewing the widget: the master hosts and their macros (ClientData), one item.get for every key
+ * the columns read (a second only when a column's key is a pattern), and one trend.get per window
+ * a column asks of.
  */
 class WidgetView extends CControllerDashboardWidgetView {
 
-	/** The site's settings, read once: every figure drawn asks for its decimals. */
-	private array $cfg = [];
-
 	protected function doAction(): void {
-		$this->cfg = Settings::all();
-		$spec = json_decode((string) file_get_contents(__DIR__.'/../columns.json'), true);
-		$all = array_map(fn($c) => $c + ['id' => $c['key'] ?? ('client.'.($c['source'] === 'host' ? 'name' : 'url')),
-			'group' => ''], $spec['columns']);
-		$settings = ColumnSettings::load('capacity');
-		$columns = ColumnSettings::apply($all, $settings);
+		$cfg = Settings::all();
+		$roles = Roles::load();
+		$f = $this->fields_values;
+		$now = time();
+
+		$model = ColumnSettings::loadModel(Catalogue::REPORT);
+		$catalogue = Catalogue::columns($roles, $model['split']);
+		$roleIds = array_column(Roles::allRoles($roles), 'id');
+		$cols = ColumnReport::resolve($f, $model, $catalogue, $roleIds, $this->form ?? null);
+		$visible = $cols['visible'];
+		$view = TableOptions::read($f, ['toolbar' => WidgetForm::TOOLBAR_DEFAULT, 'attention' => WidgetForm::ATTENTION_DEFAULT]);
+		$report = new ColumnReport($cfg, $now, $f['usage_warn'] ?? '', $f['usage_high'] ?? '');
+
 		$data = [
 			'name' => $this->getInput('name', $this->widget->getDefaultName()),
-			'columns' => $columns,
-			'bars' => Bars::styleOf(Bars::isInherit($this->fields_values['bars'] ?? Bars::INHERIT)
-				? Settings::bars($this->cfg)
-				: $this->fields_values['bars']),
+			'columns' => array_map(fn($c) => $report->head($c, $catalogue), $visible),
 			'rows' => [],
+			'totals' => null,
+			'view' => $view,
+			'dropped' => $cols['dropped'],
+			'palette' => Settings::paletteStyle($cfg),
 			'export' => null,
 			'error' => null,
 			'meta' => [
 				'title' => 'Client capacity',
-				'report' => 'capacity',
+				'report' => Catalogue::REPORT,
 				'action' => 'widget.ep_capacity.columns',
 				'token' => CCsrfTokenHelper::get('widget.ep_capacity.columns'),
 				'canEdit' => $this->getUserType() == USER_TYPE_SUPER_ADMIN,
-				'columns' => array_map(fn($c) => ['id' => $c['id'], 'label' => $c['label'], 'default' => $c['default'], 'hidden' => $c['hidden'],
-					'section' => ''], ColumnSettings::apply($all, $settings, true)),
-				'types' => Settings::types($this->cfg)['all'],
+				// The Columns dialog edits the report defaults: names, shown, order.
+				'columns' => ColumnReport::dialogColumns($cols['defaults'], $catalogue),
+				// This widget's own list, so a Super admin can make it the report defaults.
+				'own' => $cols['own'] ? ['columns' => $cols['columns'], 'server_columns' => []] : null,
+				'types' => Settings::types($cfg)['all'],
+				'view' => ['view' => 0, 'switch' => false, 'attention' => $view['attention_default'], 'compact' => $view['density'] === TableOptions::DENSITY_COMPACT],
 				// So the Columns dialog can say why Save will fail, instead of failing.
 				'storeOk' => Store::writable()
 			],
 			'user' => ['debug_mode' => $this->getDebugMode()]
 		];
 
-		$names = Roles::templateNamesFor('master');
-		$templates = API::Template()->get([
-			'output' => ['templateid'],
-			'filter' => ['host' => $names]
-		]);
-		if (!$templates) {
-			$data['error'] = _s('Template "%1$s" is not imported, or you cannot read it.', $names[0]);
+		[, $clients, $error] = ClientData::clients($cfg, $f['groupids'] ?? []);
+		if ($error !== null) {
+			$data['error'] = $error;
 			$this->setResponse(new CControllerResponseData($data));
 			return;
 		}
-
-		$options = [
-			'output' => ['hostid', 'host', 'name'],
-			'templateids' => array_column($templates, 'templateid'),
-			'preservekeys' => true
-		];
-		if ($this->fields_values['groupids']) {
-			$options['groupids'] = getSubGroups($this->fields_values['groupids']);
+		$want = array_map('mb_strtolower', $f['clients'] ?? []);
+		$types = $f['client_types'] ?? [];
+		if ($want && !array_filter($clients, fn($c) => in_array(mb_strtolower($c['name']), $want, true))) {
+			$data['error'] = count($want) === 1
+				? _s('No client named "%1$s" here. Check the name in ElasticPro → Clients, or change the Clients setting.', $f['clients'][0])
+				: _('None of the clients this widget names is here. Check the names in ElasticPro → Clients, or change the Clients setting.');
+			$this->setResponse(new CControllerResponseData($data));
+			return;
 		}
-		$hosts = API::Host()->get($options);
+		$clients = array_filter($clients, fn($c) => (!$want || in_array(mb_strtolower($c['name']), $want, true))
+			&& (!$types || in_array($c['type'], $types, true)));
 
-		$keys = [];
-		foreach ($all as $column) {
-			foreach (['key', 'vs', 'usageKey'] as $field) {
-				if (array_key_exists($field, $column)) {
-					$keys[$column[$field]] = true;
-				}
-			}
+		// A disabled client says so beside its name; the export has the name alone.
+		foreach ($clients as $mid => $c) {
+			$clients[$mid]['shown'] = $c['name'].($c['status'] === 'disabled' ? ' ('._('disabled').')' : '');
 		}
 
-		$values = [];
-		$units = [];
-		if ($hosts) {
-			$items = API::Item()->get([
-				'output' => ['hostid', 'key_', 'lastvalue', 'lastclock', 'units', 'state'],
-				'hostids' => array_keys($hosts),
-				'filter' => ['key_' => array_keys($keys)]
-			]);
-			foreach ($items as $item) {
-				$units[$item['key_']] = $item['units'];
-				// Unsupported, or never measured: unknown, which is not zero.
-				$known = $item['state'] == ITEM_STATE_NORMAL && $item['lastclock'] != 0 && $item['lastvalue'] !== '';
-				$values[$item['hostid']][$item['key_']] = $known ? (float) $item['lastvalue'] : null;
-			}
+		// The servers only when a column reads them: the report's own columns are the master hosts' items.
+		$servers = ColumnReport::readsServers($visible, $catalogue) ? ClientData::servers($roles, $clients, false) : [];
+		$readRows = [];
+		foreach ($clients as $mid => $c) {
+			$readRows[$mid] = ['client' => $c, 'servers' => $servers[$c['name']] ?? []];
+		}
+		$report->read($readRows, $visible, $catalogue, (int) ($f['trend_days'] ?? 7), [Forecast::KEY]);
+		$items = $report->items();
 
-			$macros = API::UserMacro()->get([
-				'output' => ['hostid', 'macro', 'value'],
-				'hostids' => array_keys($hosts),
-				'filter' => ['macro' => ['{$GRP.CLIENT}', '{$ES.URL}', '{$EP.USAGE.WARN}', '{$EP.USAGE.HIGH}', '{$EP.CLIENT.TYPE}', '{$EP.CLIENT.STATUS}']]
-			]) ?: [];
-			$host_macros = [];
-			foreach ($macros as $macro) {
-				$host_macros[$macro['hostid']][$macro['macro']] = (string) ($macro['value'] ?? '');
-			}
+		$widgetBars = Bars::styleOf(Bars::isInherit($f['bars'] ?? Bars::INHERIT) ? Settings::bars($cfg) : $f['bars']);
+		$rows = [];
+		foreach ($clients as $mid => $c) {
+			['cells' => $cells, 'flags' => $flags, 'sort' => $sort, 'export' => $export] = $report->cells((string) $mid, $c, $visible, $catalogue, $widgetBars);
+			// Storage full within 30 days: the forecast item of the master host, when it is part of Needs attention.
+			$flags += ['nodata' => 0, 'down' => 0, 'full_days' => ColumnCell::forecast(ColumnReader::value($items[$mid][Forecast::KEY] ?? null), $cfg)['days']];
+			$rows[] = [
+				'client' => $c['name'], 'type' => $c['type'], 'hostid' => (string) $mid, 'cells' => $cells,
+				'attention' => ColumnCell::attention($flags, $view['attention']), 'flags' => $flags,
+				'sort' => ['client' => $c['name']] + $sort, 'export' => $export
+			];
 		}
 
-		$export_headers = [];
-		foreach ($columns as $column) {
-			$export_headers[] = $column['label'].(($column['kind'] ?? '') === 'forecast' ? ' (days)'
-				: $this->exportSuffix(isset($column['key']) ? ($units[$column['key']] ?? $column['units'] ?? '') : ''));
+		$sortBy = in_array($view['sort_by'], array_column($visible, 'uid'), true) ? $view['sort_by'] : 'client';
+		$rows = ColumnCell::arrange($rows, $sortBy, $view['sort_desc'], $view['top_n']);
+		foreach ($rows as $i => &$row) {
+			$row['id'] = 'c'.$i;
+		}
+		unset($row);
+		$data['rows'] = $rows;
+		if ($view['totals'] && $rows) {
+			$data['totals'] = $report->totals($rows, $visible, $catalogue, $view['totals_avg'], $view['top_n']);
 		}
 
-		$export_rows = [];
-		foreach ($hosts as $hostid => $host) {
-			$m = $host_macros[$hostid] ?? [];
-			// Decommissioned clients leave the report; a disabled one says so beside its name.
-			if (($m['{$EP.CLIENT.STATUS}'] ?? 'active') === 'decommissioned') {
-				continue;
-			}
-			['warn' => $warn, 'high' => $high] = Settings::usageFor($m, $this->fields_values['usage_warn'] ?? Settings::INHERIT,
-				$this->fields_values['usage_high'] ?? Settings::INHERIT, $this->cfg);
-			$client = ($m['{$GRP.CLIENT}'] ?? '') !== '' ? $m['{$GRP.CLIENT}'] : $host['name'];
-			$type = ($m['{$EP.CLIENT.TYPE}'] ?? '') !== '' ? $m['{$EP.CLIENT.TYPE}'] : Settings::defaultType($this->cfg);
-
-			$cells = [];
-			$export = [];
-			foreach ($columns as $column) {
-				$cell = ['text' => '—', 'class' => '', 'hint' => '', 'bar' => null];
-
-				if (($column['source'] ?? '') === 'host') {
-					$cell['text'] = $client.(($m['{$EP.CLIENT.STATUS}'] ?? 'active') === 'disabled' ? ' ('._('disabled').')' : '');
-					$export[] = $client;
-				}
-				elseif (($column['source'] ?? '') === 'macro') {
-					$text = $m[$column['macro']] ?? '';
-					$cell['text'] = $text !== '' ? $text : '—';
-					$export[] = $text;
-				}
-				else {
-					$key = $column['key'];
-					$value = $values[$hostid][$key] ?? null;
-
-					// When storage fills: Cluster Management's reading of it; the export gives days.
-					if (($column['kind'] ?? '') === 'forecast') {
-						$fc = Forecast::fullIn($value, Settings::forecast($this->cfg));
-						$cells[] = $fc === null ? $cell : ['text' => $fc['text'], 'hint' => '',
-							'class' => ['bad' => 'ep-high', 'warn' => 'ep-warn', 'ok' => '', 'flat' => 'ep-unset'][$fc['level']]];
-						$export[] = $fc === null ? null : ($fc['days'] ?? $fc['text']);
-						continue;
-					}
-					$unit = $units[$key] ?? ($column['units'] ?? '');
-
-					// A request or purchase of 0 is one nobody entered: "not set", not a figure.
-					if (($column['kind'] ?? '') === 'requested' && $value !== null && $value == 0) {
-						$cell = ['text' => _('not set'), 'class' => 'ep-unset', 'hint' => ''];
-						$cells[] = $cell;
-						$export[] = null;
-						continue;
-					}
-					if ($value !== null) {
-						$cell['text'] = convertUnits(['value' => $value, 'units' => $unit, 'decimals' => Settings::decimals($unit, $this->cfg)]);
-					}
-					$export[] = $this->exportValue($value, $unit);
-
-					// Usage colour: the usage figure itself, or the one it stands beside.
-					$usage = !empty($column['usage'])
-						? $value
-						: (array_key_exists('usageKey', $column) ? ($values[$hostid][$column['usageKey']] ?? null) : null);
-					if ($usage !== null) {
-						if ($usage >= $high) {
-							$cell['class'] = 'ep-high';
-						}
-						elseif ($usage >= $warn) {
-							$cell['class'] = 'ep-warn';
-						}
-						// The bar is the same figure the colour came from, so the two cannot
-						// disagree; a figure Elasticsearch did not report leaves bar null and
-						// draws nothing, because a bar of zero length reads as nought per cent.
-						$cell['bar'] = max(0.0, min(100.0, (float) $usage));
-						if (array_key_exists('usageKey', $column)) {
-							$cell['hint'] = _s('%1$s%% used', round($usage, 1));
-						}
-					}
-
-					// Allocated below what was requested — only when a request was made.
-					if (array_key_exists('vs', $column)) {
-						$requested = $values[$hostid][$column['vs']] ?? null;
-						if ($value !== null && $requested !== null && $requested > 0 && $value < $requested) {
-							$cell['class'] = trim($cell['class'].' ep-short');
-							$cell['hint'] = _s('Below requested: %1$s',
-								convertUnits(['value' => $requested, 'units' => $units[$column['vs']] ?? $unit,
-									'decimals' => Settings::decimals($units[$column['vs']] ?? $unit, $this->cfg)])
-							);
-						}
-					}
-				}
-				$cells[] = $cell;
-			}
-			$data['rows'][] = ['client' => $client, 'type' => $type, 'cells' => $cells];
-			$export_rows[] = $export;
+		// The export: the columns the widget shows, in its order.
+		$data['export'] = ['headers' => $report->exportHeaders($visible, $catalogue), 'rows' => array_column($rows, 'export'), 'types' => array_column($rows, 'type')];
+		foreach ($data['rows'] as &$row) {
+			unset($row['export'], $row['sort']);
 		}
-
-		// One order for the table and the export, whichever column comes first now.
-		$order = array_keys($data['rows']);
-		usort($order, fn($a, $b) => strnatcasecmp($data['rows'][$a]['client'], $data['rows'][$b]['client']));
-		$data['rows'] = array_map(fn($i) => $data['rows'][$i], $order);
-		$data['export'] = ['headers' => $export_headers, 'rows' => array_map(fn($i) => $export_rows[$i], $order),
-			'types' => array_column($data['rows'], 'type')];
-
+		unset($row);
 		$this->setResponse(new CControllerResponseData($data));
-	}
-
-	/**
-	 * Bytes go to a spreadsheet already divided, so a column can be summed without reading the
-	 * units. Which unit that is comes from the settings, and the header says the same one.
-	 */
-	private function exportSuffix(string $units): string {
-		return $units === 'B' ? ' ('.Settings::sizeLabel($this->cfg).')' : ($units === '%' ? ' (%)' : '');
-	}
-
-	private function exportValue(?float $value, string $units) {
-		if ($value === null) {
-			return null;
-		}
-		if ($units === 'B') {
-			return round($value / Settings::sizeDivisor($this->cfg), 2);
-		}
-		return round($value, $units === '%' ? 1 : 2);
 	}
 }
