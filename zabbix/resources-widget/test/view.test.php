@@ -113,6 +113,8 @@ namespace {
 		/** itemid => [clock => [avg, min, max]]: the trends the window columns read. */
 		public static $trends = [];
 		public static $extra_items = [];
+		/** "host|key" => a last value in place of the one below (the export's places). */
+		public static $override = [];
 		public static function items(): array {
 			$all = [
 				[101, 'ep.es.cpu.requested', 16, ''], [101, 'ep.es.cpu.allocated', 8, ''], [101, 'ep.es.cpu.usage', 95, '%'],
@@ -129,6 +131,7 @@ namespace {
 			$all = array_merge($all, self::$extra_items);
 			$out = [];
 			foreach ($all as $i => [$h, $k, $v, $u]) {
+				$v = self::$override[$h.'|'.$k] ?? $v;
 				$out[] = ['itemid' => (string) ($h * 1000 + $i), 'hostid' => $h, 'key_' => $k, 'lastvalue' => (string) $v, 'lastclock' => time() - 60,
 					'units' => $u, 'state' => 0, 'value_type' => 0, 'name' => $k];
 			}
@@ -272,6 +275,19 @@ namespace Modules\EpResources\Test {
 	check('export: unknown is an empty cell', $e['rows'][0][col($d, 'f.es.cpu.usage')] === null);
 	check('export: bytes as GB, header says so', $e['rows'][1][col($d, 'storage.used')] === 2.0 && $e['headers'][col($d, 'storage.used')] === 'ES storage Used (GB)', $e['headers'][col($d, 'storage.used')]);
 	check('export: types beside the rows', $e['types'] === ['On-Prem', 'DI']);
+	// The export's places, as 2.1.0 wrote them: a size in the export unit to two, a percentage to one,
+	// any other number to two — never the places the table is drawn with.
+	\FakeApi::$override = ['101|ep.es.storage.used' => 2.3456 * 1073741824, '101|ep.es.cpu.usage' => 95.456, '101|ep.es.cpu.requested' => 16.456];
+	$places = function (array $d) {
+		$at = array_search('karthi', array_column($d['rows'], 'client'), true);
+		$r = $d['export']['rows'][$at];
+		return [$r[col($d, 'storage.used')], $r[col($d, 'f.es.cpu.usage')], $r[col($d, 'f.es.cpu.requested')]];
+	};
+	check('export places: 2.3456 GB is 2.35, 95.456 % is 95.5, 16.456 cores is 16.46 — as before 2.1.1', $places(run()) === [2.35, 95.5, 16.46], $places(run()));
+	Settings::save(['display' => ['decimals_bytes' => 0, 'decimals_percent' => 3, 'decimals_plain' => 0]]);
+	check('…and the site\'s Decimals do not move them', $places(run()) === [2.35, 95.5, 16.46], $places(run()));
+	Settings::reset();
+	\FakeApi::$override = [];
 
 	$srv = array_column($karthi['servers'], 'raw');
 	$multi = array_values(array_filter($srv, fn($x) => $x['host'] === 'karthi-Engine-AIML-1'))[0] ?? null;

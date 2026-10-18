@@ -119,12 +119,14 @@ namespace {
 		public static $asked_trend = [];
 		/** itemid => [clock => [avg, min, max]] */
 		public static $trends = [];
+		/** "host|key" => a last value in place of the one below (the export's places). */
+		public static $override = [];
 		public static function values(): array {
-			return [
+			return array_map(fn($r) => array_key_exists($r[0].'|'.$r[1], self::$override) ? [$r[0], $r[1], self::$override[$r[0].'|'.$r[1]]] : $r, [
 				[301, 'plan[live.used.pct]', '90.5'], [301, 'plan[live.days]', '9'], [301, 'plan[note]', 'hot tier'], [301, 'plan[backup.bytes]', '3'],
 				[301, 'elasticpro.plan.epoch', '1700000000'], [301, 'elasticpro.plan.reachable', '1'], [301, 'es.docs.rate', '1500'],
 				[302, 'elasticpro.plan.reachable', '0'], [302, 'plan[live.used.pct]', '85'], [302, 'plan[live.days]', '14']
-			];
+			]);
 		}
 		public static function itemid(int $host, string $key): string {
 			foreach (self::values() as $i => [$h, $k]) { if ($h === $host && $k === $key) { return (string) ($h * 1000 + $i); } }
@@ -325,6 +327,24 @@ namespace Modules\EpVolume\Test {
 	run(['decimals' => Settings::INHERIT_CHOICE]);
 	check('and the inherit value is never used as a number of places', ($GLOBALS['ep_decimals']['%'] ?? null) === 3);
 	Settings::reset();
+
+	/* ---------------- the export's places: two, as Volume has always exported ---------------- */
+	// 2.1.0 wrote round($raw, 2) for every number, whatever Decimals said; the shared engine's own
+	// export writes a percentage to one place, so Volume says its own (WidgetView::EXPORT_PLACES).
+	\FakeApi::$override = ['301|plan[live.used.pct]' => '90.456', '301|plan[live.days]' => '9.876'];
+	$exported = function (array $d) use ($K, $USED, $DAYS) {
+		$at = array_search($K, array_column($d['rows'], 'client'), true);
+		return [$d['export']['rows'][$at][col($d, $USED)], $d['export']['rows'][$at][col($d, $DAYS)]];
+	};
+	$d = run();
+	check('export: a percentage to two places, as before 2.1.1 — 90.456 is 90.46, not 90.5', $exported($d)[0] === 90.46, $exported($d));
+	check('export: days to two places too — 9.876 is 9.88', $exported($d)[1] === 9.88, $exported($d));
+	check('…while the table draws them to the site\'s places', ($GLOBALS['ep_decimals']['%'] ?? null) === 1);
+	Settings::save(['display' => ['decimals_percent' => 3, 'decimals_plain' => 0]]);
+	check('the site\'s Decimals do not move the export', $exported(run()) === [90.46, 9.88], $exported(run()));
+	check('nor does the widget\'s own Decimals', $exported(run(['decimals' => 0])) === [90.46, 9.88] && $exported(run(['decimals' => 3])) === [90.46, 9.88]);
+	Settings::reset();
+	\FakeApi::$override = [];
 
 	/* ---------------- client types ---------------- */
 	$d = run();

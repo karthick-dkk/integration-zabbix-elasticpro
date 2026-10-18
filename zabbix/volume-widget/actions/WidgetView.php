@@ -36,6 +36,14 @@ use Modules\EpVolume\Lib\{Bars, ClientData, ColumnCell, ColumnReader, ColumnRepo
  */
 class WidgetView extends CControllerDashboardWidgetView {
 
+	/**
+	 * Volume has always exported every figure — percentages, days, the template's sizes — to two
+	 * places, whatever its Decimals: the export is the figure, the Decimals only how the table draws
+	 * it. Kept as it was when the report moved onto the shared engine (whose own export writes a
+	 * percentage to one place).
+	 */
+	public const EXPORT_PLACES = ['%' => 2, '' => 2];
+
 	protected function doAction(): void {
 		$cfg = Settings::all();
 		$roles = Roles::load();
@@ -51,6 +59,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$view = TableOptions::read($f, WidgetForm::TABLE);
 		$report = new ColumnReport($cfg, $now, '', '', (int) ($f['thresholds_from'] ?? WidgetForm::THRESHOLDS_PLAN) === WidgetForm::THRESHOLDS_PLAN
 			? fn($col, $entry, $value, $client) => self::planLevel($col, $entry, $value, $client) : null, true);
+		$report->exportPlaces(self::EXPORT_PLACES);
 
 		$data = [
 			'name' => $this->getInput('name', $this->widget->getDefaultName()),

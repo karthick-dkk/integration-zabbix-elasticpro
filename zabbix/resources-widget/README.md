@@ -17,7 +17,8 @@ CPU (cores), memory, disk.
 - **Allocated below requested** (ES storage: below purchased): dashed red outline, the request in
   the tooltip. A request nobody entered reads "not set"; a figure not measured "—".
 - **Export CSV / Export servers CSV / Export Excel** (sheets *Clients* and *Servers*): numbers as
-  numbers, bytes as GB, unknowns as empty cells.
+  numbers, bytes as GB, unknowns as empty cells. Percentages to one place, everything else to two,
+  whatever the Decimals the table is drawn with.
 
 The columns are built from the roles each time, so a role added on the Clients page appears here
 with no change to this widget.

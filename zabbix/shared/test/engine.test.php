@@ -385,6 +385,14 @@ namespace EpShared\Test {
 		&& ColumnCell::exportHeader(['group' => 'Backup', 'name' => 'Size', 'value' => 1], '!GB', Settings::all()) === 'Backup Size (GB)'
 		&& ColumnCell::exportHeader(['group' => 'Backup', 'name' => 'Size', 'value' => 1], '!GB', Settings::all(), false) === 'Size (GB)'
 		&& ColumnCell::exportHeader(['group' => '', 'name' => 'Used', 'value' => 1], 'B', Settings::all()) === 'Used (GB)');
+	$cfg = Settings::all();
+	$cfg['display'] = ['bars' => 0, 'decimals_bytes' => 0, 'decimals_percent' => 3, 'decimals_plain' => 0];
+	check('an export writes its own places, never the table\'s Decimals: a percentage to one, sizes (in the export unit) and the rest to two',
+		ColumnCell::exportValue(90.456, '%', $cfg) === 90.5 && ColumnCell::exportValue('9.876', 'days', $cfg) === 9.88
+		&& ColumnCell::exportValue(2.3456 * 1073741824, 'B', $cfg) === 2.35 && ColumnCell::exportValue(40.456, '', $cfg) === 40.46
+		&& ColumnCell::exportValue(null, '%', $cfg) === null && ColumnCell::exportValue('hot tier', '', $cfg) === 'hot tier' && ColumnCell::exportValue('', '', $cfg) === null);
+	check('a widget with places of its own says them (Volume: two for everything)', ColumnCell::exportValue(90.456, '%', $cfg, ['%' => 2, '' => 2]) === 90.46
+		&& ColumnCell::exportValue(9.876, 'days', $cfg, ['%' => 2]) === 9.88 && ColumnCell::exportValue(2.3456 * 1073741824, 'B', $cfg, ['%' => 2, '' => 2]) === 2.35);
 	check('totals: the known figures only, a percentage averaged, nothing known is no total', ColumnCell::total([null, 4.0], '', false) === 4.0 && ColumnCell::total([null], '', false) === null
 		&& ColumnCell::total([50.0, 70.0], '%', false) === 60.0 && ColumnCell::total([2.0, 4.0], 'B', true) === 3.0);
 	check('the totals row says what it is over', ColumnReport::totalsLabel(false, null) === 'Total (all clients)' && ColumnReport::totalsLabel(true, null) === 'Average (all clients)'

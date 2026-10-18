@@ -17,7 +17,8 @@ Requested / Allocated / Curr.Used Storage
 - **Allocated below requested** (or ES storage below purchased): dashed red outline and ▼,
   the request in the tooltip. Unset requests read "not set".
 - **Export CSV / Export Excel**: numbers as numbers, bytes divided by the size unit the settings
-  name (GB by default, with the header saying which), unknowns as empty cells.
+  name (GB by default, with the header saying which), unknowns as empty cells. Percentages to one
+  place, everything else to two, whatever the Decimals the table is drawn with.
 
 The columns come from `columns.json` (family-level keys of the master template). **Columns**
 (Super admins) renames, hides and reorders them; the **Type** filter offers the client types the

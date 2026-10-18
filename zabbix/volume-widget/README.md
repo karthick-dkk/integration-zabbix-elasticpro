@@ -13,8 +13,9 @@ value centred.
   `{$ELASTICPRO.PLAN.LIVE_USED.WARN}` (85 %) yellow, Live days under `{$ELASTICPRO.PLAN.LIVE_DAYS.MIN}`
   (14 days) red — the cluster host's own macro first, then the template's. An unreachable cluster's
   row is dimmed; the cluster cell says when it was updated.
-- **Export CSV / Export Excel**: one row per cluster, numbers in the item's units (GB, %, days),
-  unknowns as empty cells, never 0.
+- **Export CSV / Export Excel**: one row per cluster, numbers in the item's units (GB, %, days) to
+  two places — whatever **Decimals** says, which is only how the table draws them — unknowns as
+  empty cells, never 0.
 
 ## Data, Columns, View (2.1.1)
 

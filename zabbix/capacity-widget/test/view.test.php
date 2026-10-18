@@ -115,6 +115,8 @@ namespace {
 		public static $asked_hosts = 0;
 		/** itemid => [clock => [avg, min, max]]: the trends the window columns read. */
 		public static $trends = [];
+		/** "host|key" => a last value in place of the one below (the export's places). */
+		public static $override = [];
 		public static function items(): array {
 			$GB = 1073741824;
 			$all = [
@@ -134,6 +136,7 @@ namespace {
 			];
 			$out = [];
 			foreach (array_merge($all, self::$extra_items) as $i => [$h, $k, $v, $u, $state]) {
+				$v = self::$override[$h.'|'.$k] ?? $v;
 				$out[] = ['itemid' => (string) ($h * 1000 + $i), 'hostid' => $h, 'key_' => $k, 'lastvalue' => (string) $v, 'lastclock' => time() - 60, 'units' => $u,
 					'state' => $state, 'value_type' => 0, 'name' => $k];
 			}
@@ -333,6 +336,18 @@ namespace Modules\EpCapacity\Test {
 	check('ten days to full is a warning at the shipped windows', $cls(cell($d, 'karthi', 'ep.es.storage.full_in')) === 'ep-warn', cell($d, 'karthi', 'ep.es.storage.full_in'));
 	check('and the export gives the days, not the words', exported($d, 'karthi', 'ep.es.storage.full_in') === 10.0);
 	check('the days column says so in its header', strpos($d['export']['headers'][col($d, 'ep.es.storage.full_in')], '(days)') !== false);
+
+	// The export's places, as 2.1.0 wrote them: a size in the export unit to two, a percentage to one,
+	// any other number to two — never the places the table is drawn with.
+	$GB = 1073741824;
+	\FakeApi::$override = ['101|ep.es.storage.used' => 2.3456 * $GB, '101|ep.es.storage.usage' => 95.456, '101|ep.devices.seen' => 40.456];
+	$places = fn(array $d) => [exported($d, 'karthi', 'ep.es.storage.used'), exported($d, 'karthi', 'ep.es.storage.usage'), exported($d, 'karthi', 'ep.devices.seen')];
+	$d = run();
+	check('export places: 2.3456 GB is 2.35, 95.456 % is 95.5, 40.456 is 40.46 — as before 2.1.1', $places($d) === [2.35, 95.5, 40.46], $places($d));
+	Settings::save(['display' => ['decimals_bytes' => 0, 'decimals_percent' => 3, 'decimals_plain' => 0]]);
+	check('…and the site\'s Decimals do not move them', $places(run()) === [2.35, 95.5, 40.46], $places(run()));
+	Settings::reset();
+	\FakeApi::$override = [];
 	Settings::save(['forecast' => ['bad_days' => 14, 'warn_days' => 30]]);
 	check('a site that calls two weeks urgent gets red', $cls(cell(run(), 'karthi', 'ep.es.storage.full_in')) === 'ep-high');
 	Settings::save(['forecast' => ['warn_days' => 5, 'bad_days' => 2]]);

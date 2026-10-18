@@ -81,6 +81,9 @@ and the Client overview's Summary view: one column engine, one palette.
   - A widget saved before this release of each kind looks as it did; Warn / High left empty mean
     ElasticPro Settings. Export headers say their unit ("(days)", "(GB)" for a unit Zabbix is told not
     to scale).
+    An export's figures keep the places each widget always wrote them to, whatever the Decimals the
+    table is drawn with: Volume every number to two places, Client resources and Client capacity a
+    percentage to one and everything else to two.
 - **Client overview: a usage chart in the Summary view, and more Summary settings.** One line per
   client over time for CPU or memory of the family the Summary shows, ES storage used, or any
   metric of the widget's Data and metrics list — combined per client exactly as the Cards combine

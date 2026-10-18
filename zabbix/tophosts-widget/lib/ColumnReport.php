@@ -40,6 +40,8 @@ class ColumnReport {
 	private array $seenMax = [];
 	private array $units = [];
 	private int $trendDays = 7;
+	/** The places this widget's export writes figures to (ColumnCell::EXPORT_PLACES unless it has its own). */
+	private array $exportPlaces = ColumnCell::EXPORT_PLACES;
 
 	/**
 	 * @param mixed $warnW  the widget's own Warn at ('' : ElasticPro Settings)
@@ -53,6 +55,17 @@ class ColumnReport {
 		$this->highW = $highW;
 		$this->levels = $levels;
 		$this->reader = new ColumnReader();
+	}
+
+	/**
+	 * The places this widget's export writes a percentage ('%') and every other figure ('') to, when
+	 * they are not ColumnCell::EXPORT_PLACES — so a widget moved onto this engine exports exactly as it
+	 * did before.
+	 */
+	public function exportPlaces(array $places): self {
+		$this->exportPlaces = $places + ColumnCell::EXPORT_PLACES;
+
+		return $this;
 	}
 
 	/**
@@ -272,7 +285,7 @@ class ColumnReport {
 			$sort[$col['uid']] = array_key_exists('sort', $fig) ? $fig['sort'] : $cell['value'];
 			$cell['sort'] = $sort[$col['uid']];
 			$export[] = ColumnCell::exportValue(array_key_exists('export', $fig) ? $fig['export'] : $cell['value'],
-				(string) ($fig['export_units'] ?? $fig['units'] ?? ''), $this->cfg);
+				(string) ($fig['export_units'] ?? $fig['units'] ?? ''), $this->cfg, $this->exportPlaces);
 			$cells[] = $cell;
 		}
 

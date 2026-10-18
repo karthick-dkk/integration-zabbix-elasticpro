@@ -365,11 +365,27 @@ class ColumnCell {
 		return $head.($units === '%' ? ' (%)' : ($units === 'days' ? ' (days)' : ($units !== '' && $units[0] === '!' ? ' ('.substr($units, 1).')' : '')));
 	}
 
-	/** A figure as the export writes it: sizes in the site's export unit, percentages to one place, unknown empty. */
-	public static function exportValue($value, string $units, array $cfg) {
+	/**
+	 * The places an export writes a figure to: a percentage ('%') and every other number ('', sizes
+	 * after they are divided into the site's export unit). These are the places Client resources and
+	 * Client capacity have always exported with; a widget whose export always had others (Volume:
+	 * two places for everything) says so with ColumnReport::exportPlaces(). An export's places are
+	 * the widget's own and never follow the Decimals a table is drawn with, so changing how a figure
+	 * looks never changes a spreadsheet built on it.
+	 */
+	public const EXPORT_PLACES = ['%' => 1, '' => 2];
+
+	/**
+	 * A figure as the export writes it: sizes in the site's export unit, to the places $places says
+	 * (EXPORT_PLACES unless the widget has its own), unknown empty.
+	 */
+	public static function exportValue($value, string $units, array $cfg, array $places = self::EXPORT_PLACES) {
 		if ($value === null || !is_numeric($value)) {
 			return is_string($value) && $value !== '' ? $value : null;
 		}
-		return $units === 'B' ? round($value / Settings::sizeDivisor($cfg), 2) : round((float) $value, $units === '%' ? 1 : 2);
+		$places += self::EXPORT_PLACES;
+
+		return $units === 'B' ? round($value / Settings::sizeDivisor($cfg), (int) $places[''])
+			: round((float) $value, (int) $places[$units === '%' ? '%' : '']);
 	}
 }
