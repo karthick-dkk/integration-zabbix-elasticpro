@@ -956,6 +956,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'period' => ['key' => $key, 'seconds' => $seconds, 'from' => $from, 'till' => $till, 'source' => $history ? 'history' : 'trends'],
 			'quick' => $quickOn ? array_map(fn($k, $s) => ['key' => $k, 'seconds' => $s], array_keys(Chart::QUICK), array_values(Chart::QUICK)) : [],
 			'percent' => $m['units'] === '%' && (int) ($f['chart_yaxis'] ?? Chart::Y_PERCENT) === Chart::Y_PERCENT,
+			// Always auto: the data alone set the range; a Warn or High line outside it is not drawn.
+			'auto' => (int) ($f['chart_yaxis'] ?? Chart::Y_PERCENT) === Chart::Y_AUTO,
 			'lines' => $lines,
 			'total' => count($rows),
 			'clients' => array_map(fn($r) => ['name' => $r['name'], 'i' => $r['i'], 'legend' => $r['legend'], 'points' => $r['points'],

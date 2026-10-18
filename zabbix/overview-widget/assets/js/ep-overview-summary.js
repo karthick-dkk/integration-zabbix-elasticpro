@@ -340,6 +340,55 @@ window.EpOverviewSummary = {
 		if (s >= 7200) return `${Math.round(s / 360) / 10}h`;
 		return `${Math.round(s / 60)}m`;
 	},
+	/**
+	 * The time axis: both ends and round steps back from now between them, every label in one unit —
+	 * minutes under two hours, hours under two days, days from there ("−7d … −2d … now", never "−84h"
+	 * beside "−7d"). A step too close to the far end is left out so two labels never touch.
+	 *
+	 * @return {Array<[number, string]>}  [seconds before now, label], oldest first, "now" last
+	 */
+	timeTicks(seconds) {
+		const s = Math.max(60, Number(seconds) || 0);
+		const unit = s >= 2 * 86400 ? 86400 : s >= 2 * 3600 ? 3600 : 60;
+		const suffix = { 86400: 'd', 3600: 'h', 60: 'm' }[unit];
+		const steps = { 86400: [1, 2, 7, 14, 30, 90], 3600: [1, 2, 3, 6, 12], 60: [5, 10, 15, 30] }[unit];
+		const n = s / unit;
+		const step = (steps.find((k) => n / k <= 7) || steps[steps.length - 1]) * unit;
+		const word = (ago) => {
+			const v = Math.round(ago / unit * 10) / 10;
+			return `−${Number.isInteger(v) ? v : v.toFixed(1)}${suffix}`;
+		};
+		const out = [[s, word(s)]];
+		const inner = [];
+		for (let ago = step; ago < s * 0.9; ago += step) inner.push([ago, word(ago)]);
+		return out.concat(inner.reverse(), [[0, 'now']]);
+	},
+	/**
+	 * The value axis of the usage chart. 0–100 for a percentage when the widget says so; otherwise the
+	 * data with a little headroom. Under "0–100% for percentages, else auto" a Warn or High line near
+	 * the data is brought into view (a line far above it would flatten the data, so it is left off);
+	 * under "Always auto" the data alone decide, and a line outside the range is not drawn — the note
+	 * says it is above the chart.
+	 */
+	yRange(chart, cs, rows) {
+		const stacked = (cs || {}).style === 'stacked';
+		const values = stacked ? this.stack(rows).flatMap((st) => st.hi) : rows.flatMap((r) => r.points.map((p) => p[1]));
+		const lines = [chart.lines && chart.lines.warn, chart.lines && chart.lines.high].filter((v) => typeof v === 'number');
+		let lo = 0, hi;
+		if (chart.percent && !stacked) {
+			// Stacked percentages add up past 100, so a stacked chart always scales to its data.
+			hi = 100;
+		}
+		else {
+			const top = values.length ? Math.max(...values) : 1;
+			const bottom = values.length ? Math.min(...values) : 0;
+			const near = chart.auto ? [] : lines.filter((v) => v <= Math.max(top, 0) * 3);
+			hi = this.niceMax(Math.max(top, ...near, 0));
+			if (bottom < 0) lo = -this.niceMax(-bottom);
+		}
+		if (!(hi > lo)) hi = lo + 1;
+		return { lo, hi };
+	},
 	/** The top of a value axis: a round number a little above the data. */
 	niceMax(max) {
 		if (!(max > 0)) return 1;
@@ -380,22 +429,8 @@ window.EpOverviewSummary = {
 		const x = (t) => L + (t1 > t0 ? (Math.min(t1, Math.max(t0, t)) - t0) / (t1 - t0) : 0) * pw;
 		const stacked = cs.style === 'stacked';
 		const stacks = stacked ? this.stack(rows) : null;
-		const values = stacked ? stacks.flatMap((s) => s.hi) : rows.flatMap((r) => r.points.map((p) => p[1]));
 		const lines = [['warn', chart.lines && chart.lines.warn], ['high', chart.lines && chart.lines.high]].filter(([, v]) => typeof v === 'number');
-		let lo = 0, hi;
-		if (chart.percent && !stacked) {
-			// Stacked percentages add up past 100, so a stacked chart always scales to its data.
-			hi = 100;
-		}
-		else {
-			const top = values.length ? Math.max(...values) : 1;
-			const bottom = values.length ? Math.min(...values) : 0;
-			// A line far above the data would flatten it; it is left off then, not squeezed in.
-			const near = lines.filter(([, v]) => v <= Math.max(top, 0) * 3).map(([, v]) => v);
-			hi = this.niceMax(Math.max(top, ...near, 0));
-			if (bottom < 0) lo = -this.niceMax(-bottom);
-		}
-		if (!(hi > lo)) hi = lo + 1;
+		const { lo, hi } = this.yRange(chart, cs, rows);
 		const y = (v) => T + ph - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * ph;
 		const f = (n) => n.toFixed(1);
 		const e = this.esc.bind(this);
@@ -406,8 +441,11 @@ window.EpOverviewSummary = {
 			labels += `<text x="${L - 5}" y="${f(yy + 3.5)}" text-anchor="end">${e(this.axis(v, chart.metric.units))}</text>`;
 		}
 		const seconds = chart.period.seconds;
-		const ticks = [[L, 'start', `−${this.span(seconds)}`], [L + pw / 2, 'middle', `−${this.span(Math.round(seconds / 2))}`], [W - R, 'end', 'now']];
-		const xaxis = ticks.map(([tx, anchor, label]) => `<text x="${f(tx)}" y="${H - 6}" text-anchor="${anchor}" font-size="10">${e(label)}</text>`).join('');
+		const ticks = this.timeTicks(seconds);
+		const xaxis = ticks.map(([ago, label], k) => {
+			const anchor = k === 0 ? 'start' : k === ticks.length - 1 ? 'end' : 'middle';
+			return `<text x="${f(L + (seconds > 0 ? (seconds - ago) / seconds : 1) * pw)}" y="${H - 6}" text-anchor="${anchor}" font-size="10">${e(label)}</text>`;
+		}).join('');
 		const guide = lines.filter(([, v]) => v >= lo && v <= hi).map(([k, v]) => `<line x1="${L}" y1="${f(y(v))}" x2="${W - R}" y2="${f(y(v))}" stroke-dasharray="5 4" style="stroke:var(--ep-${k})"><title>${k === 'warn' ? 'Warn' : 'High'} ${e(this.axis(v, chart.metric.units))}</title></line>`).join('');
 		let series = '';
 		if (stacked) {
@@ -468,7 +506,11 @@ window.EpOverviewSummary = {
 		}).join('');
 		const unread = shown.filter((c) => c.not_read).length;
 		const lines = chart.lines || {};
-		const dashed = [typeof lines.warn === 'number' ? `Warn ${this.axis(lines.warn, chart.metric.units)}` : '', typeof lines.high === 'number' ? `High ${this.axis(lines.high, chart.metric.units)}` : ''].filter(Boolean);
+		// A line the range leaves out is still said, with where it is.
+		const range = drawn.length ? this.yRange(chart, cs, drawn) : null;
+		const where = (v) => range && (v > range.hi || v < range.lo) ? ` (${v > range.hi ? 'above' : 'below'} the chart)` : '';
+		const dashed = [typeof lines.warn === 'number' ? `Warn ${this.axis(lines.warn, chart.metric.units)}${where(lines.warn)}` : '',
+			typeof lines.high === 'number' ? `High ${this.axis(lines.high, chart.metric.units)}${where(lines.high)}` : ''].filter(Boolean);
 		const note = [dashed.length ? `Dashed lines: ${dashed.join(' and ')}.` : '',
 			cs.isolate === false ? '' : 'Click a client to show only it; click again for all.',
 			chart.total > chart.clients.length ? `Showing ${chart.clients.length} of ${chart.total} clients.` : '',

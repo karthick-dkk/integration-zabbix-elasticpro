@@ -36,13 +36,18 @@ Layout and production → **View: Summary** shows these settings:
   Each point is the average, maximum or minimum. Style: line, area or stacked area (clients
   without a point at a time add nothing to the stack there). Height small, medium or large. The Y
   axis is 0–100 for a percentage (or always automatic; a stacked area is always automatic, as
-  stacked percentages add up past 100). Dashed Warn and High lines are the
+  stacked percentages add up past 100). *Always auto* scales to the data alone, with a little
+  headroom: a Warn or High line outside that range is not drawn, and the note says it is above
+  the chart. Otherwise an automatic axis brings a line near the data into view. The time axis
+  is labelled in one unit — minutes under two hours, hours under two days, days from there — at
+  round steps back from now. Dashed Warn and High lines are the
   widget's thresholds (its Warn / High, else ElasticPro → Settings) for a usage percentage, or
   the metric's own Warn and High otherwise; a client with its own thresholds on its master host
   is coloured by those in the legend. The legend gives Mean, Min, Max and Last of the line drawn,
   coloured over Warn and High, sorted by mean, max, last or name. Click a client (or its line)
   to show only it; click again for all. **A client with no data in the period says "no data"
-  and has no line** — never a line of zeros.
+  and has no line** — never a line of zeros. A refresh keeps the widget scrolled where the viewer
+  left it, with the period, metric and client they chose.
 - **Used of allocated**: groups (CPU, memory, storage, devices), rows by client name or by value,
   a segmented or a solid bar; a figure nobody measured is a dash.
 - **Servers by role**: donut, bar or pills; count and percent in the legend.
@@ -61,8 +66,10 @@ A widget being added starts with the chart on.
 - **Host groups** of the client master hosts; **Clients** picked by name (none ticked: every
   client); **Hide disabled and decommissioned clients** (on by default); **Client types**
   (none ticked: every type).
-- **Trend window**: the dashboard's time period, or the last N days (7). avg, min and max come
-  from Zabbix trends; a window under two hours is read from history instead.
+- **Trend window** (Cards): the dashboard's time period, or the last N days (7). avg, min and max
+  come from Zabbix trends; a window under two hours is read from history instead. The Summary
+  view's chart has its own period, so with View set to Summary this, the order, the top N and
+  *Only show* are hidden; the Metrics list stays, since the chart's metric menu offers it.
 - **Metrics** (up to 20, dragged into order, each edited in its own dialog like Top hosts'
   columns): a **built-in** figure — the client master host's `ep.*` items (ES storage, devices,
   log delay, every family's CPU, memory, disk and servers) or each server's CPU, memory and role

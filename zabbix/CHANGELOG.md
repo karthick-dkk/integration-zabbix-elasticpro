@@ -107,6 +107,10 @@ and the Client overview's Summary view: one column engine, one palette.
   legend), Used of allocated (groups, row order, segmented or solid bar) and Servers by role
   (donut, bar or pills; count and percent). Warn and High keep their place; empty still follows
   ElasticPro → Settings.
+  A refresh keeps the widget scrolled where the viewer left it. The time axis reads in one unit
+  ("−7d … −1d", never "−84h" beside "−7d"). *Always auto* scales the Y axis to the data, not to
+  the Warn and High lines; a line above the range is named in the note instead of drawn. With View
+  set to Summary the Data tab keeps the Metrics list the chart's metric menu offers.
   A Summary widget saved before this release is drawn exactly as it was, byte for byte: no
   usage chart, no status line, Used of allocated beside Servers by role. Turn the chart on in
   the widget's settings; a widget being added starts with the chart on.

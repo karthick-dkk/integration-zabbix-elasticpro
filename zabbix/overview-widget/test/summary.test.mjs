@@ -239,7 +239,7 @@ test('chart: 0–100 for a percentage, a round automatic axis otherwise; Warn/Hi
   const ticks = (el) => [...el.querySelectorAll('svg g text')].map((x) => x.textContent);
   let p = panelOf(setup(lib, newData()).body);
   assert.deepEqual(ticks(p).slice(0, 5), ['0%', '25%', '50%', '75%', '100%']);
-  assert.deepEqual(ticks(p).slice(5), ['−6h', '−3h', 'now']);
+  assert.deepEqual(ticks(p).slice(5), ['−6h', '−5h', '−4h', '−3h', '−2h', '−1h', 'now'], 'the time axis in one unit, a tick an hour');
   p = panelOf(setup(lib, newData({}, { percent: false, metric: { id: 'm:i', label: 'Ingest', units: '/s' }, lines: { warn: 5000, high: 99999999 },
     clients: [{ name: 'acme', i: 0, legend: legend(1, 1, 1, 1), points: line(T0, 1800, [1200, 3400, 2100, 1800]) }] })).body);
   const labels = ticks(p).slice(0, 5);
@@ -401,4 +401,106 @@ test('a metric the widget cannot draw is said above the Summary view, and a clie
   assert.deepEqual(rows, ['window not read', 'no data'], 'unread is not no data');
   assert.match(panelOf(body).querySelector('.ep-ov-note').textContent, /1 client was not read/);
   assert.equal(html(setup(lib, data()).body).includes('ep-ov-dropped'), false);
+});
+
+/* ------------------------------ browser QA of the Summary chart (2.1.1) ------------------------------ */
+
+test('a refresh keeps the pane where the viewer scrolled it, with the period, metric and client they chose (DOM)', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const dom = new lib.JSDOM(`<body>${HTML}</body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  // Zabbix's widget: a refresh puts a whole new body in, as setContents does.
+  for (const f of ['ep-overview.js', 'ep-overview-summary.js']) w.eval(fs.readFileSync(path.join(HERE, 'assets/js', f), 'utf8'));
+  w.eval('class CWidget { constructor() { this._body = document.getElementById("w"); } getUpdateRequestData() { return { fields: {} }; }'
+    + ' setContents(r) { this._body.innerHTML = r.body; } }' + fs.readFileSync(path.join(HERE, 'assets/js/class.widget.js'), 'utf8') + ';window.W = WidgetEpOverview;');
+  const widget = new w.W();
+  let refreshes = 0;
+  widget._startUpdating = () => { refreshes++; };
+  const two = { clients: [{ name: 'acme', i: 0, legend: legend(50, 40, 60, 55), points: line(T0, 1800, [40, 50, 60, 55]) },
+    { name: 'beta<b>', i: 1, legend: legend(20, 10, 30, 25), points: line(T0, 1800, [10, 20, 30, 25]) }] };
+  const response = () => ({ body: w.document.getElementById('w').dataset.html, ep_overview: { ...newData({}, two), view: 'summary' } });
+  w.document.getElementById('w').dataset.html = w.document.getElementById('w').innerHTML;
+  widget.setContents(response());
+  const pane = () => w.document.querySelector('.ep-ov');
+  pane().scrollTop = 521;
+  pane().scrollLeft = 12;
+  // The viewer presses 24h and isolates beta: the period asks for a refresh, the isolate redraws in place.
+  pane().querySelector('[data-ep-ov-period="86400"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  [...pane().querySelectorAll('.ep-ov-iso')].find((b) => b.dataset.epOvIso === 'beta<b>').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  assert.equal(refreshes, 1);
+  assert.equal(pane().scrollTop, 521, 'redrawing the chart in place keeps the pane');
+  const before = pane();
+  widget.setContents(response());
+  assert.notEqual(pane(), before, 'the refresh put a new pane in');
+  assert.equal(pane().scrollTop, 521, 'the new pane is where the old one was');
+  assert.equal(pane().scrollLeft, 12);
+  assert.equal(widget._epOvSummary.chart.period, 86400, 'the period chosen survives');
+  assert.deepEqual([...pane().querySelectorAll('svg polyline')].map((l) => l.getAttribute('stroke')), ['var(--ep-s2)'], 'so does the client isolated');
+  // An unscrolled widget stays at the top; the inner scrollers (the Cards' wide tables) keep theirs by their place.
+  const box = w.document.createElement('div');
+  box.innerHTML = '<div class="ep-ov"><div class="ep-ov-tablewrap"></div><div class="ep-ov-tablewrap"></div></div>';
+  box.querySelectorAll('.ep-ov-tablewrap')[1].scrollLeft = 40;
+  const kept = w.W.scrollOf(box);
+  assert.deepEqual(JSON.parse(JSON.stringify(kept)), [{ sel: '.ep-ov-tablewrap', i: 1, top: 0, left: 40 }], 'only what was scrolled');
+  box.innerHTML = '<div class="ep-ov"><div class="ep-ov-tablewrap"></div><div class="ep-ov-tablewrap"></div></div>';
+  w.W.restoreScroll(box, kept);
+  assert.deepEqual([...box.querySelectorAll('.ep-ov-tablewrap')].map((el) => el.scrollLeft), [0, 40]);
+});
+
+test('time axis: every period in one unit, at round steps, both ends labelled — never "−84h" beside "−7d"', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w } = setup(lib);
+  const S = w.EpOverviewSummary;
+  const labels = (s) => [...S.timeTicks(s)].map(([, l]) => l);
+  assert.deepEqual(labels(3600), ['−60m', '−50m', '−40m', '−30m', '−20m', '−10m', 'now'], '1h');
+  assert.deepEqual(labels(21600), ['−6h', '−5h', '−4h', '−3h', '−2h', '−1h', 'now'], '6h');
+  assert.deepEqual(labels(86400), ['−24h', '−18h', '−12h', '−6h', 'now'], '24h');
+  assert.deepEqual(labels(604800), ['−7d', '−6d', '−5d', '−4d', '−3d', '−2d', '−1d', 'now'], '7d');
+  assert.deepEqual(labels(5400), ['−90m', '−75m', '−60m', '−45m', '−30m', '−15m', 'now'], 'custom 90 minutes');
+  assert.deepEqual(labels(36 * 3600), ['−36h', '−30h', '−24h', '−18h', '−12h', '−6h', 'now'], 'custom 36 hours');
+  assert.deepEqual(labels(3 * 86400), ['−3d', '−2d', '−1d', 'now'], 'custom 3 days');
+  assert.deepEqual(labels(30 * 86400), ['−30d', '−21d', '−14d', '−7d', 'now'], 'custom 30 days');
+  assert.deepEqual(labels(51 * 3600 + 1800), ['−2.1d', '−1d', 'now'], 'a dashboard period of odd length: one unit, a step never crowding the far end');
+  for (const s of [3600, 7200, 21600, 86400, 172800, 604800, 30 * 86400, 365 * 86400, 5400, 100000]) {
+    const ls = labels(s);
+    const units = new Set(ls.slice(0, -1).map((l) => l.slice(-1)));
+    assert.equal(units.size, 1, `${s}s: one unit (${ls.join(' ')})`);
+    assert.ok(ls.length >= 3 && ls.length <= 9, `${s}s: a readable number of ticks (${ls.length})`);
+    const at = [...S.timeTicks(s)].map(([ago]) => ago);
+    assert.ok(at.every((v, i) => i === 0 || v < at[i - 1]), `${s}s: oldest first`);
+  }
+  // On the chart itself.
+  const p = panelOf(setup(lib, newData({}, { period: { key: '7d', seconds: 604800, from: T0, till: T0 + 604800, source: 'trends' },
+    clients: [{ name: 'acme', i: 0, legend: legend(50, 40, 60, 55), points: line(T0, 86400, [40, 50, 60, 55]) }] })).body);
+  const xs = [...p.querySelectorAll('svg g text[font-size="10"]')].map((x) => x.textContent);
+  assert.deepEqual(xs, ['−7d', '−6d', '−5d', '−4d', '−3d', '−2d', '−1d', 'now']);
+  assert.ok(!xs.some((x) => /h$/.test(x)), 'no hours on a 7-day chart');
+});
+
+test('Y axis "Always auto": the data set the range, not the Warn / High lines; a line outside is said, not drawn', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const low = { percent: false, auto: true, lines: { warn: 80, high: 90 },
+    clients: [{ name: 'acme', i: 0, legend: legend(40, 30, 45, 42), points: line(T0, 1800, [30, 40, 45, 42]) }] };
+  const ticks = (el) => [...el.querySelectorAll('svg g text:not([font-size])')].map((x) => x.textContent);
+  let p = panelOf(setup(lib, newData({}, low)).body);
+  assert.deepEqual(ticks(p), ['0%', '13%', '25%', '38%', '50%'], 'tops out at 50 % over data peaking at 45 %, not at 100 %');
+  assert.equal(p.querySelectorAll('svg line[stroke-dasharray]').length, 0, 'Warn 80 and High 90 are above the chart: not drawn');
+  assert.match(p.querySelector('.ep-ov-note').textContent, /Warn 80% \(above the chart\) and High 90% \(above the chart\)/);
+  // A line inside the data's range is drawn as usual.
+  p = panelOf(setup(lib, newData({}, { ...low, lines: { warn: 40, high: 90 } })).body);
+  const dashed = [...p.querySelectorAll('svg line[stroke-dasharray]')];
+  assert.equal(dashed.length, 1);
+  assert.match(dashed[0].getAttribute('style'), /--ep-warn/);
+  assert.match(p.querySelector('.ep-ov-note').textContent, /Warn 40% and High 90% \(above the chart\)/);
+  // Not "Always auto": a percentage still draws 0–100 with both lines, and a non-percentage brings a near line into view.
+  p = panelOf(setup(lib, newData({}, { ...low, percent: true, auto: false })).body);
+  assert.equal(ticks(p)[4], '100%');
+  assert.equal(p.querySelectorAll('svg line[stroke-dasharray]').length, 2);
+  assert.ok(!/above the chart/.test(p.querySelector('.ep-ov-note').textContent));
+  p = panelOf(setup(lib, newData({}, { ...low, auto: false })).body);
+  assert.equal(ticks(p)[4], '100%', 'auto for a non-percentage under the default setting: the lines near the data are kept in view, as before');
+  // Stacked area in "Always auto": the stack decides.
+  const range = setup(lib).w.EpOverviewSummary.yRange({ auto: true, lines: { warn: 80, high: 90 } }, { style: 'stacked' },
+    [{ points: line(T0, 1800, [10, 20]) }, { points: line(T0, 1800, [15, 25]) }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(range)), { lo: 0, hi: 50 });
 });

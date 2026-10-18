@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const HERE = path.resolve(import.meta.dirname, '..');
 const ROOT = path.resolve(HERE, '..');
@@ -154,4 +155,44 @@ test('WidgetView and the metric rules against a fake Zabbix (PHP)', (t) => {
     : local;
   if (r.error || noDocker(r)) { t.skip('no php and no docker here — run test/view.test.php where PHP is'); return; }
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+});
+
+test('Summary view: the Data tab keeps the Metrics list the usage chart offers; only what the Summary does not use is hidden (DOM)', (t) => {
+  let lib = null;
+  for (const base of [path.resolve(HERE, '..'), path.resolve(HERE, '../../..')]) {
+    try { lib = createRequire(path.join(base, 'package.json'))('jsdom'); break; } catch { /* next */ }
+  }
+  if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const edit = read('views/widget.edit.php');
+  const metricsRow = edit.slice(edit.indexOf("$row($dataGrid, new CLabel(_('Metrics'))"), edit.indexOf('// Order clients by'));
+  assert.ok(metricsRow.length > 0 && !metricsRow.includes('ep-ov-cards-only'), 'the Metrics row is in both views');
+  assert.match(metricsRow, /ep-ov-summary-only/, '…saying, in the Summary view, that the usage chart offers them');
+  assert.match(metricsRow, /usage chart offers these metrics in its metric menu/);
+  for (const cardsOnly of ["new CLabel(_('Trend window'))", "new CLabel(_('Order clients by')", '$only->getLabel()']) {
+    const at = edit.indexOf(cardsOnly);
+    assert.ok(at > 0 && edit.slice(at, edit.indexOf(';\n', at)).includes("'ep-ov-cards-only'"), `${cardsOnly}: Cards only (the Summary view does not use it)`);
+  }
+  // And the form script shows and hides them so.
+  let src = read('views/widget.edit.js.php');
+  src = src.slice(src.indexOf('?>') + 2).replace(/<\?= WidgetForm::VIEW_SUMMARY \?>/g, '1').replace(/<\?= WidgetForm::TREND_DAYS \?>/g, '1')
+    .replace(/<\?= ZBX_STYLE_DRAG_ICON \?>/g, 'drag-icon')
+    .replace(/<\?= json_encode\(_\('((?:[^'\\]|\\.)*)'\)\) \?>/g, (_, x) => JSON.stringify(x));
+  assert.ok(!src.includes('<?'), 'every PHP tag replaced');
+  const dom = new lib.JSDOM(`<body><form id="widget-dialogue-form">
+    <input type="radio" name="view" value="0" checked><input type="radio" name="view" value="1">
+    <label class="ep-ov-cards-only" id="trend">Trend window</label>
+    <table id="ep-ov-metrics"><tbody><tr><td>m</td></tr></tbody></table><div class="ep-ov-hint ep-ov-summary-only" id="hint">offered</div>
+    <label class="ep-ov-cards-only" id="order">Order clients by</label>
+  </form></body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  w.CSortable = class {};
+  w.eval(src);
+  w.widget_ep_overview_form.init({ templateid: null, trend_days: 7, stale_after: 0, max: 30 });
+  const shown = (id) => w.document.getElementById(id).style.display !== 'none';
+  assert.ok(shown('ep-ov-metrics') && !shown('hint') && shown('trend') && shown('order'), 'Cards: everything, no Summary note');
+  const summary = w.document.querySelector('[name="view"][value="1"]');
+  summary.checked = true;
+  summary.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.ok(shown('ep-ov-metrics') && shown('hint'), 'Summary: the Metrics list stays, with its note');
+  assert.ok(!shown('trend') && !shown('order'), 'Summary: the Cards-only settings go');
 });

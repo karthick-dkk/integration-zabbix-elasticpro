@@ -610,6 +610,9 @@ namespace Modules\EpOverview\Test {
 		&& run($sv + ['summary_warn' => '70', 'summary_high' => '85'])['overview']['chart']['lines'] === ['warn' => 70.0, 'high' => 85.0]
 		&& run($sv + ['chart_lines' => 0])['overview']['chart']['lines'] === ['warn' => null, 'high' => null]);
 	check('a percentage metric draws 0–100, unless the Y axis is always auto', $c['percent'] === true && run($sv + ['chart_yaxis' => 1])['overview']['chart']['percent'] === false);
+	$auto = run($sv + ['chart_yaxis' => 1])['overview']['chart'];
+	check('…and "Always auto" says so, so the data alone set the range (the Warn / High lines do not)', $c['auto'] === false && $auto['auto'] === true
+		&& $auto['lines'] === $c['lines'], [$c['auto'], $auto['auto']]);
 
 	// Unknown is not zero.
 	$d = run($sv + ['chart_metric' => 'mem']);

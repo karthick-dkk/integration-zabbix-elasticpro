@@ -155,7 +155,12 @@ $metricsTable->addRow((new CCol([
 	' ',
 	$hint(_s('Built-in metrics or any Zabbix item key, up to %1$s. Drag rows to reorder. A blank Warn or High uses ElasticPro Settings.', Metrics::MAX))
 ]))->setColSpan(8));
-$row($dataGrid, new CLabel(_('Metrics')), (new CFormField($metricsTable))->addClass(ZBX_STYLE_TABLE_FORMS_SEPARATOR), 'ep-ov-cards-only');
+// Both views read the list: the Cards draw it, and the Summary view's usage chart offers it in its metric menu
+// (after CPU, memory and ES storage), coloured at each metric's Warn / High — so it stays where it is edited.
+$row($dataGrid, new CLabel(_('Metrics')), (new CFormField([$metricsTable,
+	(new CDiv(_('Summary view: the usage chart offers these metrics in its metric menu, after CPU, memory and ES storage, and colours its legend at each one\'s Warn / High.')))
+		->addClass('ep-ov-hint ep-ov-hint-block ep-ov-summary-only')
+]))->addClass(ZBX_STYLE_TABLE_FORMS_SEPARATOR));
 
 // Order clients by: any metric now or its trend max, problems, days until full, contract end, name.
 $windowLabel = (int) $fields['trend_source']->getValue() === WidgetForm::TREND_DAYS ? $fields['trend_days']->getValue().'d' : _('period');
