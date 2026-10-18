@@ -70,15 +70,26 @@ namespace {
 		public static $asked = [];
 		public static $asked_trend = [];
 		public static $trends = [];
+		/**
+		 * The clients' cluster hosts, as the Elasticsearch templates leave them: JVM heap per node there
+		 * (es.node.jvm.mem.heap_used_percent[<node>]), on no server — what the test Zabbix has.
+		 */
+		public static $cluster = false;
 		public static function values(): array {
-			return [
+			return array_merge(self::$cluster ? [
+				[205, 'es.node.jvm.mem.heap_used_percent[karthi-parser-1]', 55, '%'],
+				[205, 'es.node.jvm.mem.heap_used_percent[es-orphan]', 80, '%'],
+				[205, 'es.node.jvm.mem.heap_used_percent[karthi-ES-Data-Hot-1]', 10, '%'],
+				[205, 'es.node.jvm.uptime[es-orphan]', 3600, 's'],
+				[305, 'es.node.jvm.mem.heap_used_percent[acme-es-data-hot-1.example.com]', 45, '%']
+			] : [], [
 				[201, 'system.cpu.util', 85, '%'], [201, 'vm.memory.utilization', 40, '%'], [201, 'vfs.fs.dependent.size[/,pused]', 99, '%'],
 				[201, 'es.node.jvm.mem.heap_used_percent[n1]', 60, '%'], [201, 'es.node.jvm.mem.heap_used_percent[n2]', 70, '%'], [201, 'es.ingest.rate', 18400, '/s'],
 				[201, 'system.uptime', 86400, 'uptime'],
 				[202, 'system.cpu.util', 20, '%'], [202, 'vfs.fs.dependent.size[/,pused]', 91, '%'], [202, 'es.ingest.rate', 1600, '/s'],
 				[204, 'system.cpu.util', 95, '%'],
 				[301, 'system.cpu.util', 35, '%'], [301, 'vm.memory.utilization', 10, '%'], [301, 'vfs.fs.dependent.size[/,pused]', 50, '%']
-			];
+			]);
 		}
 		public static function itemid(int $host, string $key): string {
 			foreach (self::values() as $i => [$h, $k]) { if ($h === $host && $k === $key) { return (string) ($h * 1000 + $i); } }
@@ -102,7 +113,10 @@ namespace {
 						202 => ['hostid' => 202, 'name' => 'karthi-Parser-1', 'hostgroups' => $g('karthi', 'Parser'), 'interfaces' => $if('10.0.0.2', 2)],
 						204 => ['hostid' => 204, 'name' => 'karthi-Forwarder-1', 'hostgroups' => $g('karthi', 'Forwarders'), 'interfaces' => $if('10.0.0.4', 1)],
 						301 => ['hostid' => 301, 'name' => 'acme-ES-Data-Hot-1', 'hostgroups' => $g('acme', 'ES Data Hot'), 'interfaces' => $if('10.1.0.1', 1)]
-					];
+					] + (self::$cluster ? [
+						205 => ['hostid' => 205, 'host' => 'karthi-ES-Cluster', 'name' => 'karthi-ES-Cluster', 'hostgroups' => $g('karthi', 'Elasticsearch clusters'), 'interfaces' => $if('10.0.0.9', 1)],
+						305 => ['hostid' => 305, 'host' => 'acme-ES-Cluster', 'name' => 'acme-ES-Cluster', 'hostgroups' => $g('acme', 'Elasticsearch clusters'), 'interfaces' => $if('10.1.0.9', 1)]
+					] : []);
 				case 'HostGroup':
 					return array_values(array_filter([['groupid' => 1, 'name' => 'karthi'], ['groupid' => 2, 'name' => 'acme'], ['groupid' => 3, 'name' => 'gone']],
 						fn($x) => in_array($x['name'], $o['filter']['name'], true)));
@@ -150,7 +164,7 @@ namespace Modules\EpTophosts\Test {
 	require __DIR__.'/../lib/Bars.php';
 	require __DIR__.'/../actions/WidgetView.php';
 	use Modules\EpTophosts\Actions\WidgetView;
-	use Modules\EpTophosts\Includes\{Catalogue, WidgetForm};
+	use Modules\EpTophosts\Includes\{Catalogue, JvmNodes, WidgetForm};
 	use Modules\EpTophosts\Lib\{ColumnSettings, Columns, Roles, Settings};
 
 	$failed = 0; $passed = 0;
@@ -246,6 +260,55 @@ namespace Modules\EpTophosts\Test {
 	check('Switch on widget: none ticked is no switch', array_column($d['metrics'], 'id') === ['cpu']);
 	$d = run(['switch_metrics' => ['disk', 'jvm']]);
 	check('…and the ones ticked are the ones offered, the main metric first', array_column($d['metrics'], 'id') === ['cpu', 'disk', 'jvm']);
+
+	/* ---------------- JVM heap: per node, on the client's cluster host ---------------- */
+	// Where the templates the clients use keep it (checked on the test Zabbix 7.0.31): on the cluster host.
+	check('a node item names its node', JvmNodes::node('es.node.jvm.mem.heap_used_percent[ep-es-1]') === 'ep-es-1'
+		&& JvmNodes::node('es.node.jvm.mem.heap_used_percent["es 2"]') === 'es 2' && JvmNodes::node('es.node.jvm.uptime[ep-es-1]') === null
+		&& JvmNodes::node('es.node.jvm.mem.heap_used_percent[]') === null && Catalogue::JVM_KEY === JvmNodes::PREFIX.'*]');
+	$hostsOf = ['9' => ['host' => 'k-ES-Cluster', 'name' => 'k-ES-Cluster', 'client' => 'k'], '1' => ['host' => 'es-hot-1', 'name' => 'k ES hot 1', 'client' => 'k'],
+		'2' => ['host' => 'es-hot-2.dc.example', 'name' => 'es-hot-2.dc.example', 'client' => 'k'], '3' => ['host' => 'es-x', 'name' => 'es-x', 'client' => 'k'],
+		'4' => ['host' => 'es-x.b', 'name' => 'es-x.b', 'client' => 'k']];
+	$srv = ['1' => ['client' => 'k', 'host' => 'k ES hot 1'], '2' => ['client' => 'k', 'host' => 'es-hot-2.dc.example'], '3' => ['client' => 'k', 'host' => 'es-x'],
+		'4' => ['client' => 'k', 'host' => 'es-x.b']];
+	$it = fn($h, $node) => ['itemid' => $h.$node, 'hostid' => $h, 'key_' => JvmNodes::PREFIX.$node.']'];
+	$p = JvmNodes::place($srv, $hostsOf, [$it('9', 'ES-HOT-1'), $it('9', 'es-hot-2'), $it('9', 'es-x.a'), $it('9', 'es-x.c'), $it('9', 'other')], 'm.jvm');
+	check('a node is the server of its host name regardless of case, or of its first label when one server has it', isset($p['at']['1'], $p['at']['2'])
+		&& $p['at']['1']['m.jvm'] === [['9', JvmNodes::PREFIX.'ES-HOT-1]']] && $p['at']['2']['m.jvm'] === [['9', JvmNodes::PREFIX.'es-hot-2]']], $p['at']);
+	check('…a first label two servers share, or no server has, names none: ranked as itself', array_column($p['nodes'], 'node') === ['es-x.a', 'es-x.c', 'other']
+		&& !isset($p['at']['3']) && !isset($p['at']['4']) && $p['reported'] === 5, $p['nodes']);
+
+	\FakeApi::$cluster = true;
+	$d = run(['rank' => 3]);
+	check('JVM heap: a server is read at its node on the cluster host; a node that names no server is ranked as itself; a server\'s own item still wins',
+		$hosts($d, 'jvm') === ['es-orphan', 'karthi-ES-Data-Hot-1', 'karthi-Parser-1', 'acme-ES-Data-Hot-1']
+		&& array_column(array_column($d['panes']['jvm']['rows'], 'value'), 'text') === ['80 %', '70 %', '55 %', '45 %'], [$hosts($d, 'jvm'), array_column(array_column($d['panes']['jvm']['rows'], 'value'), 'text')]);
+	$rows = $d['panes']['jvm']['rows'];
+	check('…the node says what it is, and links to the cluster host it is on', $rows[0]['client_role'] === 'karthi · ES node' && (string) $rows[0]['hostid'] === '205'
+		&& strpos($rows[0]['url'], '205') !== false, $rows[0]);
+	check('…coloured at its client\'s thresholds like any server (80 % is Warn at the defaults; acme\'s 30 / 40 make 45 % High)', $rows[0]['value']['level'] === 'warn'
+		&& $rows[3]['value']['level'] === 'high', [$rows[0]['value']['level'], $rows[3]['value']['level']]);
+	check('…the node of a server with its own item is not ranked twice', count(array_filter($hosts($d, 'jvm'), fn($h) => strcasecmp($h, 'karthi-ES-Data-Hot-1') === 0)) === 1);
+	check('…and no note: every node is in the ranking', $d['panes']['jvm']['note'] === null);
+	check('a node row is no server: CPU and memory do not rank it', !in_array('es-orphan', $hosts($d, 'cpu'), true) && !in_array('es-orphan', $hosts($d, 'mem'), true));
+	check('three calls more, only for JVM heap — none when it is not offered', count(array_filter(\FakeApi::$asked, fn($o) => ($o['search']['key_'] ?? '') === JvmNodes::PREFIX)) === 1
+		&& count(array_filter(run()['panes'], fn($pn) => $pn['id'] === 'jvm')) === 0 && !array_filter(\FakeApi::$asked, fn($o) => ($o['search']['key_'] ?? '') === JvmNodes::PREFIX));
+	$jvm = \FakeApi::itemid(205, 'es.node.jvm.mem.heap_used_percent[karthi-parser-1]');
+	$now = time();
+	\FakeApi::$trends = [$jvm => [$now - 3 * 3600 => [20, 10, 30], $now - 2 * 3600 => [40, 30, 95]]];
+	$d = run(['rank' => 3, 'rank_value' => WidgetForm::RANK_VALUE_MAX, 'trend_days' => 7]);
+	check('…over the window too: the node\'s trend on the cluster host', $hosts($d, 'jvm') === ['karthi-Parser-1'] && $d['panes']['jvm']['rows'][0]['value']['value'] === 95.0,
+		[$hosts($d, 'jvm'), $d['panes']['jvm']['rows'][0]['value'] ?? null]);
+	\FakeApi::$trends = [];
+	$d = run(['rank' => 3, 'roles' => ['es_data_hot']]);
+	// karthi-parser-1 is a Parser, not in the roles picked, so its node names no server listed either.
+	check('picking roles leaves out a node that names no server listed, and says how many', $hosts($d, 'jvm') === ['karthi-ES-Data-Hot-1', 'acme-ES-Data-Hot-1']
+		&& strpos((string) $d['panes']['jvm']['note'], '2 Elasticsearch nodes report JVM heap but are left out') === 0, [$hosts($d, 'jvm'), $d['panes']['jvm']['note']]);
+	\FakeApi::$cluster = false;
+	$d = run(['rank' => 3, 'clients' => ['acme']]);
+	check('no node reports JVM heap: the pane says where it is read and what to link, instead of an empty list', $d['panes']['jvm']['rows'] === []
+		&& strpos((string) $d['panes']['jvm']['note'], 'No Elasticsearch node reports JVM heap') === 0 && strpos((string) $d['panes']['jvm']['note'], 'Elasticsearch Cluster by HTTP') !== false,
+		$d['panes']['jvm']['note']);
 
 	// Rank value: the average or the maximum over the window.
 	$cpu = \FakeApi::itemid(204, 'system.cpu.util');

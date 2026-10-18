@@ -25,9 +25,26 @@ A widget saved before 2.1.1 looks as it did: **Client** (a name) is the one clie
 type** the one type, **Rank by** keeps CPU and memory (the same field), the thresholds of 0 are empty;
 it is a list with bars with the CPU / Memory switch and the four columns it drew.
 
-**JVM heap** reads `es.node.jvm.mem.heap_used_percent[*]` on the server itself. Zabbix's Elasticsearch
-template keeps that item on the cluster host, so a site whose servers do not carry it ranks nothing by
-JVM heap (the list says so) — rank by *Any Zabbix item* with the key the servers do have.
+**JVM heap** is reported per Elasticsearch node, and the templates the clients use keep it on the
+client's **cluster host**, not on the servers: *Elasticsearch Cluster by HTTP* (and the SISA copy of it)
+and ElasticPro's *Elasticsearch via SSH jump host* discover the nodes there and make
+`es.node.jvm.mem.heap_used_percent[<node name>]` for each. (Checked on the test Zabbix 7.0.31: the item
+is on `Local-ES-Cluster` only, keyed `[ep-es-1]`; no server host carries it.) So Top hosts
+(`includes/JvmNodes.php`):
+
+- reads a server that carries `es.node.jvm.mem.heap_used_percent[*]` itself there, as before;
+- reads any other server at its node on the client's cluster host — the node whose name is the server's
+  Zabbix host name or visible name (regardless of case), or the first label of either when only one
+  server has it (`es-hot-1` for `es-hot-1.example.com`);
+- ranks a node that names no server as itself (`<node>`, *<client> · ES node*, linking to the cluster
+  host's Latest data), so a site whose host names are not its node names still sees its heap. With
+  roles picked such a node's role is not known: it is left out, and the pane says how many were;
+- says, when no node reports JVM heap at all, where it is read and which template to link, instead of
+  an empty list.
+
+Now or over the window alike: the node's item and its trend are read through the column engine (a row
+may say where one column is read — `ColumnReport`'s `at`), one item.get for the node items of every
+client, only when JVM heap is ranked or offered on the switch.
 
 ## Install
 

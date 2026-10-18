@@ -1,5 +1,6 @@
 /* Top hosts, inside the dark panel (ep-panel.css): the list with bars, the table, the bar chart. */
 .ep-panel .ep-top-pane[hidden] { display: none !important; }
+.ep-panel .ep-top-note { color: var(--ep-muted); font-size: 11px; margin-top: 8px; }
 .ep-panel .ep-top10 { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); column-gap: 18px; }
 .ep-panel .ep-top10 li { display: grid; grid-template-columns: 18px 1fr minmax(54px, auto); gap: 2px 8px; align-items: center; font-variant-numeric: tabular-nums; }
 .ep-panel .ep-top10 .rk { color: var(--ep-muted); font-size: 12px; grid-row: span 2; }

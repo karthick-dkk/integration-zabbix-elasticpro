@@ -180,7 +180,10 @@ class ColumnReport {
 	 *
 	 * @param array $rows        id => ['client' => the row as the widget describes it (name, type, macros, and the text a
 	 *                           built-in column of the row reads), 'servers' => the servers its server figures are on
-	 *                           (hostid, roles, disks)]; the id is the host the row's master figures are on
+	 *                           (hostid, roles, disks), and optionally 'at' => uid => [[hostid, exact key], …]: where
+	 *                           that one column is read for this row instead of on its servers (Top hosts: a server's
+	 *                           JVM heap is its Elasticsearch node's item on the cluster host)]; the id is the host the
+	 *                           row's master figures are on
 	 * @param array $masterKeys  further keys to read on every row's master host (a donut's, the forecast's)
 	 */
 	public function read(array $rows, array $visible, array $catalogue, int $trendDays, array $masterKeys = []): void {
@@ -190,7 +193,8 @@ class ColumnReport {
 		$plan = [];
 		foreach ($rows as $mid => $row) {
 			foreach ($visible as $col) {
-				$plan[$mid][$col['uid']] = $this->targets($col, $catalogue, (string) $mid, $row['servers']);
+				$plan[$mid][$col['uid']] = isset($row['at'][$col['uid']]) ? self::at($row['at'][$col['uid']])
+					: $this->targets($col, $catalogue, (string) $mid, $row['servers']);
 				foreach ($plan[$mid][$col['uid']] as $target) {
 					foreach ($target['want'] as [$hostid, $key, $pattern]) {
 						if ($pattern) {
@@ -409,6 +413,16 @@ class ColumnReport {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * A column read where the widget says for one row — [hostid, exact key] pairs — and then like any
+	 * item column: each host's value, the hosts combined, now or over the window.
+	 */
+	private static function at(array $pairs): array {
+		$want = array_map(fn($p) => [$p[0], (string) $p[1], false], array_values($pairs));
+
+		return ['a' => ['on' => Columns::ON_SERVERS, 'servers' => count($want), 'want' => $want, 'label' => $want ? $want[0][1] : '']];
 	}
 
 	/** How a reason names a built-in figure: "ES storage allocated", "devices seen". */

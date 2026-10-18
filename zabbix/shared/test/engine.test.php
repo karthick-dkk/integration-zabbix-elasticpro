@@ -13,10 +13,20 @@ namespace {
 	/** Records what trend.get is asked; answers one point per hour of each item's window. */
 	class API {
 		public static array $trend = [];
+		/** What item.get answers: matched on hostids and an exact key or a key prefix. */
+		public static array $items = [];
 		public static function __callStatic($name, $args) {
 			return new class($name) {
 				public function __construct(private string $n) {}
 				public function get(array $o) {
+					if ($this->n === 'Item') {
+						return array_values(array_filter(\API::$items, function ($it) use ($o) {
+							if (!in_array($it['hostid'], array_map('strval', $o['hostids'] ?? []), true)) return false;
+							if (isset($o['filter']['key_'])) return in_array($it['key_'], (array) $o['filter']['key_'], true);
+							foreach ((array) ($o['search']['key_'] ?? []) as $p) { if (strpos($it['key_'], explode('*', $p)[0]) === 0) return true; }
+							return false;
+						}));
+					}
 					if ($this->n !== 'Trend') return [];
 					\API::$trend[] = $o;
 					$out = [];
@@ -244,6 +254,24 @@ namespace EpShared\Test {
 	check('past the trend budget: shortest windows read first, the rest named, not read', isset($series['1'], $series['3']) && !isset($series['4'])
 		&& array_keys($reader->seriesCapped) === [4], [$reader->seriesCapped, array_keys($series)]);
 	check('the budget a refresh may read', ColumnReader::MAX_ITEM_DAYS === 20000);
+
+	/* ---------------- a column read where the widget says, for one row ---------------- */
+	// Top hosts: a server's JVM heap is its Elasticsearch node's item on the cluster host.
+	$it = fn($id, $host, $key, $v) => ['itemid' => $id, 'hostid' => $host, 'key_' => $key, 'lastvalue' => $v, 'lastclock' => (string) time(), 'state' => 0, 'units' => '%',
+		'value_type' => 0, 'name' => $key];
+	\API::$items = [$it('901', '9', 'es.node.jvm.mem.heap_used_percent[n1]', '61.5'), $it('902', '1', 'es.node.jvm.mem.heap_used_percent[own]', '20'),
+		$it('903', '9', 'es.node.jvm.mem.heap_used_percent[n2]', '99')];
+	$jvmCol = ['uid' => 'm.jvm', 'name' => 'JVM heap', 'source' => Columns::SOURCE_ITEM, 'key' => 'es.node.jvm.mem.heap_used_percent[*]', 'pattern' => 1, 'units' => '%',
+		'value' => Columns::VALUE_NOW, 'combine' => Columns::COMBINE_MAX] + Columns::DEFAULT;
+	$srvRow = fn($id) => ['client' => ['name' => 's'.$id, 'macros' => []], 'servers' => [['hostid' => $id, 'roles' => [], 'disks' => []]]];
+	$rowsAt = ['1' => $srvRow('1'), '2' => $srvRow('2') + ['at' => ['m.jvm' => [['9', 'es.node.jvm.mem.heap_used_percent[n1]']]]], '3' => $srvRow('3')];
+	$rep = new ColumnReport(Settings::all(), time(), '', '', null, true);
+	$rep->read($rowsAt, [$jvmCol], [], 7);
+	$v = fn($id) => $rep->cells($id, $rowsAt[$id]['client'], [$jvmCol], [], 'under')['sort']['m.jvm'];
+	check('a row read where the widget says: that host\'s exact key, not the row\'s servers — other rows as before', $v('1') === 20.0 && $v('2') === 61.5 && $v('3') === null,
+		[$v('1'), $v('2'), $v('3')]);
+	check('…the other node on that host is not this row\'s', $v('2') !== 99.0);
+	\API::$items = [];
 
 	/* ---------------- donuts ---------------- */
 	$p = ColumnMath::pie(2870.0, 3500.0, 4000.0);

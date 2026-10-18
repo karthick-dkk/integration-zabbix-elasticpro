@@ -738,6 +738,7 @@ CPU, memory and disk figures, one without a memory figure, and one with the item
 | TH-05 | Columns | Add *Uptime* and a 7d max of CPU used | Apply; View: Table | A table with Rank, Host, Value, Client · Role and the extras, each with its own look | extra engine columns | P1 |
 | TH-06 | Three views | View: List with bars / Table / Bar chart | Apply each | The same ranking drawn three ways; hosts link to Latest data; the level colours are the palette's | the design | P1 |
 | TH-07 | Warn / High | empty, then 50 / 70 | Apply | Empty follows Settings (placeholder says the value); typed applies to the percentages ranked; a client's own macros still win | precedence | P1 |
+| TH-08 | JVM heap from the cluster host | a client whose cluster host has *Elasticsearch Cluster by HTTP* (nodes discovered); servers without it | Rank by JVM heap | Each server whose host name is a node's name shows that node's heap; a node that names no server is listed as itself (*<client> · ES node*); with no Elasticsearch template linked anywhere the pane says so and names the template — never an empty list | where the item really is | **P1** |
 
 ## 13. Regression watch-list
 

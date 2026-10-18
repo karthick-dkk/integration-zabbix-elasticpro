@@ -5,13 +5,13 @@ namespace Modules\EpTophosts\Actions;
 foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'ClientData', 'Bars', 'Forecast', 'Columns', 'ColumnMath', 'ColumnReader', 'ColumnCell', 'ColumnReport'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
-foreach (['CWidgetFieldStrings', 'CWidgetFieldOptionalNumber', 'CWidgetFieldColumns', 'Catalogue', 'WidgetForm'] as $inc) {
+foreach (['CWidgetFieldStrings', 'CWidgetFieldOptionalNumber', 'CWidgetFieldColumns', 'Catalogue', 'JvmNodes', 'WidgetForm'] as $inc) {
 	require_once __DIR__.'/../includes/'.$inc.'.php';
 }
 
 use CControllerDashboardWidgetView,
 	CControllerResponseData;
-use Modules\EpTophosts\Includes\{Catalogue, WidgetForm};
+use Modules\EpTophosts\Includes\{Catalogue, JvmNodes, WidgetForm};
 use Modules\EpTophosts\Lib\{Bars, ClientData, ColumnCell, ColumnMath, ColumnReport, ColumnSettings, Columns, Roles, Settings};
 
 /**
@@ -25,6 +25,10 @@ use Modules\EpTophosts\Lib\{Bars, ClientData, ColumnCell, ColumnMath, ColumnRepo
  * Every metric the widget offers is ranked and drawn on the page (a pane each), so switching on
  * the widget costs no trip to Zabbix. A server with no figure for the metric is left out of its
  * ranking — unknown is not zero.
+ *
+ * JVM heap is reported per Elasticsearch node on the client's cluster host, not on the servers
+ * (JvmNodes): a server is read at the node of its name there, and a node that names no server is
+ * ranked as itself. When no node reports it at all, the pane says where it is read and what to link.
  */
 class WidgetView extends CControllerDashboardWidgetView {
 
@@ -119,6 +123,39 @@ class WidgetView extends CControllerDashboardWidgetView {
 		}
 		$all = array_merge(array_values($metricCols), $extras);
 
+		// JVM heap: each server at its node on the cluster host; a node that names no server, as itself.
+		$notes = [];
+		if (isset($metricCols['jvm'])) {
+			$jvm = JvmNodes::find(array_keys($masters));
+			$placed = JvmNodes::place(array_map(fn($r) => ['client' => $r['client']['client'], 'host' => $r['client']['host']], $rowsIn), $jvm['hosts'], $jvm['items'],
+				$metricCols['jvm']['uid']);
+			foreach ($placed['at'] as $hostid => $at) {
+				$rowsIn[$hostid]['at'] = $at;
+			}
+			$leftOut = 0;
+			foreach ($placed['nodes'] as $n) {
+				$c = $masters[$n['client']] ?? null;
+				// Its role is not known, so a widget that picks roles cannot say it is one of them.
+				if ($c === null || $roleIds) {
+					$leftOut++;
+					continue;
+				}
+				$rowsIn['node:'.$n['hostid'].':'.$n['node']] = [
+					'client' => ['name' => $n['node'], 'host' => $n['node'], 'hostid' => $n['hostid'], 'client' => $n['client'], 'type' => $c['type'], 'role' => _('ES node'),
+						'client_role' => $n['client'].' · '._('ES node'), 'ip' => '', 'status' => '', 'rank' => '', 'value' => '', 'macros' => $c['macros'], 'mid' => $c['mid']],
+					'servers' => [],
+					'at' => [$metricCols['jvm']['uid'] => [[$n['hostid'], $n['key']]]]
+				];
+			}
+			if ($placed['reported'] === 0) {
+				$notes['jvm'] = _('No Elasticsearch node reports JVM heap for these clients. It is read from es.node.jvm.mem.heap_used_percent on the client\'s cluster host (or on a server that carries it): link Elasticsearch Cluster by HTTP, or the jump host template, to the cluster host.');
+			}
+			elseif ($leftOut > 0) {
+				$notes['jvm'] = _n('%1$s Elasticsearch node reports JVM heap but is left out: it names no server in the roles picked.',
+					'%1$s Elasticsearch nodes report JVM heap but are left out: they name no server in the roles picked.', $leftOut);
+			}
+		}
+
 		$report->read($rowsIn, $all, $catalogue, (int) ($f['trend_days'] ?? 7));
 		// An item's figure is judged at Settings' thresholds only when it is a percentage; otherwise at the Value column's own.
 		$units = $report->units();
@@ -147,7 +184,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 			usort($ranked, fn($a, $b) => $b['value'] <=> $a['value'] ?: strnatcasecmp($rowsIn[$a['hostid']]['client']['host'], $rowsIn[$b['hostid']]['client']['host']));
 			$ranked = array_slice($ranked, 0, $data['count']);
 			$top = $ranked ? max(array_column($ranked, 'value')) : null;
-			$pane = ['id' => $id, 'label' => Catalogue::metric($id, $f)['label'], 'rows' => []];
+			$pane = ['id' => $id, 'label' => Catalogue::metric($id, $f)['label'], 'rows' => [], 'note' => $notes[$id] ?? null];
 			foreach ($ranked as $i => $r) {
 				$in = $rowsIn[$r['hostid']];
 				$client = $in['client'];

@@ -77,7 +77,10 @@ and the Client overview's Summary view: one column engine, one palette.
     metrics a viewer may switch between; columns (Rank, Host, Value, Client · Role and any column of
     the model); a list with bars, a table or a bar chart. A widget saved before keeps ranking the same
     servers the same way: its Client, Client type, Rank by, Hosts and thresholds are read onto the new
-    settings.
+    settings. **JVM heap** is read where Elasticsearch reports it: per node on the client's cluster
+    host (the templates the clients use keep it there, none on the servers). A server is read at the
+    node of its name, a node that names no server is ranked as itself, and when no node reports it
+    the pane says what to link — 2.1.0 read it on the servers and ranked nothing.
   - A widget saved before this release of each kind looks as it did; Warn / High left empty mean
     ElasticPro Settings. Export headers say their unit ("(days)", "(GB)" for a unit Zabbix is told not
     to scale).

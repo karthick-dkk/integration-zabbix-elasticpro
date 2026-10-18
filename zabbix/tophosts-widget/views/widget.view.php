@@ -39,7 +39,8 @@ $tone = fn(array $cell) => $cell['level'] !== '' ? 'lv-'.$cell['level'] : null;
 $panes = [];
 foreach ($data['panes'] as $id => $pane) {
 	if (!$pane['rows']) {
-		$none = (new CDiv(_s('No server reports %1$s yet.', mb_strtolower($pane['label']))))->addClass('ep-empty');
+		// Why there is nothing, when the controller knows (JVM heap: where it is read, what to link).
+		$none = (new CDiv($pane['note'] ?? _s('No server reports %1$s yet.', mb_strtolower($pane['label']))))->addClass('ep-empty');
 		$panes[] = (new CDiv($none))->setAttribute('data-ep-pane', $id)->addClass('ep-top-pane')->setAttribute('hidden', $id === $data['rank'] ? null : 'hidden');
 		continue;
 	}
@@ -81,7 +82,8 @@ foreach ($data['panes'] as $id => $pane) {
 			}
 			$body = (new CTag('ol', true, $items))->addClass('ep-top10');
 	}
-	$panes[] = (new CDiv($body))->setAttribute('data-ep-pane', $id)->addClass('ep-top-pane')->setAttribute('hidden', $id === $data['rank'] ? null : 'hidden');
+	$note = ($pane['note'] ?? null) !== null ? (new CDiv($pane['note']))->addClass('ep-top-note') : null;
+	$panes[] = (new CDiv([$body, $note]))->setAttribute('data-ep-pane', $id)->addClass('ep-top-pane')->setAttribute('hidden', $id === $data['rank'] ? null : 'hidden');
 }
 
 $view
