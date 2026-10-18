@@ -41,3 +41,50 @@ machine). The mapping table's **Used by** column says which of them each name re
 Tests (from this folder): `npm test`. `npm install` once beforehand gets `jsdom`, without which
 the Columns dialog's own tests skip; everything else runs without it. The PHP suites run through a
 `php:8.4-cli-alpine` container when there is no local `php`, and say so when there is neither.
+
+## Versions and releases
+
+**One version for the whole set.** Every module — `clients-module`, the five widgets and
+`embed-module` — carries the same `x.y.z` in its `manifest.json`, and `CHANGELOG.md` has a
+`## x.y.z` section saying what changed. The version is the modules' own: it is not ElasticPro's
+version (for example, ElasticPro 0.3.20 ships modules 2.1.0). Zabbix shows it under *Administration → General
+→ Modules*, and **ElasticPro → Settings** shows it with the build (see below).
+
+**Any change to what a module ships bumps the version, one patch at a time** (2.1.0 → 2.1.1). Tests,
+READMEs and tool scripts (`*.py`, `*.mjs`) are not shipped and need no bump. Two checks enforce it:
+
+- `npm test` holds the manifests to one `x.y.z` and the CHANGELOG to a written section for it.
+- `npm run version-check` compares with the latest `v*` tag: if a shipped file under a module or
+  `shared/` changed since the tag and the version is still the tag's, it fails and names the files.
+  With no tag yet it passes and says so. CI runs both on every pull request and push to `main`.
+
+**To bump** (in the pull request that makes the change):
+
+```bash
+cd zabbix
+npm run version -- 2.1.1          # sets every manifest, adds "## 2.1.1" to CHANGELOG.md with a placeholder
+$EDITOR CHANGELOG.md              # replace the placeholder with what changed, for a person who runs Zabbix
+npm run version -- --check        # fails while the placeholder is there, or the manifests disagree
+```
+
+`npm run version` with no argument prints the current version. A jump (2.1.0 → 2.3.0, or 3.0.0)
+is refused unless `--allow-jump` is added; a version that is not higher is always refused.
+
+**To release** (after the pull request is merged):
+
+1. On `main`, at the commit that carries the version: `git tag v2.1.1 && git push origin v2.1.1`.
+2. The `ci` workflow runs the tests, checks that the tag equals the manifests' version, and creates a
+   GitHub release titled *ElasticPro Zabbix modules 2.1.1* whose notes are that version's CHANGELOG
+   section. Nothing is built or attached: the release is a version and its notes.
+3. ElasticPro ships the modules from a pinned commit, `deploy/zabbix/MODULES_REF` in its repository.
+   Move it, in a pull request there, to the tagged commit and set its `# modules x.y.z` line to the
+   same version; ElasticPro's build fails if the commit's manifests do not carry that version.
+
+**Which build is installed.** ElasticPro's `tools/zabbix-modules-tarball.sh` writes a `BUILD` file
+into every module folder of the archive it makes: `key=value` lines for `modules_version`,
+`modules_commit`, `modules_commit_short`, `modules_commit_date` and `modules_tree` (`clean` or
+`modified`); it names only the modules commit, so it changes only when the modules do.
+**ElasticPro → Settings** shows "Zabbix modules 2.1.0 · build 723f101" from it ("(modified)" after the
+commit for a build from uncommitted changes), and "Zabbix modules 2.1.0 · build not recorded" for a
+module copied straight from a checkout, which has no `BUILD`. `BUILD` is never committed to this
+repository.

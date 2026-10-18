@@ -1,3 +1,4 @@
-# Only the test runner needs these; nothing here is shipped into Zabbix.
+# Only the test runner needs node_modules; nothing here is shipped into Zabbix. The lockfile is tracked (CI installs with npm ci).
 node_modules/
-package-lock.json
+# Written into a module folder by the release archive (see README), never committed.
+BUILD
