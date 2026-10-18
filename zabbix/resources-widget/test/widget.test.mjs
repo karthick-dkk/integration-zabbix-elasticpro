@@ -269,8 +269,8 @@ const RES_FORM = `<form id="widget-dialogue-form">
   <input type="radio" name="columns_from" value="0"><input type="radio" name="columns_from" value="1" checked>
   <button id="ep_cf_reset" type="button">Reset</button><span id="ep_cf_clients_note"></span>
   <input name="trend_days" value="7">
-  <input type="radio" name="view" value="0" checked><input type="radio" name="view" value="1"><input type="checkbox" name="view_switch">
-  <input type="checkbox" name="totals"><select name="totals_fn"></select>
+  <input type="radio" name="view" value="0" checked><input type="radio" name="view" value="1"><input type="hidden" name="view_switch" value="0"><input type="checkbox" name="view_switch" value="1">
+  <input type="hidden" name="totals" value="0"><input type="checkbox" name="totals" value="1"><select name="totals_fn"></select>
   <table id="ep-cf-columns"><tbody>
     <tr data-uid="u0"><td><input type="checkbox" class="js-show" checked><button type="button" name="edit">Edit</button>
       <input type="hidden" name="sortorder[columns][]" value="0"><input type="hidden" name="columns[0][uid]" value="u0"><input type="hidden" name="columns[0][hidden]" value="0"></td></tr>
@@ -317,11 +317,12 @@ test('the settings form is the shared EpColumnsForm with Client resources\' own:
   pie.checked = true;
   pie.dispatchEvent(new w.Event('change', { bubbles: true }));
   assert.ok(!shown('.ep-res-table-only') && shown('.ep-res-pie-only'), 'Pie chart: the donuts\' settings');
-  const both = doc.querySelector('[name="view_switch"]');
+  // Zabbix's checkbox fields put a hidden name=0 before the box: the box is what is read.
+  const both = doc.querySelector('input[type="checkbox"][name="view_switch"]');
   both.checked = true;
   both.dispatchEvent(new w.Event('change', { bubbles: true }));
   assert.ok(shown('.ep-res-table-only') && shown('.ep-res-pie-only'), 'viewers may switch: both');
-  const totals = doc.querySelector('[name="totals"]');
+  const totals = doc.querySelector('input[type="checkbox"][name="totals"]');
   assert.equal(doc.querySelector('[name="totals_fn"]').disabled, true, 'the shared notes still run');
   totals.checked = true;
   totals.dispatchEvent(new w.Event('change', { bubbles: true }));

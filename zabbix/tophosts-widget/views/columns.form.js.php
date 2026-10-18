@@ -72,7 +72,7 @@ window.EpColumnsForm = class {
 					from.checked = true;
 				}
 				this._dropOwn();
-				ZABBIX.Dashboard.reloadWidgetProperties();
+				this._reload();
 			});
 		}
 
@@ -82,7 +82,7 @@ window.EpColumnsForm = class {
 				if (e.target.value === '0') {
 					this._dropOwn();
 				}
-				ZABBIX.Dashboard.reloadWidgetProperties();
+				this._reload();
 				return;
 			}
 			if (['clients[]', 'totals'].includes(e.target.name)) {
@@ -90,6 +90,96 @@ window.EpColumnsForm = class {
 			}
 		});
 		this._update();
+		this._keep();
+	}
+
+	/**
+	 * A column added, edited or removed, Columns from changed, Reset: the form is drawn again with it.
+	 * Where the person was — the tab and how far down — is noted first, so the new form opens there
+	 * (Zabbix draws a reloaded form on its first tab, at the top).
+	 */
+	_reload() {
+		const state = this._state();
+		window.EpColumnsFormKeep = {tab: state.tab, scroll: state.scroll, action: this._action_name, at: Date.now()};
+		ZABBIX.Dashboard.reloadWidgetProperties();
+	}
+
+	/** The tab and scroll of this dialogue, kept on its element, which outlives the form drawn in it. */
+	_state() {
+		const dialogue = this._form.closest('.overlay-dialogue');
+		const tabs = this._form.querySelector('.ep-ef-tabs');
+		const body = this._form.closest('.overlay-dialogue-body');
+		const state = dialogue !== null ? (dialogue.epFormKeep || (dialogue.epFormKeep = {tab: 0, scroll: 0})) : {tab: 0, scroll: 0};
+		if (tabs !== null) {
+			try {
+				const active = jQuery(tabs).tabs('option', 'active');
+				if (Number.isInteger(active)) {
+					state.tab = active;
+				}
+			}
+			catch (e) {
+				// Tabs not started: nothing to note.
+			}
+		}
+		if (body !== null) {
+			state.scroll = body.scrollTop;
+		}
+
+		return state;
+	}
+
+	/** Opens a form drawn again on the tab and at the scroll it had; follows both while it is open. */
+	_keep() {
+		const dialogue = this._form.closest('.overlay-dialogue');
+		const tabs = this._form.querySelector('.ep-ef-tabs');
+		const body = this._form.closest('.overlay-dialogue-body');
+		if (dialogue === null) {
+			return;
+		}
+		// The same dialogue redrawn keeps its note; a new one (a different element) may still be the redraw
+		// this form asked for a moment ago.
+		const stash = window.EpColumnsFormKeep || null;
+		window.EpColumnsFormKeep = null;
+		if (!dialogue.epFormKeep && stash !== null && stash.action === this._action_name && Date.now() - stash.at < 15000) {
+			dialogue.epFormKeep = {tab: stash.tab, scroll: stash.scroll};
+		}
+		const state = dialogue.epFormKeep || (dialogue.epFormKeep = {tab: 0, scroll: 0});
+		if (tabs !== null && state.tab > 0) {
+			try {
+				jQuery(tabs).tabs('option', 'active', state.tab);
+			}
+			catch (e) {
+				// Tabs not started yet: the form opens on its first tab, as Zabbix draws it.
+			}
+		}
+		if (body !== null && state.scroll > 0) {
+			const want = state.scroll;
+			body.scrollTop = want;
+			// Once more after the new form is laid out, if it was not tall enough yet.
+			if (body.scrollTop < want && typeof requestAnimationFrame === 'function') {
+				requestAnimationFrame(() => { body.scrollTop = want; });
+			}
+		}
+		if (tabs !== null) {
+			jQuery(tabs).on('tabsactivate', () => {
+				try {
+					state.tab = jQuery(tabs).tabs('option', 'active');
+				}
+				catch (e) {
+					// Nothing to note.
+				}
+				state.scroll = 0;
+			});
+		}
+		if (body !== null && !body.epKeepBound) {
+			body.epKeepBound = true;
+			body.addEventListener('scroll', () => {
+				const d = body.closest('.overlay-dialogue');
+				if (d !== null && d.epFormKeep) {
+					d.epFormKeep.scroll = body.scrollTop;
+				}
+			}, {passive: true});
+		}
 	}
 
 	/** Show ticked or not in a list sets that column hidden or not in the form. */
@@ -119,7 +209,8 @@ window.EpColumnsForm = class {
 				? (picked === 1 ? <?= json_encode(_('%1$s client picked')) ?> : <?= json_encode(_('%1$s clients picked')) ?>).replace('%1$s', picked)
 				: <?= json_encode(_('All clients · tick to pick from %1$s')) ?>.replace('%1$s', boxes.length);
 		}
-		const totals = this._form.querySelector('[name="totals"]');
+		// The checkbox itself: Zabbix's checkbox field puts a hidden "totals" = 0 before it, which is never checked.
+		const totals = this._form.querySelector('input[type="checkbox"][name="totals"]');
 		const fn = this._form.querySelector('[name="totals_fn"]');
 		if (totals !== null && fn !== null) {
 			fn.disabled = !totals.checked;
@@ -174,7 +265,7 @@ window.EpColumnsForm = class {
 			}
 			case 'remove':
 				button.closest('tr').remove();
-				ZABBIX.Dashboard.reloadWidgetProperties();
+				this._reload();
 				break;
 		}
 	}
@@ -200,7 +291,7 @@ window.EpColumnsForm = class {
 			this._index = this._nextIndex('columns');
 			after = this._write(copy, 'columns', after);
 		}
-		ZABBIX.Dashboard.reloadWidgetProperties();
+		this._reload();
 	}
 
 	_input(name, value, after = null) {
@@ -254,6 +345,6 @@ window.EpColumnsForm = class {
 		else {
 			this._write(column, list);
 		}
-		ZABBIX.Dashboard.reloadWidgetProperties();
+		this._reload();
 	}
 };

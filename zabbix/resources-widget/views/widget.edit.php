@@ -56,7 +56,8 @@ $columnsTab = [$columnsGrid, new CFormFieldset(_('Server rows and thresholds'), 
 $viewField = $f->view(new CWidgetFieldRadioButtonListView($fields['view']));
 $switch = $f->view(new CWidgetFieldCheckBoxView($fields['view_switch']));
 $viewGrid = new CFormGrid();
-$f->row($viewGrid, $viewField->getLabel(), (new CDiv([$viewField->getView(), $switch->getView()]))->addClass('ep-ef-inline'));
+$f->row($viewGrid, $viewField->getLabel(), (new CDiv([$viewField->getView(), $switch->getView(),
+	$f->hint(_('a Table / Pie chart switch on the widget\'s toolbar'))]))->addClass('ep-ef-inline'));
 
 // Pie chart: Client resources' own.
 $measures = Catalogue::measures($roles, $model['split']);
@@ -90,8 +91,9 @@ $viewTab = (new CDiv([
 	$viewGrid,
 	(new CFormFieldset(_('Pie chart'), $pieGrid))->addClass('ep-res-pie-only'),
 	(new CFormFieldset(_('Table'), $f->tableGrid(ColumnForm::sortOptions($columns, _('Client')))))->addClass('ep-res-table-only'),
+	// No "Table / Pie chart" item here: Viewers may switch on the widget puts that switch on the toolbar.
 	new CFormFieldset(_('Toolbar on the widget'), $f->toolbarGrid(['search' => _('Search'), 'type' => _('Type filter'), 'attention' => _('Needs attention'),
-		'compact' => _('Compact'), 'view' => _('Table / Pie chart'), 'expand' => _('Expand all'), 'columns' => _('Columns dialog'),
+		'compact' => _('Compact'), 'expand' => _('Expand all'), 'columns' => _('Columns dialog'),
 		'export' => _('Export CSV / Excel')])),
 	new CFormFieldset(_('Needs attention means'), $f->attentionGrid(['warn' => _('Over Warn'), 'high' => _('Over High'), 'down' => _('Server down'),
 		'short' => _('Short (allocated below requested)'), 'nodata' => _('No data'), 'disk30' => _('Disk full within 30 d')]))

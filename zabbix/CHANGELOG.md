@@ -39,7 +39,7 @@ and the Client overview's Summary view: one column engine, one palette.
   (Role … Uptime) each in the same editor. A **Pie chart** view — per client, donuts of used, free and
   short (hatched, solid or hidden) for any figure with used, allocated and requested, a centre of
   your choice, a legend with percentages and status chips; allocated not set says so and draws no
-  ring — and viewers may switch between it and the table. Table options: server rows on click / all
+  ring — and viewers may switch between it and the table (*Viewers may switch on the widget* puts the Table / Pie chart switch on the toolbar). Table options: server rows on click / all
   / none, density and row height, group headers, sticky header, frozen first column, striped rows, a
   totals row, default sort and top N. Toolbar items and position, and what **Needs attention** means
   (over Warn, over High, server down, short, no data, disk full within 30 days) with its default.

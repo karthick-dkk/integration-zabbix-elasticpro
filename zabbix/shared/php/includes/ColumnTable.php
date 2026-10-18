@@ -140,7 +140,9 @@ class ColumnTable {
 			$bar[] = (new CSimpleButton(_('Compact')))->addClass('ep-pbtn')->setAttribute('data-ep-compact', '')
 				->setAttribute('aria-pressed', $opt['density'] === TableOptions::DENSITY_COMPACT ? 'true' : 'false');
 		}
-		if (isset($tools['view']) && $o['pie'] !== null && $o['pie']['both']) {
+		// "Viewers may switch on the widget" is the setting: the switch is on the toolbar whenever it is on
+		// (2.1.1 at first also wanted a separate toolbar item ticked, off by default, so ticking the setting did nothing).
+		if ($o['pie'] !== null && $o['pie']['both']) {
 			$bar[] = (new CDiv([
 				(new CSimpleButton(_('Table')))->addClass('ep-pbtn')->setAttribute('data-ep-view-to', 'table')
 					->setAttribute('aria-pressed', !$o['pie']['pie'] ? 'true' : 'false'),

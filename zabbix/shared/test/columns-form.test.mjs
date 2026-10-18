@@ -38,7 +38,7 @@ const FORM = `<form id="widget-dialogue-form">
   <input id="ep_cf_clients_filter"><span id="ep_cf_clients_note"></span>
   <div class="ep-ef-clients"><span class="ep-ef-box"><input type="checkbox" name="clients[]" value="acme">acme</span><span class="ep-ef-box"><input type="checkbox" name="clients[]" value="beta">beta</span></div>
   <input name="trend_days" value="14">
-  <input type="checkbox" name="totals"><select name="totals_fn"></select>
+  <input type="hidden" name="totals" value="0"><input type="checkbox" name="totals" value="1"><select name="totals_fn"></select>
   <table id="ep-cf-columns"><tbody>
     <tr data-uid="u0"><td><input type="checkbox" class="js-show" checked><button type="button" name="edit">Edit</button><button type="button" name="remove">Remove</button>
       <input type="hidden" name="sortorder[columns][]" value="0"><input type="hidden" name="columns[0][uid]" value="u0"><input type="hidden" name="columns[0][name]" value="Used"><input type="hidden" name="columns[0][hidden]" value="0"></td></tr>
@@ -184,10 +184,72 @@ test('the totals function is only for a totals row', (t) => {
   const { w, doc } = setup(lib);
   const fn = doc.querySelector('[name="totals_fn"]');
   assert.equal(fn.disabled, true);
-  const totals = doc.querySelector('[name="totals"]');
+  // Zabbix's checkbox field: a hidden totals=0, then the box. 2.1.1 read the hidden one, so ticking never enabled Sum / Average.
+  const totals = doc.querySelector('input[type="checkbox"][name="totals"]');
   totals.checked = true;
   totals.dispatchEvent(new w.Event('change', { bubbles: true }));
-  assert.equal(fn.disabled, false);
+  assert.equal(fn.disabled, false, 'ticked: Sum / Average can be chosen');
+  totals.checked = false;
+  totals.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.equal(fn.disabled, true);
+});
+
+test('a widget saved with a totals row opens with Sum / Average enabled', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const dom = new lib.JSDOM(`<body>${FORM.replace('name="totals" value="1"', 'name="totals" value="1" checked')}</body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  w.CSortable = class {};
+  w.jQuery = () => ({ hide() {}, on() {} });
+  w.getFormFields = () => ({});
+  w.eval(script());
+  new w.EpColumnsForm().init({ action: 'widget.ep_x.column.edit', templateid: undefined, trend_days: 7, own: true, max: 400 });
+  assert.equal(w.document.querySelector('[name="totals_fn"]').disabled, false);
+});
+
+test('a column added, edited or removed redraws the form on the tab and at the scroll it had (DOM)', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const shell = (form) => `<div class="overlay-dialogue"><div class="overlay-dialogue-body">${form.replace('<form id="widget-dialogue-form">',
+    '<form id="widget-dialogue-form"><div class="ep-ef-tabs" id="ep_cf_tabs"></div>')}</div></div>`;
+  const dom = new lib.JSDOM(`<body>${shell(FORM)}</body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  const popups = [];
+  let reloads = 0;
+  w.CSortable = class {};
+  // jQuery UI tabs, as far as the form uses them: the active index and the activate event.
+  w.jQuery = (el) => ({ hide() {}, on(evt, fn) { if (el) (el.epOn = el.epOn || {})[evt] = fn; },
+    tabs(cmd, opt, val) { if (val !== undefined) { el.epActive = val; return undefined; } return el.epActive || 0; } });
+  w.ZABBIX = { Dashboard: { reloadWidgetProperties: () => { reloads++; } } };
+  w.getFormFields = () => ({ trend_days: '7', columns: { 0: { uid: 'u0', name: 'Used' } } });
+  w.PopUp = (action, params) => { const dialogue = w.document.createElement('div'); popups.push(dialogue); return { $dialogue: [dialogue] }; };
+  w.eval(script());
+  const open = () => new w.EpColumnsForm().init({ action: 'widget.ep_x.column.edit', templateid: undefined, trend_days: 7, own: true, max: 400 });
+  open();
+  const body = () => w.document.querySelector('.overlay-dialogue-body');
+  const tabs = () => w.document.getElementById('ep_cf_tabs');
+  assert.equal(tabs().epActive || 0, 0, 'a fresh form opens on its first tab');
+  // The person goes to the Columns tab, scrolls down, and adds a column.
+  tabs().epActive = 1;
+  tabs().epOn.tabsactivate();
+  body().scrollTop = 420;
+  body().dispatchEvent(new w.Event('scroll'));
+  w.document.querySelector('button[name="add"]').click();
+  popups[0].dispatchEvent(new w.CustomEvent('dialogue.submit', { detail: { uid: 'n1', name: 'Docs/s', edit: 0 } }));
+  assert.equal(reloads, 1);
+  // Zabbix draws the form again in the same dialogue: a new form, its tabs back on the first, scrolled to the top.
+  body().innerHTML = shell(FORM).replace('<div class="overlay-dialogue"><div class="overlay-dialogue-body">', '').replace('</div></div>', '');
+  body().scrollTop = 0;
+  open();
+  assert.equal(tabs().epActive, 1, 'back on the Columns tab');
+  assert.equal(body().scrollTop, 420, 'at the same scroll');
+  // Remove, Reset and Columns from redraw the same way.
+  w.document.querySelector('button[name="remove"]').click();
+  assert.equal(reloads, 2);
+  body().innerHTML = shell(FORM).replace('<div class="overlay-dialogue"><div class="overlay-dialogue-body">', '').replace('</div></div>', '');
+  open();
+  assert.equal(tabs().epActive, 1);
+  // A dialogue opened afresh (another element) starts on the first tab, at the top.
+  const fresh = new lib.JSDOM(`<body>${shell(FORM)}</body>`, { runScripts: 'outside-only' }).window;
+  assert.equal(fresh.document.querySelector('.overlay-dialogue').epFormKeep, undefined);
 });
 
 test('Server rows (Client resources): Edit opens the editor as a row column and keeps its place; show / hide; drag; Reset drops them too', (t) => {

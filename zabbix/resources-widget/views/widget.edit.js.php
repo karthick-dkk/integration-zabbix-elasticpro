@@ -30,7 +30,8 @@ window.widget_ep_resources_form = new class extends window.EpColumnsForm {
 	_update() {
 		super._update();
 		const view = this._form.querySelector('[name="view"]:checked');
-		const both = this._form.querySelector('[name="view_switch"]');
+		// The checkbox, not the hidden "view_switch" = 0 Zabbix's checkbox field puts before it.
+		const both = this._form.querySelector('input[type="checkbox"][name="view_switch"]');
 		const pie = view !== null && view.value === '<?= WidgetForm::VIEW_PIE ?>';
 		const switchable = both !== null && both.checked;
 		this._form.querySelectorAll('.ep-res-pie-only').forEach((el) => el.style.display = pie || switchable ? '' : 'none');
