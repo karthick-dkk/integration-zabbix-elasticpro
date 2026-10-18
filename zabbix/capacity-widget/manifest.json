@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro client capacity",
 	"namespace": "EpCapacity",
-	"version": "2.0",
+	"version": "2.1",
 	"author": "ElasticPro",
 	"description": "One row per client master host: purchased, requested, allocated and used \u2014 ES storage, CPU and memory for ES nodes, parsers and forwarders, forwarder storage and log delay. Usage coloured at 80 % and 90 %, allocations below the request highlighted, CSV and Excel export.",
 	"widget": {

@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro top hosts",
 	"namespace": "EpTophosts",
-	"version": "2.0",
+	"version": "2.1",
 	"author": "ElasticPro",
 	"description": "The busiest client servers, ranked by CPU or memory, coloured at each client's thresholds. Settings choose the host groups, the client and the client type; the ranking can be switched on the widget.",
 	"widget": {
