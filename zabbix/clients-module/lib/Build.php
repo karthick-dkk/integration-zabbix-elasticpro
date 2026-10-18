@@ -15,7 +15,8 @@ namespace Modules\EpClients\Lib;
  *   modules_commit_short=723f101
  *   modules_commit_date=2026-10-18T08:49:29+05:30
  *   modules_tree=clean
- *   elasticpro_version=0.3.20
+ *
+ * It names only the modules commit, so it changes only when the modules do.
  *
  * A module copied from a plain checkout has no BUILD file, and then the line says the build is
  * not recorded. A value that is missing, "unknown" or not shaped like what it should be is left
@@ -60,8 +61,8 @@ class Build {
 	}
 
 	/**
-	 * "Zabbix modules 2.1.0 · build 723f101 · from ElasticPro 0.3.20", with the parts that are
-	 * not known left out or said to be not recorded. Plain text; the page escapes it.
+	 * "Zabbix modules 2.1.0 · build 723f101", or "build not recorded". Plain text; the page
+	 * escapes it.
 	 */
 	public static function describe(?string $version, ?array $build): string {
 		$line = $version !== null ? 'Zabbix modules '.$version : 'Zabbix modules (version not readable)';
@@ -75,10 +76,6 @@ class Build {
 		$line .= ' · build '.$short;
 		if (($build['modules_tree'] ?? '') === 'modified') {
 			$line .= ' (modified)';
-		}
-		$from = $build['elasticpro_version'] ?? '';
-		if (preg_match('/^[0-9][0-9A-Za-z.+-]{0,31}$/', $from)) {
-			$line .= ' · from ElasticPro '.$from;
 		}
 		return $line;
 	}
