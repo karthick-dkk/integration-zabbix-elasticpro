@@ -96,7 +96,7 @@ class ColumnsSave extends CController {
 			if ($errors || $rowErrors || !$columns) {
 				throw new \RuntimeException(implode(' ', array_merge($errors, $rowErrors)) ?: _('There are no columns to save.'));
 			}
-			ColumnSettings::saveModel($report, Columns::groupTogether($columns), $rows ?: null, $model['split']);
+			ColumnSettings::saveModel($report, Columns::groupTogether($columns), $rows ?: null, $model['split'], $this->newHidden($catalogue));
 			return;
 		}
 		$in = json_decode((string) $this->getInput('settings', '{}'), true);
@@ -113,6 +113,11 @@ class ColumnsSave extends CController {
 		if (count($list) > Columns::MAX) {
 			throw new \RuntimeException(_s('The report would have %1$s columns; at most %2$s. Show fewer families as their roles.', count($list), Columns::MAX));
 		}
-		ColumnSettings::saveModel($report, $list, $model['server_columns'], $split);
+		ColumnSettings::saveModel($report, $list, $model['server_columns'], $split, $this->newHidden($catalogue));
+	}
+
+	/** Whether a built-in column the list has never seen arrives unticked: it does, unless the widget's Catalogue says it arrives shown. */
+	private function newHidden(string $catalogue): bool {
+		return !method_exists($catalogue, 'newHidden') || $catalogue::newHidden();
 	}
 }

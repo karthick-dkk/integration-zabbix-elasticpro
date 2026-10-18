@@ -117,7 +117,9 @@ $dataGrid->addItem([
 	))))->addClass('js-calc')
 ]);
 
-// Servers: roles from Cluster Management (none ticked: every server), and how they combine.
+// Servers: roles from Cluster Management (none ticked: every server), and how they combine. A row
+// that is one host (Volume, Top hosts) has no servers to pick.
+if (empty($data['single'])) {
 $roleBoxes = [(new CCheckBox('roles_all'))->setId('ep_ce_roles_all')->setLabel(_('All'))->setChecked(!$c['roles'])];
 foreach ($data['roles'] as $r) {
 	$roleBoxes[] = (new CCheckBox('roles[]', $r['id']))->setId('ep_ce_role_'.$r['id'])->setLabel($r['label'])
@@ -132,6 +134,7 @@ $dataGrid->addItem([
 		$hint(_('one value per client: each server\'s worst item first, then the servers'))
 	])]))->addClass('js-servers')
 ]);
+}
 }
 
 $dataGrid->addItem([

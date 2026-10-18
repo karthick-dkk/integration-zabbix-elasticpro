@@ -33,7 +33,9 @@ test('the manifest names the widget, its controller and the Columns action', () 
 const read = (f) => fs.readFileSync(path.join(HERE, f), 'utf8');
 
 test('the form has the three tabs of the design and every setting on them, and still reads the old fields', () => {
-  const form = read('includes/WidgetForm.php');
+  // The table's options are the shared TableFields' (the same for every widget on the column model).
+  const form = read('includes/WidgetForm.php') + read('includes/TableFields.php');
+  assert.ok(read('includes/WidgetForm.php').includes('TableFields::add('), 'the table options come from TableFields');
   for (const field of ['groupids', 'clients', 'client_types', 'trend_days', 'columns_from', 'columns', 'server_columns', 'bars', 'usage_warn', 'usage_high',
     'view', 'view_switch', 'pie_order', 'pie_donuts', 'pie_centre', 'pie_legend', 'pie_short', 'pie_per_row', 'pie_size', 'pie_chips', 'server_rows',
     'density', 'row_height', 'group_headers', 'sticky_header', 'freeze_first', 'striped', 'totals', 'totals_fn', 'sort_by', 'sort_dir', 'top_n',
@@ -55,7 +57,8 @@ test('the form has the three tabs of the design and every setting on them, and s
 });
 
 test('the view draws what the controller sends: table and pie chart, attention, the view switch, the palette', () => {
-  const v = read('views/widget.view.php');
+  // The table, its cells and its toolbar are ColumnTable's, shared with the other widgets on the column model.
+  const v = read('views/widget.view.php') + read('includes/ColumnTable.php');
   for (const hook of ['data-ep-attention', 'data-ep-compact', 'data-ep-view-to', 'ep-pie-card', 'data-ep-goto', 'ep-donut', "\$data['palette']",
     'stroke-dasharray', 'data-attention', 'ep-totals', 'ep-dropped', 'Bars::cell(']) {
     assert.ok(v.includes(hook.replace(/\\/g, '')), hook);
@@ -66,18 +69,25 @@ test('the view draws what the controller sends: table and pie chart, attention, 
 });
 
 test('one definition: the column rule, the arithmetic and the reading are the shared engine\'s', () => {
+  // The figures are ColumnReport's — the same for every widget on the column model — and the controller only describes its rows.
   const ctl = read('actions/WidgetView.php');
-  for (const call of ['Columns::cleanList(', 'ColumnMath::combine(', 'ColumnMath::trend(', 'ColumnMath::perHost(', 'ColumnMath::windowValue(',
-    'ColumnReader', 'ColumnSettings::resolve(', 'Settings::paletteStyle(', 'ClientData::clients(', 'ClientData::servers(']) {
+  const engine = read('lib/ColumnReport.php');
+  for (const call of ['ColumnReport::resolve(', 'new ColumnReport(', '->read(', '->cells(', '->totals(', 'Settings::paletteStyle(', 'ClientData::clients(', 'ClientData::servers(']) {
     assert.ok(ctl.includes(call), call);
   }
+  for (const call of ['Columns::cleanList(', 'ColumnMath::combine(', 'ColumnMath::trend(', 'ColumnMath::perHost(', 'ColumnMath::windowValue(', 'ColumnReader', 'ColumnSettings::resolve(']) {
+    assert.ok(engine.includes(call), `the engine: ${call}`);
+  }
+  assert.ok(!/ColumnMath::(combine|trend|perHost|windowValue)\(/.test(ctl), 'no arithmetic of its own in the controller');
   assert.ok(read('includes/Resources.php').includes('ColumnMath::pie('), 'the donuts are ColumnMath::pie');
   // Batched: no API call inside the per-client, per-column functions.
-  for (const fn of ['private function figure(', 'private function serverRow(', 'private function donut(']) {
+  for (const fn of ['private function serverRow(', 'private function donut(']) {
     const at = ctl.indexOf(fn);
     const body = ctl.slice(at, ctl.indexOf('\n\t}\n', at));
     assert.ok(at > 0 && !/API::/.test(body), `no API call in ${fn}`);
   }
+  const fig = engine.slice(engine.indexOf('private function figure('), engine.indexOf('public function head(') > engine.indexOf('private function figure(') ? engine.length : engine.length);
+  assert.ok(!/API::/.test(fig.slice(0, fig.indexOf('\n\t}\n'))), 'no API call in figure()');
   assert.ok(read('actions/ColumnEdit.php').includes('Columns::clean('), 'the editor applies the same rule');
   assert.ok(read('includes/CWidgetFieldColumns.php').includes('Columns::cleanList('), 'and the field, on Apply');
 });
@@ -206,8 +216,9 @@ test('the column editor previews the look on sample figures, in the palette\'s c
 
 test('the view offers what the controller sends: expand, type filter, columns, servers export', () => {
   const v = fs.readFileSync(path.join(HERE, 'views/widget.view.php'), 'utf8');
+  const t = fs.readFileSync(path.join(HERE, 'includes/ColumnTable.php'), 'utf8');
   for (const hook of ['data-ep-expand', 'data-ep-expand-all', 'data-ep-type-filter', 'data-ep-columns', "'csv-servers'", 'data-parent', "setVar('ep_meta'"]) {
-    assert.ok(v.includes(hook), hook);
+    assert.ok(v.includes(hook) || t.includes(hook), hook);
   }
 });
 

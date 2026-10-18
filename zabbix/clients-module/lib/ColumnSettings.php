@@ -166,10 +166,10 @@ class ColumnSettings {
 	 * Saves a report's defaults in the version-2 shape. The columns are expected clean
 	 * (Columns::cleanList, strict): this writes what it is given.
 	 */
-	public static function saveModel(string $report, array $columns, ?array $serverColumns, array $split): array {
+	public static function saveModel(string $report, array $columns, ?array $serverColumns, array $split, bool $newHidden = true): array {
 		$clean = ['version' => self::MODEL_VERSION, 'columns' => array_values($columns),
 			'server_columns' => $serverColumns === null ? null : array_values($serverColumns),
-			'split' => self::cleanSplit($split), 'new_hidden' => 1];
+			'split' => self::cleanSplit($split), 'new_hidden' => $newHidden ? 1 : 0];
 		Store::write(self::file($report), $clean);
 		return $clean;
 	}

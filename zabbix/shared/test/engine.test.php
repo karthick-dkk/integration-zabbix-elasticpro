@@ -34,10 +34,10 @@ namespace {
 	if (!function_exists('_n')) { function _n($one, $many, $n, ...$a) { return vsprintf($n == 1 ? $one : $many, array_merge([$n], $a)); } }
 }
 namespace EpShared\Test {
-	foreach (['Store', 'Settings', 'ClientData', 'Forecast', 'Columns', 'ColumnMath', 'ColumnSettings', 'ColumnReader'] as $f) {
+	foreach (['Store', 'Settings', 'ClientData', 'Forecast', 'Bars', 'Columns', 'ColumnMath', 'ColumnSettings', 'ColumnReader', 'ColumnCell', 'ColumnReport', 'TableOptions'] as $f) {
 		require __DIR__.'/../php/'.$f.'.php';
 	}
-	use EpShared\{ColumnMath, ColumnReader, Columns, ColumnSettings, Settings};
+	use EpShared\{ColumnCell, ColumnMath, ColumnReader, ColumnReport, Columns, ColumnSettings, Settings, TableOptions};
 
 	$failed = 0; $passed = 0;
 	function check(string $what, bool $ok, $detail = null): void {
@@ -376,6 +376,77 @@ namespace EpShared\Test {
 	ColumnSettings::reset('resources');
 	check('reset: no file, the catalogue\'s own columns again', ColumnSettings::loadModel('resources')['columns'] === null
 		&& ColumnSettings::loadModel('resources')['legacy'] === null);
+
+
+	/* ---------------- what the widgets on the engine share: cells, the report, the table options ---------------- */
+	check('an export header says its unit: % , days, a size in the site\'s unit, and a unit Zabbix is told not to scale',
+		ColumnCell::exportHeader(['group' => 'Live', 'name' => 'Used', 'value' => 1], '%', Settings::all()) === 'Live Used (%)'
+		&& ColumnCell::exportHeader(['group' => '', 'name' => 'Full in', 'value' => 1], 'days', Settings::all()) === 'Full in (days)'
+		&& ColumnCell::exportHeader(['group' => 'Backup', 'name' => 'Size', 'value' => 1], '!GB', Settings::all()) === 'Backup Size (GB)'
+		&& ColumnCell::exportHeader(['group' => 'Backup', 'name' => 'Size', 'value' => 1], '!GB', Settings::all(), false) === 'Size (GB)'
+		&& ColumnCell::exportHeader(['group' => '', 'name' => 'Used', 'value' => 1], 'B', Settings::all()) === 'Used (GB)');
+	check('totals: the known figures only, a percentage averaged, nothing known is no total', ColumnCell::total([null, 4.0], '', false) === 4.0 && ColumnCell::total([null], '', false) === null
+		&& ColumnCell::total([50.0, 70.0], '%', false) === 60.0 && ColumnCell::total([2.0, 4.0], 'B', true) === 3.0);
+	check('the totals row says what it is over', ColumnReport::totalsLabel(false, null) === 'Total (all clients)' && ColumnReport::totalsLabel(true, null) === 'Average (all clients)'
+		&& ColumnReport::totalsLabel(false, 5) === 'Total (top 5)' && ColumnReport::totalsLabel(true, 5) === 'Average (top 5)');
+	check('rows in order: by a column (unknown last either way), ties by name, then the top N', array_column(ColumnCell::arrange([
+		['client' => 'b', 'sort' => ['x' => 2.0]], ['client' => 'a', 'sort' => ['x' => null]], ['client' => 'c', 'sort' => ['x' => 9.0]], ['client' => 'd', 'sort' => ['x' => 2.0]]],
+		'x', true, 3), 'client') === ['c', 'b', 'd']);
+	check('attention: by what the widget says it means', ColumnCell::attention(['warn' => 1], ['warn']) && !ColumnCell::attention(['warn' => 1], ['high', 'short'])
+		&& ColumnCell::attention(['full_days' => 12.0], ['disk30']) && !ColumnCell::attention(['full_days' => 45.0], ['disk30']) && !ColumnCell::attention(['warn' => 3], []));
+	$text = array_replace(Columns::DEFAULT, ['source' => Columns::SOURCE_BUILTIN, 'builtin' => 'client.name']);
+	check('a text figure is the cell\'s text; nothing is "—"', ColumnCell::cell($text, $cat['client.name'], ['text' => 'acme'], Settings::all())['text'] === 'acme'
+		&& ColumnCell::cell($text, $cat['client.name'], ['text' => ''], Settings::all())['text'] === '—');
+
+	$items = array_replace(Columns::DEFAULT, ['source' => Columns::SOURCE_ITEM, 'key' => 'a.b']);
+	$srv = array_replace(Columns::DEFAULT, ['source' => Columns::SOURCE_BUILTIN, 'builtin' => 'cpu']);
+	$cat2 = $cat + ['cpu' => ['label' => 'CPU', 'group' => '', 'on' => Columns::ON_SERVERS, 'key' => 'system.cpu.util', 'units' => '%', 'settings' => true]];
+	check('a widget with no servers of its own knows when a column reads them', ColumnReport::readsServers([$items], $cat2) && ColumnReport::readsServers([$srv], $cat2)
+		&& ColumnReport::readsServers([array_replace(Columns::DEFAULT, ['source' => Columns::SOURCE_CALC, 'calc_a' => 'storage.used', 'calc_b' => 'key:a.b'])], $cat2)
+		&& !ColumnReport::readsServers([array_replace(Columns::DEFAULT, ['source' => Columns::SOURCE_BUILTIN, 'builtin' => 'storage.used']),
+			array_replace(Columns::DEFAULT, ['source' => Columns::SOURCE_CALC, 'calc_a' => 'storage.used', 'calc_b' => 'storage.allocated'])], $cat2));
+
+	// A widget's settings, from whatever came in.
+	$model = ColumnSettings::loadModel('engine-upgrade');
+	$up = ColumnReport::upgrade(['usage_warn' => '0', 'usage_high' => 0, 'columns_from' => '0', 'columns' => [['builtin' => 'storage.used']]], $clientCat, $model);
+	check('upgrade: a Warn and High of 0 are empty (ElasticPro Settings), a widget on the report defaults keeps nothing of its own', $up['usage_warn'] === '' && $up['usage_high'] === '' && !isset($up['columns']));
+	check('…one typed is kept', ColumnReport::upgrade(['usage_warn' => '70'], $clientCat, $model)['usage_warn'] === '70');
+	$own = ColumnReport::upgrade(['columns_from' => '1'], $clientCat, $model);
+	check('…on its own columns it starts from the defaults', count($own['columns']) === count(ColumnSettings::resolve(null, $clientCat)));
+	$short = array_slice($own['columns'], 0, 2);
+	$hidden = ColumnReport::upgrade(['columns_from' => '1', 'columns' => $short], $clientCat, $model);
+	check('…a built-in column it has never seen is offered unticked', count($hidden['columns']) === count($own['columns']) && !array_filter(array_slice($hidden['columns'], 2), fn($c) => !$c['hidden']));
+	$shown = ColumnReport::upgrade(['columns_from' => '1', 'columns' => $short], $clientCat, $model, false);
+	check('…or shown, where the widget says so', count(array_filter($shown['columns'], fn($c) => !$c['hidden'])) === count($own['columns']));
+	$dragged = array_column(ColumnReport::upgrade(['columns_from' => '1', 'columns' => $short, 'sortorder' => ['columns' => ['1', '0']]], $clientCat, $model)['columns'], 'uid');
+	check('…in the order the rows were dragged into', array_search($short[1]['uid'], $dragged, true) < array_search($short[0]['uid'], $dragged, true) && $dragged[0] === $short[1]['uid']);
+
+	// Report defaults saved from a dialog: whether a column added later arrives unticked or shown.
+	ColumnSettings::saveModel('engine-newhidden', ColumnSettings::resolve(null, $clientCat), null, [], false);
+	check('report defaults: a widget whose columns arrive shown says so, and a new column is shown', ColumnSettings::loadModel('engine-newhidden')['new_hidden'] === false);
+	ColumnSettings::saveModel('engine-newhidden', ColumnSettings::resolve(null, $clientCat), null, []);
+	check('…the others, unticked', ColumnSettings::loadModel('engine-newhidden')['new_hidden'] === true);
+	ColumnSettings::reset('engine-newhidden');
+
+	// A figure the widget decides itself is one only the widget can make the column: now.
+	$catNow = ['top.value' => ['label' => 'Value', 'group' => '', 'on' => Columns::ON_CLIENT, 'field' => 'value', 'units' => '%', 'settings' => true, 'now' => true, 'auto' => true]];
+	[$c, $e] = Columns::clean(['name' => 'Value', 'source' => 1, 'builtin' => 'top.value', 'value' => 2], $catNow, []);
+	check('a column the widget decides the window of shows its value now', $e !== [] && $c['value'] === Columns::VALUE_NOW, $e);
+	check('…and is no error when it is now', Columns::clean(['name' => 'Value', 'source' => 1, 'builtin' => 'top.value'], $catNow, [])[1] === []);
+
+	// The table options, each with the widget's own defaults.
+	$o = TableOptions::read([], ['toolbar' => ['search'], 'attention' => ['warn']]);
+	check('table options: a widget saved before them looks as the defaults say', $o['density'] === TableOptions::DENSITY_COMPACT && $o['group_headers'] && $o['sticky_header'] && $o['freeze_first']
+		&& !$o['striped'] && !$o['totals'] && $o['sort_by'] === 'client' && $o['top_n'] === null && $o['row_height'] === null && $o['toolbar'] === ['search']
+		&& $o['toolbar_pos'] === TableOptions::TOOLBAR_HOVER && $o['attention'] === ['warn'] && !$o['attention_default']);
+	$o = TableOptions::read([], ['toolbar' => ['search', 'type'], 'toolbar_default' => ['type'], 'attention' => ['warn', 'high'], 'attention_default' => ['high'], 'density' => 0,
+		'sticky_header' => 0, 'toolbar_pos' => TableOptions::TOOLBAR_ALWAYS]);
+	check('…a widget\'s own defaults beat the general ones: the toolbar it had, how dense, always shown', $o['toolbar'] === ['type'] && $o['attention'] === ['high'] && $o['density'] === 0
+		&& !$o['sticky_header'] && $o['toolbar_pos'] === TableOptions::TOOLBAR_ALWAYS);
+	$o = TableOptions::read(['density' => '0', 'row_height' => '30', 'striped' => '1', 'totals' => '1', 'totals_fn' => '1', 'sort_by' => 'abc', 'sort_dir' => '1', 'top_n' => '5',
+		'toolbar_items' => ['x'], 'toolbar_pos' => '2', 'attention' => ['high'], 'attention_default' => '1', 'group_headers' => '0'], ['toolbar' => ['search'], 'attention' => ['warn']]);
+	check('…and what the widget sets', $o['density'] === 0 && $o['row_height'] === 30 && $o['striped'] && $o['totals'] && $o['totals_avg'] && $o['sort_by'] === 'abc' && $o['sort_desc']
+		&& $o['top_n'] === 5 && $o['toolbar'] === ['x'] && $o['toolbar_pos'] === 2 && $o['attention'] === ['high'] && $o['attention_default'] && !$o['group_headers']);
 
 	foreach (array_diff(scandir($dir), ['.', '..']) as $f) {
 		unlink($dir.'/'.$f);

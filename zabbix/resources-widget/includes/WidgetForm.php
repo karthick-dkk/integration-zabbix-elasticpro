@@ -2,10 +2,10 @@
 
 namespace Modules\EpResources\Includes;
 
-use Modules\EpResources\Lib\{Bars, ColumnSettings, Roles, Settings};
+use Modules\EpResources\Lib\{Bars, ColumnSettings, Roles, Settings, TableOptions};
 use Zabbix\Widgets\CWidgetForm;
 use Zabbix\Widgets\Fields\{CWidgetFieldCheckBox, CWidgetFieldIntegerBox, CWidgetFieldMultiSelectGroup, CWidgetFieldRadioButtonList,
-	CWidgetFieldSelect, CWidgetFieldTextBox};
+	CWidgetFieldSelect};
 
 /**
  * Client resources' settings, on three tabs.
@@ -57,21 +57,21 @@ class WidgetForm extends CWidgetForm {
 	public const ROWS_ALL = 1;
 	public const ROWS_NONE = 2;
 
-	public const DENSITY_COMFORTABLE = 0;
-	public const DENSITY_COMPACT = 1;
+	public const DENSITY_COMFORTABLE = TableOptions::DENSITY_COMFORTABLE;
+	public const DENSITY_COMPACT = TableOptions::DENSITY_COMPACT;
 
-	public const TOTALS_SUM = 0;
-	public const TOTALS_AVG = 1;
+	public const TOTALS_SUM = TableOptions::TOTALS_SUM;
+	public const TOTALS_AVG = TableOptions::TOTALS_AVG;
 
-	public const SORT_ASC = 0;
-	public const SORT_DESC = 1;
+	public const SORT_ASC = TableOptions::SORT_ASC;
+	public const SORT_DESC = TableOptions::SORT_DESC;
 
-	public const TOOLBAR_ALWAYS = 0;
-	public const TOOLBAR_HOVER = 1;
-	public const TOOLBAR_HIDDEN = 2;
+	public const TOOLBAR_ALWAYS = TableOptions::TOOLBAR_ALWAYS;
+	public const TOOLBAR_HOVER = TableOptions::TOOLBAR_HOVER;
+	public const TOOLBAR_HIDDEN = TableOptions::TOOLBAR_HIDDEN;
 
-	public const ATTENTION_ALL = 0;
-	public const ATTENTION_ONLY = 1;
+	public const ATTENTION_ALL = TableOptions::ATTENTION_ALL;
+	public const ATTENTION_ONLY = TableOptions::ATTENTION_ONLY;
 
 	public const LEGEND = ['used', 'free', 'short', 'allocated', 'requested', 'pct'];
 	public const TOOLBAR = ['search', 'type', 'attention', 'compact', 'view', 'expand', 'columns', 'export'];
@@ -175,7 +175,7 @@ class WidgetForm extends CWidgetForm {
 		$role_ids = array_column(Roles::allRoles($roles), 'id');
 		$measures = array_keys(Catalogue::measures($roles, $model['split']));
 
-		return $this
+		$this
 			// Data.
 			->addField(new CWidgetFieldMultiSelectGroup('groupids', _('Host groups')))
 			->addField(new CWidgetFieldStrings('clients', _('Clients'), 500))
@@ -222,33 +222,11 @@ class WidgetForm extends CWidgetForm {
 				self::ROWS_CLICK => _('Expand on click'),
 				self::ROWS_ALL => _('All expanded'),
 				self::ROWS_NONE => _('None')
-			]))->setDefault(self::ROWS_CLICK))
-			->addField((new CWidgetFieldRadioButtonList('density', _('Density'), [
-				self::DENSITY_COMFORTABLE => _('Comfortable'),
-				self::DENSITY_COMPACT => _('Compact')
-			]))->setDefault(self::DENSITY_COMPACT))
-			->addField(new CWidgetFieldOptionalNumber('row_height', _('Row height'), 16, 80))
-			->addField((new CWidgetFieldCheckBox('group_headers', null, _('Group headers')))->setDefault(1))
-			->addField((new CWidgetFieldCheckBox('sticky_header', null, _('Sticky header')))->setDefault(1))
-			->addField((new CWidgetFieldCheckBox('freeze_first', null, _('Freeze first column')))->setDefault(1))
-			->addField((new CWidgetFieldCheckBox('striped', null, _('Striped')))->setDefault(0))
-			->addField((new CWidgetFieldCheckBox('totals', null, _('Totals row')))->setDefault(0))
-			->addField((new CWidgetFieldSelect('totals_fn', _('Totals'), [self::TOTALS_SUM => _('Sum'), self::TOTALS_AVG => _('Average')]))
-				->setDefault(self::TOTALS_SUM))
-			->addField((new CWidgetFieldTextBox('sort_by', _('Sort')))->setDefault('client'))
-			->addField((new CWidgetFieldSelect('sort_dir', _('Sort direction'), [self::SORT_ASC => _('Ascending'), self::SORT_DESC => _('Descending')]))
-				->setDefault(self::SORT_ASC))
-			->addField(new CWidgetFieldOptionalNumber('top_n', _('Top'), 1, 1000))
-			->addField((new CWidgetFieldStrings('toolbar_items', _('Show'), 8, 16))->setAllowed(self::TOOLBAR)->setDefault(self::TOOLBAR_DEFAULT))
-			->addField((new CWidgetFieldRadioButtonList('toolbar_pos', _('Position'), [
-				self::TOOLBAR_ALWAYS => _('Always shown'),
-				self::TOOLBAR_HOVER => _('On hover'),
-				self::TOOLBAR_HIDDEN => _('Hidden')
-			]))->setDefault(self::TOOLBAR_HOVER))
-			->addField((new CWidgetFieldStrings('attention', _('Any of'), 6, 16))->setAllowed(self::ATTENTION)->setDefault(self::ATTENTION_DEFAULT))
-			->addField((new CWidgetFieldRadioButtonList('attention_default', _('Default filter'), [
-				self::ATTENTION_ALL => _('All clients'),
-				self::ATTENTION_ONLY => _('Needs attention only')
-			]))->setDefault(self::ATTENTION_ALL));
+			]))->setDefault(self::ROWS_CLICK));
+
+		TableFields::add($this, ['toolbar' => self::TOOLBAR, 'toolbar_default' => self::TOOLBAR_DEFAULT, 'attention' => self::ATTENTION,
+			'attention_default' => self::ATTENTION_DEFAULT]);
+
+		return $this;
 	}
 }

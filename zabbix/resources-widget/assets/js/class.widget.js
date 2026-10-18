@@ -5,7 +5,7 @@
  * Needs attention, Compact and the Table / Pie chart switch are ep-panel.js.
  *
  * How the report looks — colours, row height, server columns — is the widget's own setting (and
- * ElasticPro -> Settings' palette), so the panel is started with {prefs: false}: nothing of the
+ * ElasticPro -> Settings' palette), so nothing of the
  * look is read from this browser.
  */
 class WidgetEpResources extends CWidget {
@@ -17,6 +17,6 @@ class WidgetEpResources extends CWidget {
 		window.EpExport.bind(this._body, response.export || null, 'client-resources', 'Clients', () => window.EpColumns.typeOf(this._body));
 		// Search, sorting, widths, the ⋮ menu and the view switches; after EpColumns, so the search,
 		// the Type filter and Needs attention decide together which clients show.
-		window.EpPanel.init(this, this._body, 'resources', {prefs: false, view: meta ? meta.view : null});
+		window.EpPanel.init(this, this._body, 'resources', {view: meta ? meta.view : null});
 	}
 }

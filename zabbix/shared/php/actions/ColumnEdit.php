@@ -19,7 +19,10 @@ use EpShared\Includes\Catalogue;
  * leniently when it draws — either returns the column as it will be stored or says what is
  * wrong, every message naming the column. "Check" asks how many client servers have the item key.
  *
- * The widget's own Includes\Catalogue says which built-in columns there are.
+ * The widget's own Includes\Catalogue says which built-in columns there are, and may say more:
+ * editorHosts() — the hosts "Check" and the key suggestions look at, when they are not the
+ * client servers (Volume's cluster hosts); single() — true when a row is one host, so there are no
+ * servers to pick roles of and combine (Volume, Top hosts).
  *
  * Shared: ../../sync-assets.mjs copies this into each widget that offers the column editor, under its namespace.
  */
@@ -56,18 +59,25 @@ class ColumnEdit extends CController {
 		$model = ColumnSettings::loadModel(Catalogue::REPORT);
 		$scope = $this->getInput('scope', 'client') === 'row' ? 'row' : 'client';
 		$catalogue = Catalogue::forScope(Catalogue::columns($roles, $model['split']), $scope);
-		$roleIds = array_column(Roles::allRoles($roles), 'id');
+		$cat = Catalogue::class;
+		$single = method_exists($cat, 'single') && $cat::single();
+		$roleIds = $single ? [] : array_column(Roles::allRoles($roles), 'id');
 		$input = $this->getInputAll();
+		$hosts = fn() => method_exists($cat, 'editorHosts') ? $cat::editorHosts($roles, Settings::all()) : ColumnReader::clientServers($roles, Settings::all());
 
 		if ($this->hasInput('coverage')) {
 			$this->json(ColumnReader::coverage(trim((string) ($input['key'] ?? '')), ($input['pattern'] ?? '0') === '1', (array) ($input['roles'] ?? []),
-				ColumnReader::clientServers($roles, Settings::all())));
+				$hosts()));
 			return;
 		}
 
 		if ($this->hasInput('update')) {
 			$edit = $this->hasInput('edit');
 			$clean = array_intersect_key($input, Columns::DEFAULT);
+			if ($single) {
+				// A row that is one host has no servers to pick: whatever roles came with the column are not its.
+				unset($clean['roles']);
+			}
 			[$column, $errors] = Columns::clean($clean, $catalogue, $roleIds, $scope);
 			if ($errors) {
 				$this->json(['error' => ['title' => _('Cannot update column'),
@@ -83,14 +93,15 @@ class ColumnEdit extends CController {
 		$column['roles'] = array_values(array_filter((array) $column['roles'], 'is_scalar'));
 		$column['thresholds'] = array_values(array_filter((array) $column['thresholds'], 'is_array'));
 		$cfg = Settings::all();
-		$servers = $scope === 'client' ? ColumnReader::clientServers($roles, $cfg) : [];
+		$servers = $scope === 'client' ? $hosts() : [];
 		$this->setResponse(new CControllerResponseData([
 			'action' => $this->getAction(),
 			'edit' => $this->hasInput('edit'),
 			'scope' => $scope,
 			'column' => $column,
 			'catalogue' => $catalogue,
-			'roles' => array_map(fn($r) => ['id' => $r['id'], 'label' => $r['label'], 'family' => $r['familyLabel']], Roles::allRoles($roles)),
+			'single' => $single,
+			'roles' => $single ? [] : array_map(fn($r) => ['id' => $r['id'], 'label' => $r['label'], 'family' => $r['familyLabel']], Roles::allRoles($roles)),
 			'usage' => Settings::usage($cfg),
 			'palette' => Settings::palette($cfg),
 			'decimals' => ['%' => Settings::decimals('%', $cfg), '' => Settings::decimals('', $cfg), 'B' => Settings::decimals('B', $cfg)],

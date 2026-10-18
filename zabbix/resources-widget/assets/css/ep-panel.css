@@ -1,13 +1,13 @@
 /*
- * The panel look for Client resources and Client capacity: a dark, Grafana-style table panel.
+ * The panel look for the ElasticPro column widgets: a dark, Grafana-style table panel.
  *
  * Only the look. Every figure, threshold and class still comes from WidgetView: a cell that is
  * over its threshold carries ep-warn or ep-high, a shortfall ep-short, a request nobody entered
  * ep-unset — and this sheet decides how those read, nothing else. The three status colours are
- * custom properties so a viewer's own choice (ep-panel.js, Table settings) can replace them
- * without touching what decided them.
+ * custom properties the palette (ElasticPro -> Settings) sets, so a colour is chosen once and
+ * every widget follows it, without touching what decided the status.
  *
- * Shared: sync-assets.mjs copies this into the two widgets that use it. Edit it here.
+ * Shared: sync-assets.mjs copies this into the widgets that use it. Edit it here.
  */
 /* The colours follow the Zabbix theme the user chose: light under Blue and high-contrast light,
    dark under Dark and high-contrast dark. Zabbix names it on <html theme="…">. The status colours
@@ -61,7 +61,7 @@
 .ep-panel .ep-menu-pop button[hidden] { display: none; }
 
 /* The toolbar stays out of the way: hidden until the pointer is over the panel, gone again when it
-   leaves. It stays while it is being used (keyboard focus in it, a menu or Table settings open),
+   leaves. It stays while it is being used (keyboard focus in it, a menu open),
    while a search or a Type filter is in force (ep-pt-pinned), and on screens with no hover. */
 .ep-panel .ep-pt { max-height: 0; opacity: 0; padding-bottom: 0; overflow: hidden; transition: max-height .15s ease, opacity .15s ease, padding .15s ease; }
 .ep-panel:hover .ep-pt, .ep-panel:focus-within .ep-pt, .ep-panel.ep-pt-pinned .ep-pt, .ep-panel.ep-pt-open .ep-pt {
@@ -71,24 +71,24 @@
 
 /* ---- the table ---- */
 .ep-panel .ep-pscroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.ep-panel table.ep-res-table, .ep-panel table.ep-cap-table {
+.ep-panel table.ep-res-table {
 	width: 100%; border-collapse: separate; border-spacing: 0; background: transparent; color: var(--ep-fg); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.ep-panel .ep-res-table th, .ep-panel .ep-res-table td, .ep-panel .ep-cap-table th, .ep-panel .ep-cap-table td {
+.ep-panel .ep-res-table th, .ep-panel .ep-res-table td {
 	padding: 4px 8px; border: 0; border-bottom: 1px solid var(--ep-line-2); text-align: center; background: transparent; color: inherit;
 }
-.ep-panel .ep-res-table thead th, .ep-panel .ep-cap-table thead th { position: sticky; top: 0; z-index: 2; background: var(--ep-bg); color: var(--ep-blue); font-weight: 500; border-bottom: 1px solid var(--ep-line); }
+.ep-panel .ep-res-table thead th { position: sticky; top: 0; z-index: 2; background: var(--ep-bg); color: var(--ep-blue); font-weight: 500; border-bottom: 1px solid var(--ep-line); }
 .ep-panel .ep-res-table thead tr + tr th { top: 24px; }
 .ep-panel .ep-res-table thead th.ep-res-group { color: var(--ep-strong); text-align: center; border-bottom: 0; padding-bottom: 0; }
 .ep-panel .ep-res-table thead th.ep-res-group:not(:empty) { box-shadow: inset 0 -2px 0 var(--ep-line); }
-.ep-panel .ep-res-table .ep-res-start, .ep-panel .ep-cap-table .ep-cap-start { border-left: 1px solid var(--ep-line); }
-.ep-panel .ep-res-first, .ep-panel .ep-cap-first { position: sticky; left: 0; z-index: 1; text-align: left !important; background: var(--ep-bg) !important; color: var(--ep-strong); font-weight: 500; }
-.ep-panel thead .ep-res-first, .ep-panel thead .ep-cap-first { z-index: 3; color: var(--ep-blue); }
+.ep-panel .ep-res-table .ep-res-start { border-left: 1px solid var(--ep-line); }
+.ep-panel .ep-res-first { position: sticky; left: 0; z-index: 1; text-align: left !important; background: var(--ep-bg) !important; color: var(--ep-strong); font-weight: 500; }
+.ep-panel thead .ep-res-first { z-index: 3; color: var(--ep-blue); }
 .ep-panel .ep-res-table td.ep-res-toggle, .ep-panel .ep-res-table th.ep-res-toggle { width: 22px; padding: 0 2px; text-align: center; }
 .ep-panel .ep-res-table td.ep-res-first b { font-weight: 500; }
 .ep-panel .ep-res-sub { color: var(--ep-muted); font-size: 11px; }
 .ep-panel tbody tr[data-type]:hover > td { background: var(--ep-bg-2); }
-.ep-panel tbody tr[data-type]:hover > td.ep-res-first, .ep-panel tbody tr[data-type]:hover > td.ep-cap-first { background: var(--ep-bg-2) !important; }
+.ep-panel tbody tr[data-type]:hover > td.ep-res-first { background: var(--ep-bg-2) !important; }
 .ep-panel .ep-expand, .ep-panel .ep-expand:focus, .ep-panel .ep-expand:hover { color: var(--ep-muted); background: none !important; border: 0 !important; box-shadow: none !important; }
 .ep-panel .ep-expand[aria-expanded="true"] { color: var(--ep-blue); }
 
@@ -160,13 +160,8 @@
 .ep-panel .ep-seg .ep-pbtn:last-child { border-radius: 0 3px 3px 0 !important; border-left: 0 !important; }
 .ep-panel .ep-seg .ep-pbtn[aria-pressed="true"] { background: var(--ep-sel-bg) !important; color: var(--ep-strong) !important; border-color: var(--ep-sel-line) !important; }
 .ep-panel .ep-disk-line b { font-weight: 500; }
-/* Table settings: server columns a viewer has hidden. */
-.ep-panel.ep-hide-role [data-sc="role"], .ep-panel.ep-hide-host [data-sc="host"], .ep-panel.ep-hide-ip [data-sc="ip"],
-.ep-panel.ep-hide-status [data-sc="status"], .ep-panel.ep-hide-cores [data-sc="cores"], .ep-panel.ep-hide-cpu [data-sc="cpu"],
-.ep-panel.ep-hide-mem [data-sc="mem"], .ep-panel.ep-hide-memu [data-sc="memu"], .ep-panel.ep-hide-disks [data-sc="disks"] { display: none; }
-
 /* Row height: compact is the default; comfortable gives every row more air. */
-.ep-panel.ep-comfortable .ep-res-table td, .ep-panel.ep-comfortable .ep-cap-table td { padding: 8px 10px; }
+.ep-panel.ep-comfortable .ep-res-table td { padding: 8px 10px; }
 .ep-panel.ep-comfortable .ep-servers td { padding: 5px 8px; }
 
 /* Resizing: a handle on each header's right edge; widths then come from a colgroup. */
@@ -175,17 +170,5 @@
 .ep-panel table.ep-fixed { table-layout: fixed; }
 .ep-panel table.ep-fixed > tbody > tr > td, .ep-panel table.ep-fixed > thead > tr > th { overflow: hidden; text-overflow: ellipsis; }
 .ep-panel.ep-resizing, .ep-panel.ep-resizing * { cursor: col-resize !important; user-select: none !important; }
-
-/* ---- Table settings drawer ---- */
-.ep-panel .ep-set { position: absolute; top: 36px; right: 8px; bottom: 8px; width: min(320px, calc(100% - 16px)); z-index: 30; overflow: auto;
-	background: var(--ep-pop); border: 1px solid var(--ep-line); border-radius: 3px; padding: 10px 12px; display: grid; gap: 10px; align-content: start; box-shadow: -8px 0 24px rgba(0, 0, 0, .45); }
-.ep-panel .ep-set[hidden] { display: none; }
-.ep-panel .ep-set-h { display: flex; justify-content: space-between; align-items: center; color: var(--ep-strong); font-weight: 500; }
-.ep-panel .ep-set fieldset { border: 1px solid var(--ep-line-2); border-radius: 2px; padding: 6px 10px 8px; margin: 0; display: grid; gap: 4px; }
-.ep-panel .ep-set legend { color: var(--ep-blue); font-weight: 500; font-size: 12px; padding: 0 4px; }
-.ep-panel .ep-set label { display: flex; gap: 6px; align-items: center; cursor: pointer; color: var(--ep-fg); }
-.ep-panel .ep-set input[type="color"] { width: 26px; height: 20px; padding: 0; border: 1px solid var(--ep-line); background: none; border-radius: 3px; cursor: pointer; }
-.ep-panel .ep-set .ep-set-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.ep-panel .ep-set p { margin: 0; color: var(--ep-muted); font-size: 11.5px; }
 
 .ep-panel .ep-empty { color: var(--ep-muted); }

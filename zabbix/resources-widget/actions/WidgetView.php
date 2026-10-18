@@ -2,7 +2,7 @@
 
 namespace Modules\EpResources\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'ClientData', 'Bars', 'Forecast', 'Columns', 'ColumnMath', 'ColumnReader'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'ClientData', 'Bars', 'Forecast', 'Columns', 'ColumnMath', 'ColumnReader', 'ColumnCell', 'ColumnReport', 'TableOptions'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 foreach (['CWidgetFieldStrings', 'CWidgetFieldOptionalNumber', 'CWidgetFieldColumns', 'Catalogue', 'Resources', 'WidgetForm'] as $inc) {
@@ -14,7 +14,7 @@ use API,
 	CControllerResponseData,
 	CCsrfTokenHelper;
 use Modules\EpResources\Includes\{Catalogue, Resources, WidgetForm};
-use Modules\EpResources\Lib\{Bars, ClientData, ColumnMath, ColumnReader, Columns, ColumnSettings, Forecast, Roles, Settings, Store};
+use Modules\EpResources\Lib\{Bars, ClientData, ColumnMath, ColumnReader, ColumnReport, Columns, ColumnSettings, Forecast, Roles, Settings, Store, TableOptions};
 
 /**
  * Client resources: one row per client master host, its columns as the widget (or the report
@@ -40,14 +40,12 @@ class WidgetView extends CControllerDashboardWidgetView {
 	private array $roles = [];
 	private array $f = [];
 	private int $now = 0;
-	private ColumnReader $reader;
 
 	protected function doAction(): void {
 		$this->cfg = Settings::all();
 		$this->roles = Roles::load();
 		$this->f = $this->fields_values;
 		$this->now = time();
-		$this->reader = new ColumnReader();
 		$f = $this->f;
 
 		$model = ColumnSettings::loadModel(Catalogue::REPORT);
@@ -56,34 +54,29 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$rowCat = Catalogue::forScope($catalogue, 'row');
 		$roleIds = array_column(Roles::allRoles($this->roles), 'id');
 
-		// The columns: this widget's own, or the report defaults (a version-1 file read into them).
-		$own = (int) ($f['columns_from'] ?? WidgetForm::FROM_DEFAULTS) === WidgetForm::FROM_WIDGET;
-		$defaults = ColumnSettings::resolve($model['columns'], $clientCat, $model['legacy'], $model['new_hidden']);
+		// The columns: this widget's own, or the report defaults (a version-1 file read into them);
+		// the rule again, leniently: what no longer passes is left out, and the widget says which. A
+		// widget's own list was already cleaned by its field when Zabbix read the widget; what that
+		// left out is named there too.
+		$cols = ColumnReport::resolve($f, $model, $clientCat, $roleIds, $this->form ?? null);
+		['own' => $own, 'columns' => $columns, 'visible' => $visible, 'dropped' => $dropped, 'defaults' => $cleanDefaults] = $cols;
 		$defaultRows = $model['server_columns'] !== null ? ColumnSettings::resolve($model['server_columns'], $rowCat, null, true) : Catalogue::serverDefaults();
-		$list = $own && !empty($f['columns']) ? ColumnSettings::resolve($f['columns'], $clientCat, null, true) : $defaults;
 		$rowList = $own && !empty($f['server_columns']) ? ColumnSettings::resolve($f['server_columns'], $rowCat, null, true) : $defaultRows;
-		// The rule again, leniently: what no longer passes is left out, and the widget says which.
-		[$columns, , $dropped] = Columns::cleanList($list, $clientCat, $roleIds, false);
 		[$rowColumns, , $droppedRows] = Columns::cleanList($rowList, $rowCat, $roleIds, false, 'row');
-		// A widget's own list was already cleaned by its field when Zabbix read the widget; what that
-		// left out is named there.
 		if ($own && isset($this->form)) {
-			foreach (['columns' => 'dropped', 'server_columns' => 'droppedRows'] as $name => $var) {
-				$field = $this->form->getFields()[$name] ?? null;
-				if ($field !== null && method_exists($field, 'getDropped')) {
-					$$var = array_merge($field->getDropped(), $$var);
-				}
+			$field = $this->form->getFields()['server_columns'] ?? null;
+			if ($field !== null && method_exists($field, 'getDropped')) {
+				$droppedRows = array_merge($field->getDropped(), $droppedRows);
 			}
 		}
-		$visible = array_values(array_filter($columns, fn($c) => !$c['hidden']));
 		$visibleRows = array_values(array_filter($rowColumns, fn($c) => !$c['hidden']));
-		[$cleanDefaults] = Columns::cleanList($defaults, $clientCat, $roleIds, false);
 		$measures = Catalogue::measures($this->roles, $model['split']);
 		$view = $this->viewOptions($measures);
 
+		$report = new ColumnReport($this->cfg, $this->now, $f['usage_warn'] ?? '', $f['usage_high'] ?? '');
 		$data = [
 			'name' => $this->getInput('name', $this->widget->getDefaultName()),
-			'columns' => array_map(fn($c) => $this->head($c, $clientCat), $visible),
+			'columns' => array_map(fn($c) => $report->head($c, $clientCat), $visible),
 			'server_head' => [],
 			'rows' => [],
 			'totals' => null,
@@ -99,9 +92,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 				'token' => CCsrfTokenHelper::get('widget.ep_resources.columns'),
 				'canEdit' => $this->getUserType() == USER_TYPE_SUPER_ADMIN,
 				// The Columns dialog edits the report defaults: names, shown, order, families as roles.
-				'columns' => array_map(fn($c) => ['id' => $c['uid'], 'label' => $c['name'],
-					'default' => (int) $c['source'] === Columns::SOURCE_BUILTIN ? (string) ($clientCat[$c['builtin']]['label'] ?? $c['name']) : $c['name'],
-					'hidden' => (bool) $c['hidden'], 'section' => $c['group']], $cleanDefaults),
+				'columns' => ColumnReport::dialogColumns($cleanDefaults, $clientCat),
 				'families' => array_map(fn($fam) => ['id' => $fam['id'], 'label' => $fam['label'], 'split' => in_array($fam['id'], $model['split'], true)],
 					$this->roles['families']),
 				// This widget's own lists, so a Super admin can make them the report defaults.
@@ -136,9 +127,6 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$servers = ClientData::servers($this->roles, $clients);
 
 		// What to read: per client, per column, the hosts and keys; the donuts' and the forecast's master items.
-		$exact = [];
-		$patterns = [];
-		$plan = [];
 		$donutKeys = [];
 		foreach ($view['donuts'] as $id) {
 			foreach (['used', 'used_pct', 'allocated', 'requested'] as $k) {
@@ -148,66 +136,12 @@ class WidgetView extends CControllerDashboardWidgetView {
 			}
 		}
 		$donutKeys[] = Forecast::KEY;
+		$readRows = [];
 		foreach ($clients as $mid => $c) {
-			$list = $servers[$c['name']] ?? [];
-			foreach ($visible as $col) {
-				$plan[$mid][$col['uid']] = $this->targets($col, $clientCat, (string) $mid, $list);
-				foreach ($plan[$mid][$col['uid']] as $target) {
-					foreach ($target['want'] as [$hostid, $key, $pattern]) {
-						if ($pattern) {
-							$patterns[$key][$hostid] = true;
-						}
-						else {
-							$exact[$key][$hostid] = true;
-						}
-					}
-				}
-			}
-			foreach ($donutKeys as $key) {
-				$exact[$key][$mid] = true;
-			}
+			$readRows[$mid] = ['client' => $c, 'servers' => $servers[$c['name']] ?? []];
 		}
-		$items = $this->reader->items($exact, $patterns);
-
-		// Trends: every item a column takes a window of, or draws a sparkline from.
-		$trendDays = max(1, (int) ($f['trend_days'] ?? 7));
-		$wantSeries = [];
-		foreach ($clients as $mid => $c) {
-			foreach ($visible as $col) {
-				if ((int) $col['value'] === Columns::VALUE_NOW && (int) $col['show'] !== Columns::SHOW_SPARKLINE) {
-					continue;
-				}
-				$from = $this->now - ($col['window'] > 0 ? $col['window'] : $trendDays) * 86400;
-				foreach ($plan[$mid][$col['uid']] as $target) {
-					foreach ($this->reader->matched($target['want'], $items) as $it) {
-						if (!ColumnReader::numeric($it)) {
-							continue;
-						}
-						$wantSeries[$it['itemid']] = ['from' => min($from, $wantSeries[$it['itemid']]['from'] ?? PHP_INT_MAX),
-							'till' => $this->now, 'value_type' => (int) $it['value_type']];
-					}
-				}
-			}
-		}
-		$series = $wantSeries ? $this->reader->series($wantSeries) : [];
-
-		// Every figure first, then the cells: a bar with no top of its own runs to the highest of its column.
-		$found = [];
-		$seenMax = [];
-		$units = [];
-		foreach ($clients as $mid => $c) {
-			foreach ($visible as $col) {
-				$entry = (int) $col['source'] === Columns::SOURCE_BUILTIN ? ($clientCat[$col['builtin']] ?? null) : null;
-				$fig = $this->figure($col, $entry, (string) $mid, $c, $plan[$mid][$col['uid']], $items, $series, $trendDays, $clientCat);
-				$found[$mid][$col['uid']] = $fig;
-				if (isset($fig['value']) && is_float($fig['value'])) {
-					$seenMax[$col['uid']] = max($seenMax[$col['uid']] ?? $fig['value'], $fig['value']);
-				}
-				if (($fig['units'] ?? '') !== '' && !isset($units[$col['uid']])) {
-					$units[$col['uid']] = $fig['units'];
-				}
-			}
-		}
+		$report->read($readRows, $visible, $clientCat, (int) ($f['trend_days'] ?? 7), $donutKeys);
+		$items = $report->items();
 
 		$widgetBars = Bars::styleOf(Bars::isInherit($f['bars'] ?? Bars::INHERIT) ? Settings::bars($this->cfg) : $f['bars']);
 		$warnW = $f['usage_warn'] ?? '';
@@ -215,29 +149,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$data['server_head'] = $this->serverHead($visibleRows, $rowCat);
 		$rows = [];
 		foreach ($clients as $mid => $c) {
-			$cells = [];
-			$flags = ['warn' => 0, 'high' => 0, 'short' => 0, 'nodata' => 0, 'down' => 0, 'full_days' => null];
-			$sort = [];
-			$export = [];
-			foreach ($visible as $col) {
-				$entry = (int) $col['source'] === Columns::SOURCE_BUILTIN ? ($clientCat[$col['builtin']] ?? null) : null;
-				$fig = $found[$mid][$col['uid']] + ['seen_max' => $seenMax[$col['uid']] ?? null, 'widget_bars' => $widgetBars,
-					'usage' => Resources::usage($c['macros'], $col, $warnW, $highW, $this->cfg)];
-				$cell = Resources::cell($col, $entry, $fig, $this->cfg) + ['layout' => Resources::layout($col), 'first' => !$cells];
-				if ($cell['level'] === 'warn' || $cell['level'] === 'high') {
-					$flags[$cell['level']]++;
-				}
-				if ($cell['short']) {
-					$flags['short']++;
-				}
-				// A figure that says what it sorts and exports by (a forecast: its days, null when not
-				// growing) is taken at its word, null included.
-				$sort[$col['uid']] = array_key_exists('sort', $fig) ? $fig['sort'] : $cell['value'];
-				$cell['sort'] = $sort[$col['uid']];
-				$export[] = Resources::exportValue(array_key_exists('export', $fig) ? $fig['export'] : $cell['value'],
-					(string) ($fig['export_units'] ?? $fig['units'] ?? ''), $this->cfg);
-				$cells[] = $cell;
-			}
+			['cells' => $cells, 'flags' => $flags, 'sort' => $sort, 'export' => $export] = $report->cells((string) $mid, $c, $visible, $clientCat, $widgetBars);
+			$flags += ['nodata' => 0, 'down' => 0, 'full_days' => null];
 			// The forecast, when "disk full within 30 days" is part of Needs attention.
 			$fi = Resources::forecast(ColumnReader::value($items[$mid][Forecast::KEY] ?? null), $this->cfg);
 			$flags['full_days'] = $fi['days'];
@@ -278,21 +191,12 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$data['rows'] = $rows;
 
 		if ($view['totals'] && $rows) {
-			$data['totals'] = [];
-			foreach ($visible as $i => $col) {
-				$entry = (int) $col['source'] === Columns::SOURCE_BUILTIN ? ($clientCat[$col['builtin']] ?? null) : null;
-				$u = (string) ($units[$col['uid']] ?? $col['units']);
-				$text = !empty($entry['text']) || !empty($entry['forecast']);
-				$values = array_map(fn($r) => $r['sort'][$col['uid']] ?? null, $rows);
-				$isPct = (int) $col['source'] === Columns::SOURCE_CALC && (int) $col['calc_op'] === Columns::OP_OF;
-				$t = $text ? null : Resources::total($values, $isPct ? '%' : $u, $view['totals_avg']);
-				$data['totals'][] = $i === 0 ? self::totalsLabel($view) : ($t === null ? '' : ($isPct ? Resources::pctText($t, $this->cfg) : Resources::text($t, $u, $col, $this->cfg)));
-			}
+			$data['totals'] = $report->totals($rows, $visible, $clientCat, $view['totals_avg'], $view['top_n']);
 		}
 
 		// The export: the columns the widget shows, in its order; the servers on their own sheet.
 		$data['export'] = [
-			'headers' => array_map(fn($col) => Resources::exportHeader($col, $this->exportUnits($col, $clientCat, $units), $this->cfg), $visible),
+			'headers' => $report->exportHeaders($visible, $clientCat),
 			'rows' => array_column($rows, 'export'),
 			'types' => array_column($rows, 'type'),
 			'servers' => $this->serverExport($rows, $servers, $clients, $visibleRows)
@@ -304,25 +208,13 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$this->setResponse(new CControllerResponseData($data));
 	}
 
-	/**
-	 * What the totals row is over, said in its first cell: every client the widget shows, or its
-	 * top N. A viewer's search, Type filter or Needs attention hides the row (ep-panel.js), since
-	 * these figures are not the visible rows'.
-	 */
-	private static function totalsLabel(array $view): string {
-		if ($view['top_n'] !== null) {
-			return $view['totals_avg'] ? _s('Average (top %1$s)', $view['top_n']) : _s('Total (top %1$s)', $view['top_n']);
-		}
-		return $view['totals_avg'] ? _('Average (all clients)') : _('Total (all clients)');
-	}
-
 	/** The View tab's settings, each read with its default — a widget saved before 2.1.1 has none of them. */
 	private function viewOptions(array $measures): array {
 		$f = $this->f;
 		$order = array_values(array_intersect($f['pie_order'] ?? [], array_keys($measures)));
 		$order = array_merge($order, array_values(array_diff(array_keys($measures), $order)));
 		$on = $f['pie_donuts'] ?? Catalogue::DEFAULT_DONUTS;
-		return [
+		return TableOptions::read($f, ['toolbar' => WidgetForm::TOOLBAR_DEFAULT, 'attention' => WidgetForm::ATTENTION_DEFAULT]) + [
 			'view' => (int) ($f['view'] ?? WidgetForm::VIEW_TABLE),
 			'switch' => (int) ($f['view_switch'] ?? 0) === 1,
 			'donuts' => array_values(array_filter($order, fn($id) => in_array($id, $on, true))),
@@ -333,280 +225,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'size' => (int) ($f['pie_size'] ?? WidgetForm::SIZE_MEDIUM),
 			'chips' => (int) ($f['pie_chips'] ?? 1) === 1,
 			'server_rows' => (int) ($f['server_rows'] ?? WidgetForm::ROWS_CLICK),
-			'density' => (int) ($f['density'] ?? WidgetForm::DENSITY_COMPACT),
-			'row_height' => ($f['row_height'] ?? '') === '' ? null : (int) $f['row_height'],
-			'group_headers' => (int) ($f['group_headers'] ?? 1) === 1,
-			'sticky_header' => (int) ($f['sticky_header'] ?? 1) === 1,
-			'freeze_first' => (int) ($f['freeze_first'] ?? 1) === 1,
-			'striped' => (int) ($f['striped'] ?? 0) === 1,
-			'totals' => (int) ($f['totals'] ?? 0) === 1,
-			'totals_avg' => (int) ($f['totals_fn'] ?? WidgetForm::TOTALS_SUM) === WidgetForm::TOTALS_AVG,
-			'sort_by' => (string) ($f['sort_by'] ?? 'client'),
-			'sort_desc' => (int) ($f['sort_dir'] ?? WidgetForm::SORT_ASC) === WidgetForm::SORT_DESC,
-			'top_n' => ($f['top_n'] ?? '') === '' ? null : (int) $f['top_n'],
-			'toolbar' => $f['toolbar_items'] ?? WidgetForm::TOOLBAR_DEFAULT,
-			'toolbar_pos' => (int) ($f['toolbar_pos'] ?? WidgetForm::TOOLBAR_HOVER),
-			'attention' => $f['attention'] ?? WidgetForm::ATTENTION_DEFAULT,
-			'attention_default' => (int) ($f['attention_default'] ?? WidgetForm::ATTENTION_ALL) === WidgetForm::ATTENTION_ONLY,
 			'hatch' => 'ep-hatch-'.bin2hex(random_bytes(4))
 		];
-	}
-
-	/** A column's header: its group, its name, how its cells sit, and whether it is a number. */
-	private function head(array $col, array $catalogue): array {
-		$entry = (int) $col['source'] === Columns::SOURCE_BUILTIN ? ($catalogue[$col['builtin']] ?? null) : null;
-		return ['uid' => $col['uid'], 'builtin' => (int) $col['source'] === Columns::SOURCE_BUILTIN ? $col['builtin'] : '', 'group' => $col['group'],
-			'name' => $col['name'], 'layout' => Resources::layout($col), 'custom' => (int) $col['source'] !== Columns::SOURCE_BUILTIN];
-	}
-
-	/** The units a column's export is in: what Zabbix said its items are in, else what the catalogue says. */
-	private function exportUnits(array $col, array $catalogue, array $units): string {
-		if ((int) $col['source'] === Columns::SOURCE_CALC && (int) $col['calc_op'] === Columns::OP_OF) {
-			return '%';
-		}
-		$entry = (int) $col['source'] === Columns::SOURCE_BUILTIN ? ($catalogue[$col['builtin']] ?? null) : null;
-		if (!empty($entry['forecast'])) {
-			return 'days';
-		}
-		return (string) ($units[$col['uid']] ?? ($entry['units'] ?? $col['units']));
-	}
-
-	/**
-	 * Where one column is read for one client: for each of its figures (the value; a calculated
-	 * column's two operands; a built-in's share and request) [hostid, key, is pattern] per host,
-	 * and whether they are on the master host or the servers.
-	 */
-	private function targets(array $col, array $catalogue, string $mid, array $servers): array {
-		$picked = array_values(array_filter($servers, fn($s) => !$col['roles'] || array_intersect($col['roles'], $s['roles'])));
-		$operand = function (string $spec) use ($catalogue, $mid, $picked): array {
-			if (strpos($spec, Columns::KEY_OPERAND) === 0) {
-				$key = substr($spec, strlen(Columns::KEY_OPERAND));
-				return ['on' => Columns::ON_SERVERS, 'servers' => count($picked), 'want' => array_map(fn($s) => [$s['hostid'], $key, false], $picked),
-					'label' => $key];
-			}
-			$b = $catalogue[$spec] ?? null;
-			if ($b === null || !isset($b['key'])) {
-				return ['on' => Columns::ON_MASTER, 'servers' => 0, 'want' => [], 'label' => $spec];
-			}
-			if ($b['on'] === Columns::ON_MASTER) {
-				return ['on' => Columns::ON_MASTER, 'servers' => 1, 'want' => [[$mid, $b['key'], false]], 'label' => self::operandLabel($b)];
-			}
-			$want = [];
-			foreach ($picked as $s) {
-				if (!empty($b['disk'])) {
-					foreach ($s['disks'] as $d) {
-						$want[] = [$s['hostid'], 'vfs.fs.dependent.size['.$d['mount'].',pused]', false];
-					}
-				}
-				else {
-					$want[] = [$s['hostid'], $b['key'], false];
-				}
-			}
-			return ['on' => Columns::ON_SERVERS, 'servers' => count($picked), 'want' => $want, 'label' => self::operandLabel($b)];
-		};
-		switch ((int) $col['source']) {
-			case Columns::SOURCE_ITEM:
-				return ['a' => ['on' => Columns::ON_SERVERS, 'servers' => count($picked),
-					'want' => array_map(fn($s) => [$s['hostid'], $col['key'], (bool) $col['pattern']], $picked), 'label' => $col['key']]];
-			case Columns::SOURCE_CALC:
-				return ['a' => $operand($col['calc_a']), 'b' => $operand($col['calc_b'])];
-		}
-		$b = $catalogue[$col['builtin']] ?? null;
-		if ($b === null || !isset($b['key'])) {
-			return [];
-		}
-		$out = ['a' => $operand($col['builtin'])];
-		foreach (['pct', 'vs'] as $k) {
-			if (isset($b[$k])) {
-				$out[$k] = ['on' => Columns::ON_MASTER, 'servers' => 1, 'want' => [[$mid, $b[$k], false]], 'label' => $k];
-			}
-		}
-		return $out;
-	}
-
-	/** How a reason names a built-in figure: "ES storage allocated", "devices seen". */
-	private static function operandLabel(array $b): string {
-		$label = mb_strtolower(mb_substr((string) $b['label'], 0, 1)).mb_substr((string) $b['label'], 1);
-		return trim(($b['group'] ?? '') !== '' ? $b['group'].' '.$label : $label);
-	}
-
-	/**
-	 * One operand's figure for one client: one value per server first — its worst item — then the
-	 * servers combined; or the master host's item. Now, or over the window from the trend.
-	 *
-	 * @return array{now: ?float, value: ?float, trend: ?array, itemids: array, hostids: array, units: string, why: ?string, newest: int}
-	 */
-	private function evaluate(array $target, array $col, array $items, array $series, int $trendDays, array $usage): array {
-		$found = $this->reader->matched($target['want'], $items, $capped);
-		$numeric = array_values(array_filter($found, fn($it) => ColumnReader::numeric($it)));
-		$master = $target['on'] === Columns::ON_MASTER;
-		$lower = (int) $col['worse'] === Columns::WORSE_LOWER;
-		$fn = $master ? Columns::COMBINE_MAX : (int) $col['combine'];
-		$over = fn(float $v) => ColumnMath::level($v, $col, $usage)['level'] !== '';
-		$hostValues = ColumnMath::perHost(array_map(fn($it) => [$it['hostid'], ColumnReader::value($it)], $numeric), $lower);
-		$now = ColumnMath::combine(array_values($hostValues), $fn, $over);
-		$from = $this->now - ($col['window'] > 0 ? $col['window'] : $trendDays) * 86400;
-		$byHost = [];
-		foreach ($numeric as $it) {
-			if (isset($series[$it['itemid']])) {
-				$byHost[$it['hostid']][$it['itemid']] = $series[$it['itemid']];
-			}
-		}
-		$trend = $byHost ? ColumnMath::trend(ColumnMath::hostSeries($byHost, $lower), $fn, $from, $this->now, $over) : null;
-		$value = (int) $col['value'] === Columns::VALUE_NOW ? $now : ColumnMath::windowValue($trend, (int) $col['value']);
-		$why = null;
-		if ($value === null) {
-			if (!$master && $target['servers'] === 0) {
-				$why = $col['roles'] ? _('no servers in these roles') : _('no servers with a role');
-			}
-			elseif ($found && !$numeric) {
-				$why = _('not a number');
-			}
-			elseif ($now !== null && $trend === null && array_intersect_key(array_flip(array_column($numeric, 'itemid')), $this->reader->seriesCapped)) {
-				$why = _('window not read');
-			}
-			elseif ($now !== null && $trend === null) {
-				$why = _('no trend yet');
-			}
-			elseif ($found) {
-				$why = _('no value yet');
-			}
-			else {
-				$why = _('not collected');
-			}
-		}
-		$count = !$master && (int) $col['combine'] === Columns::COMBINE_COUNT;
-		return [
-			'now' => $now, 'value' => $value, 'trend' => $trend, 'capped' => (bool) $capped,
-			'trend_capped' => (bool) array_intersect_key(array_flip(array_column($numeric, 'itemid')), $this->reader->seriesCapped),
-			'itemids' => array_column($numeric, 'itemid'), 'hostids' => array_values(array_unique(array_column($found, 'hostid'))),
-			'units' => $count ? '' : (string) ($numeric[0]['units'] ?? ''), 'why' => $why,
-			'newest' => $numeric ? max(array_map(fn($it) => (int) $it['lastclock'], $numeric)) : 0,
-			'host_levels' => $count ? array_map(fn($v) => ColumnMath::level($v, $col, $usage)['level'], array_filter($hostValues, fn($v) => $v !== null)) : null
-		];
-	}
-
-	/** One column's figures for one client, for Resources::cell to draw. */
-	private function figure(array $col, ?array $entry, string $mid, array $client, array $plan, array $items, array $series, int $trendDays,
-			array $catalogue): array {
-		$usage = Resources::usage($client['macros'], $col, $this->f['usage_warn'] ?? '', $this->f['usage_high'] ?? '', $this->cfg);
-		$source = (int) $col['source'];
-
-		if ($source === Columns::SOURCE_BUILTIN && $entry !== null && $entry['on'] === Columns::ON_CLIENT) {
-			if (isset($entry['field'])) {
-				return ['text' => (string) ($client[$entry['field']] ?? ''),
-					'url' => (int) $col['click'] === Columns::CLICK_DASHBOARD ? ColumnMath::clickUrl(Columns::CLICK_DASHBOARD, [], [], $mid) : null];
-			}
-			return ['text' => (string) ($client['macros'][$entry['macro']] ?? '')];
-		}
-		if (!isset($plan['a'])) {
-			return ['value' => null, 'why' => _('not collected')];
-		}
-
-		$a = $this->evaluate($plan['a'], $col, $items, $series, $trendDays, $usage);
-		// Count over Warn is a number of servers: no units, never a percentage, whatever it counts.
-		$count = $a['host_levels'] !== null && $source !== Columns::SOURCE_CALC;
-		$fig = ['value' => $a['value'], 'units' => $count ? '' : ($a['units'] !== '' ? $a['units'] : (string) ($entry['units'] ?? $col['units'])), 'why' => $a['why']];
-		if ($source !== Columns::SOURCE_BUILTIN && $col['units'] !== '' && !$count) {
-			$fig['units'] = $col['units'];
-		}
-		$itemids = $a['itemids'];
-		$hostids = $a['hostids'];
-
-		if ($source === Columns::SOURCE_CALC) {
-			$b = $this->evaluate($plan['b'], $col, $items, $series, $trendDays, $usage);
-			$itemids = array_merge($itemids, $b['itemids']);
-			$hostids = array_values(array_unique(array_merge($hostids, $b['hostids'])));
-			$x = $a['value'];
-			$y = $b['value'];
-			$fig['why'] = $x === null ? _s('%1$s %2$s', $plan['a']['label'], $a['why']) : ($y === null ? _s('%1$s not set', $plan['b']['label']) : null);
-			switch ((int) $col['calc_op']) {
-				case Columns::OP_OF:
-					if ($x !== null && $y !== null && $y > 0) {
-						$fig['pct'] = $x / $y * 100;
-						$fig['of'] = Resources::text($y, $b['units'] !== '' ? $b['units'] : $fig['units'], $col, $this->cfg);
-						$fig['export'] = $fig['pct'];
-						$fig['export_units'] = '%';
-						$fig['sort'] = $fig['pct'];
-					}
-					else {
-						if ($x !== null && $y !== null) {
-							$fig['why'] = _s('%1$s not set', $plan['b']['label']);
-						}
-						$fig['value'] = null;
-					}
-					break;
-				case Columns::OP_MINUS:
-					$fig['value'] = $x !== null && $y !== null ? $x - $y : null;
-					break;
-				case Columns::OP_PLUS:
-					$fig['value'] = $x !== null && $y !== null ? $x + $y : null;
-					break;
-				case Columns::OP_DIV:
-					$fig['value'] = $x !== null && $y !== null && $y != 0 ? $x / $y : null;
-					if ($x !== null && $y !== null && $y == 0) {
-						$fig['why'] = _s('%1$s is 0', $plan['b']['label']);
-					}
-					break;
-			}
-			if ((int) $col['calc_op'] === Columns::OP_DIV && $col['units'] === '') {
-				$fig['units'] = '';
-			}
-		}
-		elseif ($source === Columns::SOURCE_BUILTIN && $entry !== null) {
-			if (!empty($entry['forecast'])) {
-				$fc = Resources::forecast($a['now'], $this->cfg);
-				if ($fc['text'] === null) {
-					return ['value' => null, 'why' => $a['why'] ?? _('not measured yet'), 'units' => 's'];
-				}
-				return ['value' => $a['now'], 'display' => $fc['text'], 'level' => $fc['level'], 'units' => 's', 'export' => $fc['days'],
-					'export_units' => 'days', 'sort' => $fc['days'] ?? 1e9, 'url' => null];
-			}
-			if (!empty($entry['requested']) && (int) $col['value'] === Columns::VALUE_NOW && $a['value'] !== null && $a['value'] == 0) {
-				return ['value' => null, 'unset' => true, 'units' => $fig['units']];
-			}
-			if (!empty($entry['settings']) && !$count) {
-				$fig['pct'] = $a['value'];
-			}
-			if (isset($plan['pct'])) {
-				$p = $this->evaluate($plan['pct'], $col, $items, $series, $trendDays, $usage);
-				$fig['pct'] = $p['value'];
-			}
-			if (isset($plan['vs']) && $a['value'] !== null) {
-				$req = ColumnReader::value($items[$mid][$entry['vs']] ?? null);
-				if ($req !== null && $req > 0 && $a['value'] < $req) {
-					$fig['short'] = _s('Below %1$s: %2$s', $entry['vs_label'] ?? _('requested'),
-						Resources::text($req, (string) ($items[$mid][$entry['vs']]['units'] ?? $fig['units']), $col, $this->cfg));
-				}
-			}
-			if ($a['value'] === null && isset($entry['fix'])) {
-				$fig['fix'] = $entry['fix'];
-			}
-		}
-
-		// Count over Warn: the level of the worst server, never the count against the thresholds it counts with.
-		if ($a['host_levels'] !== null && $source !== Columns::SOURCE_CALC) {
-			$fig['level'] = in_array('high', $a['host_levels'], true) ? 'high' : (in_array('warn', $a['host_levels'], true) ? 'warn' : '');
-		}
-		if ($fig['value'] !== null && $col['stale'] !== '' && $a['newest'] > 0 && $this->now - $a['newest'] > (int) $col['stale'] * 60) {
-			$fig['stale'] = _s('No new value for %1$s min (stale after %2$s min)', (int) floor(($this->now - $a['newest']) / 60), $col['stale']);
-		}
-		if ($a['capped']) {
-			$fig['capped'] = _s('The key pattern matches more items than are read (%1$s per server, %2$s in all) — make it narrower.',
-				Columns::PATTERN_PER_HOST, Columns::PATTERN_PER_METRIC);
-		}
-		if ($a['trend_capped']) {
-			$fig['capped'] = trim(($fig['capped'] ?? '').' '._s('The widget asks for more trend than one refresh reads (%1$s item-days): this window was not read — shorten it, or narrow the column.',
-				ColumnReader::MAX_ITEM_DAYS));
-		}
-		if ((int) $col['show'] === Columns::SHOW_SPARKLINE && $a['trend'] !== null) {
-			$fig['series'] = array_values(array_filter($a['trend']['series'], fn($v) => $v !== null));
-		}
-		$fig['url'] = ColumnMath::clickUrl((int) $col['click'], $itemids, $hostids, $mid);
-		if (!array_key_exists('sort', $fig)) {
-			$fig['sort'] = $fig['value'];
-		}
-		return $fig;
 	}
 
 	/**

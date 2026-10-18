@@ -12,29 +12,19 @@
  * @var array $data
  */
 
-use Modules\EpResources\Includes\WidgetForm;
-use Modules\EpResources\Lib\Bars;
+use Modules\EpResources\Includes\{ColumnTable, WidgetForm};
 
 $view = new CWidgetView($data);
 $opt = $data['view'];
 $palette = (string) ($data['palette'] ?? '');
 
-$panel = fn(array $items) => (new CDiv($items))->addClass('ep-panel')->setAttribute('data-ep-panel', 'resources')
-	->setAttribute('style', $palette !== '' ? $palette : null)
-	->addClass($opt['toolbar_pos'] === WidgetForm::TOOLBAR_ALWAYS ? 'ep-pt-always' : null)
-	->addClass($opt['density'] === WidgetForm::DENSITY_COMFORTABLE ? 'ep-comfortable' : null)
-	->addClass(!$opt['sticky_header'] ? 'ep-nosticky' : null)
-	->addClass(!$opt['freeze_first'] ? 'ep-nofreeze' : null)
-	->addClass($opt['striped'] ? 'ep-striped' : null)
-	->addClass($opt['row_height'] !== null ? 'ep-rowh' : null)
-	->setAttribute('data-ep-view', $opt['view'] === WidgetForm::VIEW_PIE ? 'pie' : 'table');
+$panel = fn(array $items) => ColumnTable::panel($items, 'resources', $opt, $palette, $opt['view'] === WidgetForm::VIEW_PIE ? 'pie' : 'table');
 
 if ($data['error'] !== null) {
 	$view->addItem($panel([(new CDiv($data['error']))->addClass('ep-empty')]))->show();
 	return;
 }
 
-$tools = array_flip($opt['toolbar']);
 $attentionCount = count(array_filter($data['rows'], fn($r) => $r['attention']));
 $bothViews = $opt['switch'];
 $showTable = $bothViews || $opt['view'] === WidgetForm::VIEW_TABLE;
@@ -42,63 +32,13 @@ $showPie = $bothViews || $opt['view'] === WidgetForm::VIEW_PIE;
 
 /* ---------------------------------------- toolbar ---------------------------------------- */
 
-$toolbar = null;
-if ($opt['toolbar_pos'] !== WidgetForm::TOOLBAR_HIDDEN) {
-	$bar = [(new CSpan(_n('%1$s client', '%1$s clients', count($data['rows']))))->addClass('ep-res-count ep-pt-count')->setAttribute('data-ep-count', '')
-		->setAttribute('data-template', _('%n clients'))];
-	if (isset($tools['search'])) {
-		$bar[] = (new CLabel([(new CSpan('⌕'))->setAttribute('aria-hidden', 'true'),
-			(new CTag('input', false))->setAttribute('type', 'search')->setAttribute('data-ep-search', '')
-				->setAttribute('placeholder', _('Client, host or IP'))->setAttribute('aria-label', _('Search clients, hosts or IPs'))
-		]))->addClass('ep-pt-search');
-	}
-	if (isset($tools['type'])) {
-		$bar[] = new CLabel(_('Type'));
-		// The types the site has, from ElasticPro -> Settings.
-		$bar[] = (new CTag('select', true, array_merge([(new CTag('option', true, _('All')))->setAttribute('value', '')],
-			array_map(fn($t) => (new CTag('option', true, $t))->setAttribute('value', $t), $data['meta']['types'])
-		)))->setAttribute('data-ep-type-filter', '')->setAttribute('aria-label', _('Client type'));
-	}
-	if (isset($tools['attention'])) {
-		$bar[] = (new CSimpleButton([_('Needs attention').' ', (new CSpan((string) $attentionCount))->addClass('ep-att-n')]))
-			->addClass('ep-pbtn ep-att')->setAttribute('data-ep-attention', '')->setAttribute('aria-pressed', $opt['attention_default'] ? 'true' : 'false');
-	}
-	if (isset($tools['compact'])) {
-		$bar[] = (new CSimpleButton(_('Compact')))->addClass('ep-pbtn')->setAttribute('data-ep-compact', '')
-			->setAttribute('aria-pressed', $opt['density'] === WidgetForm::DENSITY_COMPACT ? 'true' : 'false');
-	}
-	if (isset($tools['view']) && $bothViews) {
-		$bar[] = (new CDiv([
-			(new CSimpleButton(_('Table')))->addClass('ep-pbtn')->setAttribute('data-ep-view-to', 'table')
-				->setAttribute('aria-pressed', $opt['view'] === WidgetForm::VIEW_TABLE ? 'true' : 'false'),
-			(new CSimpleButton(_('Pie chart')))->addClass('ep-pbtn')->setAttribute('data-ep-view-to', 'pie')
-				->setAttribute('aria-pressed', $opt['view'] === WidgetForm::VIEW_PIE ? 'true' : 'false')
-		]))->addClass('ep-seg')->setAttribute('role', 'group')->setAttribute('aria-label', _('View'));
-	}
-	if (isset($tools['expand']) && $showTable && $opt['server_rows'] !== WidgetForm::ROWS_NONE) {
-		$bar[] = (new CSimpleButton($opt['server_rows'] === WidgetForm::ROWS_ALL ? _('Collapse all') : _('Expand all')))->addClass(ZBX_STYLE_BTN_ALT)
-			->setAttribute('data-ep-expand-all', '')->setAttribute('data-open', $opt['server_rows'] === WidgetForm::ROWS_ALL ? '1' : '0')
-			->addClass('ep-table-only');
-	}
-	$menu = [];
-	if (isset($tools['columns'])) {
-		$menu[] = (new CSimpleButton(_('Columns').'…'))->setAttribute('data-ep-columns', '');
-	}
-	if (isset($tools['export'])) {
-		$menu[] = (new CSimpleButton(_('Export CSV')))->setAttribute('data-ep-export', 'csv');
-		$menu[] = (new CSimpleButton(_('Export servers CSV')))->setAttribute('data-ep-export', 'csv-servers');
-		$menu[] = (new CSimpleButton(_('Export Excel')))->setAttribute('data-ep-export', 'xlsx');
-	}
-	if ($menu) {
-		// The report's Columns and its exports, in the panel menu.
-		$bar[] = (new CDiv([
-			(new CSimpleButton('⋮'))->addClass('ep-pbtn')->setAttribute('data-ep-menu', '')->setAttribute('aria-haspopup', 'true')
-				->setAttribute('aria-expanded', 'false')->setAttribute('title', _('Columns and export')),
-			(new CDiv($menu))->addClass('ep-menu-pop')->setAttribute('hidden', 'hidden')
-		]))->addClass('ep-menu');
-	}
-	$toolbar = (new CDiv($bar))->addClass('ep-res-toolbar ep-pt');
-}
+$toolbar = ColumnTable::toolbar($data, $opt, [
+	'count' => ['text' => _n('%1$s client', '%1$s clients', count($data['rows'])), 'template' => _('%n clients')],
+	'search' => ['placeholder' => _('Client, host or IP'), 'label' => _('Search clients, hosts or IPs')],
+	'pie' => ['both' => $bothViews, 'pie' => $opt['view'] === WidgetForm::VIEW_PIE],
+	'expand' => $showTable && $opt['server_rows'] !== WidgetForm::ROWS_NONE ? ['open' => $opt['server_rows'] === WidgetForm::ROWS_ALL] : null,
+	'servers_csv' => true
+]);
 
 if (!$data['rows']) {
 	$view->addItem($panel([$toolbar,
@@ -108,242 +48,109 @@ if (!$data['rows']) {
 	return;
 }
 
-/* -------------------------------------- one cell -------------------------------------- */
-
-/** The content of a cell as Resources::cell described it: its text and sub-text, its bar, badge, indicators or sparkline, its link. */
-$content = function (array $c) {
-	$text = $c['sub'] !== '' ? [$c['text'], ' ', (new CSpan($c['sub']))->addClass('ep-res-sub')] : $c['text'];
-	if ($c['badge']) {
-		$text = (new CSpan($text))->addClass($c['badge_class'] ?? 'ep-badge');
-	}
-	if ($c['bar'] !== null) {
-		if ($c['bar']['style'] === 'gauge') {
-			$text = (new CDiv([
-				(new CSpan(''))->addClass('ep-gauge')->setAttribute('style', '--p:'.round($c['bar']['share'], 1)),
-				(new CSpan($text))->addClass('ep-bar-val')
-			]))->addClass('ep-bar-wrap ep-bar-gauge');
-		}
-		else {
-			$text = Bars::cell($text, (float) $c['bar']['share'], $c['bar']['style'], $c['class'], (int) $c['bar']['segments']);
-		}
-	}
-	elseif ($c['ind'] !== null) {
-		$dots = [];
-		for ($i = 0; $i < $c['ind']['of']; $i++) {
-			$dots[] = (new CTag('i', true, ''))->addClass($i < $c['ind']['lit'] ? 'on' : null);
-		}
-		$text = (new CDiv([(new CSpan($dots))->addClass('ep-ind'), (new CSpan($text))->addClass('ep-bar-val')]))->addClass('ep-bar-wrap ep-bar-ind');
-	}
-	elseif ($c['spark'] !== null) {
-		$pts = $c['spark'];
-		$lo = min($pts);
-		$hi = max($pts);
-		$n = count($pts);
-		$xy = [];
-		foreach ($pts as $i => $v) {
-			$xy[] = round($i * 78 / max(1, $n - 1) + 1, 1).','.round(18 - ($hi > $lo ? ($v - $lo) / ($hi - $lo) * 16 : 8), 1);
-		}
-		$text = (new CDiv([
-			(new CTag('svg', true, (new CTag('polyline', true, ''))->setAttribute('points', implode(' ', $xy))->setAttribute('fill', 'none')))
-				->addClass('ep-spark')->setAttribute('viewBox', '0 0 80 20')->setAttribute('width', '80')->setAttribute('height', '20')
-				->setAttribute('aria-hidden', 'true'),
-			(new CSpan($text))->addClass('ep-bar-val')
-		]))->addClass('ep-bar-wrap ep-bar-spark');
-	}
-	if (($c['url'] ?? null) !== null) {
-		$text = (new CLink($text, $c['url']))->addClass('ep-cell-link');
-	}
-	return $text;
-};
-$td = function (array $c, string $tag = 'td') use ($content) {
-	$el = (new CTag($tag, true, $content($c)))
-		->addClass($c['class'] !== '' ? $c['class'] : null)
-		->addClass(($c['layout']['class'] ?? '') !== '' ? $c['layout']['class'] : null);
-	$style = trim(implode(';', array_filter([$c['style'] ?? '', $c['layout']['style'] ?? ''])), ';');
-	if ($style !== '') {
-		$el->setAttribute('style', $style);
-	}
-	if ($c['hint'] !== '') {
-		$el->setAttribute('title', $c['hint']);
-	}
-	// What a header click sorts by: the figure itself, not its text ("+3 %", "18.4k", "2 months",
-	// a reason). Empty: unknown, last either way. Text columns sort by their text.
-	if (array_key_exists('sort', $c) && !is_string($c['sort'])) {
-		$el->setAttribute('data-sort', $c['sort'] === null ? '' : (string) round((float) $c['sort'], 6));
-	}
-	return $el;
-};
-
 $items = [$toolbar];
 
 /* ---------------------------------------- table ---------------------------------------- */
 
 if ($showTable) {
-	$columns = $data['columns'];
-	// Sections: a run of columns with one group is one section.
-	$groups = [];
-	foreach ($columns as $i => $c) {
-		if ($groups && $groups[count($groups) - 1]['name'] === $c['group']) {
-			$groups[count($groups) - 1]['span']++;
-		}
-		else {
-			$groups[] = ['name' => $c['group'], 'span' => 1, 'first' => $i];
-		}
-	}
-	$starts = array_column($groups, 'first');
 	$expandable = $opt['server_rows'] !== WidgetForm::ROWS_NONE;
+	$open = $opt['server_rows'] === WidgetForm::ROWS_ALL;
 
-	$thead = new CTag('thead', true);
-	if ($opt['group_headers'] && array_filter(array_column($columns, 'group'), fn($g) => $g !== '')) {
-		$group_row = (new CTag('tr', true))->addItem($expandable ? (new CTag('th', true, ''))->addClass('ep-res-toggle') : null);
-		foreach ($groups as $g) {
-			$group_row->addItem((new CTag('th', true, $g['name']))->setAttribute('colspan', $g['span'])
-				->addClass('ep-res-group')->addClass('ep-res-start'));
-		}
-		$thead->addItem($group_row);
-	}
-	$label_row = (new CTag('tr', true))->addItem($expandable ? (new CTag('th', true, ''))->addClass('ep-res-toggle') : null);
-	foreach ($columns as $i => $c) {
-		$th = (new CTag('th', true, $c['name']))->addClass($i === 0 ? 'ep-res-first' : null)
-			->addClass(in_array($i, $starts, true) ? 'ep-res-start' : null)
-			->addClass($c['layout']['class'] !== '' ? $c['layout']['class'] : null)
-			->setAttribute('data-ep-col', $c['uid']);
-		if ($c['layout']['style'] !== '') {
-			$th->setAttribute('style', $c['layout']['style']);
-		}
-		$label_row->addItem($th);
-	}
-	$thead->addItem($label_row);
-
-	$body = new CTag('tbody', true);
-	foreach ($data['rows'] as $row) {
+	/** A client's servers, a row of their own that opens under it: one column per mount the servers have. */
+	$serversOf = function (array $row, int $span) use ($data, $open) {
 		$id = $row['id'];
-		$open = $opt['server_rows'] === WidgetForm::ROWS_ALL;
-		$tr = (new CTag('tr', true))->setAttribute('data-type', $row['type'])->setAttribute('data-row', $id)
-			->setAttribute('data-attention', $row['attention'] ? '1' : '0');
-		if ($expandable) {
-			$tr->addItem((new CTag('td', true, $row['servers']
-				? (new CTag('button', true, $open ? '▾' : '▸'))->setAttribute('type', 'button')->addClass('ep-expand')->setAttribute('data-ep-expand', $id)
-					->setAttribute('aria-expanded', $open ? 'true' : 'false')->setAttribute('aria-label', _s('Servers of %1$s', $row['client']))
-				: ''))->addClass('ep-res-toggle'));
+		if (!$row['servers']) {
+			return null;
 		}
-		foreach ($row['cells'] as $i => $cell) {
-			$el = $td($cell)->addClass($i === 0 ? 'ep-res-first' : null)->addClass(in_array($i, $starts, true) ? 'ep-res-start' : null);
-			if ($i === 0 && $cell['url'] === null) {
-				// The client's name, as the report has always set it: bold.
-				$el = (new CTag('td', true, new CTag('b', true, $content($cell))))->addClass('ep-res-first')
-					->setAttribute('data-sort', array_key_exists('sort', $cell) && !is_string($cell['sort'])
-						? ($cell['sort'] === null ? '' : (string) round((float) $cell['sort'], 6)) : null)
-					->addClass($cell['class'] !== '' ? $cell['class'] : null)->addClass(in_array(0, $starts, true) ? 'ep-res-start' : null);
-				if ($cell['hint'] !== '') {
-					$el->setAttribute('title', $cell['hint']);
+		// One column per mount the client's servers have (/, /data …), in the order first met.
+		$mounts = [];
+		foreach ($row['servers'] as $s) {
+			foreach ($s['mounts'] as $m) {
+				if (!in_array($m, $mounts, true)) {
+					$mounts[] = $m;
 				}
 			}
-			$tr->addItem($el);
 		}
-		$body->addItem($tr);
-
-		if ($expandable && $row['servers']) {
-			// One column per mount the client's servers have (/, /data …), in the order first met.
-			$mounts = [];
-			foreach ($row['servers'] as $s) {
-				foreach ($s['mounts'] as $m) {
-					if (!in_array($m, $mounts, true)) {
-						$mounts[] = $m;
-					}
+		$head = new CTag('tr', true);
+		foreach ($data['server_head'] as $h) {
+			if ($h['disks']) {
+				foreach ($mounts as $m) {
+					$head->addItem((new CTag('th', true, _s('Disk %1$s', $m)))->setAttribute('data-sc', 'disks'));
 				}
+				continue;
 			}
-			$head = new CTag('tr', true);
-			foreach ($data['server_head'] as $h) {
-				if ($h['disks']) {
-					foreach ($mounts as $m) {
-						$head->addItem((new CTag('th', true, _s('Disk %1$s', $m)))->setAttribute('data-sc', 'disks'));
-					}
-					continue;
-				}
-				$th = (new CTag('th', true, $h['name']))->setAttribute('data-sc', $h['sc'])
-					->addClass($h['layout']['class'] !== '' ? $h['layout']['class'] : null);
-				if ($h['layout']['style'] !== '') {
-					$th->setAttribute('style', $h['layout']['style']);
-				}
-				$head->addItem($th);
+			$th = (new CTag('th', true, $h['name']))->setAttribute('data-sc', $h['sc'])
+				->addClass($h['layout']['class'] !== '' ? $h['layout']['class'] : null);
+			if ($h['layout']['style'] !== '') {
+				$th->setAttribute('style', $h['layout']['style']);
 			}
-			$sb = new CTag('tbody', true);
-			foreach ($row['servers'] as $s) {
-				$str = new CTag('tr', true);
-				foreach ($s['cells'] as $sc) {
-					switch ($sc['kind']) {
-						case 'disks':
-							foreach ($mounts as $m) {
-								$d = $sc['disks'][$m] ?? null;
-								$str->addItem((new CTag('td', true, $d === null ? '' : (new CSpan([
-									$d['mount'] !== null ? [(new CSpan($d['mount']))->addClass('ep-mount'), ' '] : null,
-									$d['used_on'] && $d['bar'] !== null ? (new CSpan((new CTag('i', true, ''))->setAttribute('style', 'width:'.($d['bar'] ?? 0).'%')))->addClass('ep-disk-bar') : null,
-									$d['size'],
-									$d['used_on'] && $d['used'] !== null ? [$d['size'] !== null ? ' · ' : '', new CTag('b', true, $d['used'].' %')] : null
-								]))->addClass('ep-disk-line')->addClass($d['class'] !== '' ? $d['class'] : null)))->setAttribute('data-sc', 'disks'));
-							}
-							break;
-						case 'role':
-							// Each role its own chip; a server with several reads "ES Data · Parser · Engine".
-							$roleCell = [];
-							foreach ($sc['roles'] as $r) {
-								$roleCell[] = (new CSpan($r))->addClass('ep-role-chip');
-								$roleCell[] = ' ';
-							}
-							foreach ($sc['services'] as $svc) {
-								$roleCell[] = (new CSpan($svc))->addClass('ep-svc');
-								$roleCell[] = ' ';
-							}
-							if ($sc['single']) {
-								$roleCell[] = (new CSpan(_('single node')))->addClass('ep-mark');
-							}
-							elseif ($sc['shared']) {
-								$roleCell[] = (new CSpan(_('shared')))->addClass('ep-mark');
-							}
-							$str->addItem((new CTag('td', true, $roleCell))->setAttribute('data-sc', 'role'));
-							break;
-						case 'host':
-							$str->addItem((new CTag('td', true, $sc['url'] !== null ? new CLink($sc['text'], $sc['url']) : $sc['text']))->setAttribute('data-sc', 'host'));
-							break;
-						case 'status':
-							$str->addItem((new CTag('td', true, new CSpan($sc['status'] === 'up' ? _('up') : ($sc['status'] === 'down' ? _('down') : _('no data')))))
-								->setAttribute('data-sc', 'status')->addClass('ep-st-'.$sc['status']));
-							break;
-						default:
-							$str->addItem($td($sc['cell'] + ['layout' => $sc['layout']])->setAttribute('data-sc', $sc['sc']));
-					}
-				}
-				$sb->addItem($str);
-			}
-			$srv = (new CTag('table', true))->addClass('ep-servers')->addItem((new CTag('thead', true))->addItem($head))->addItem($sb);
-			// Across the whole row, the expand column included: no empty cell pushing the servers right.
-			$sub = (new CTag('tr', true))->addClass('ep-sub')->setAttribute('data-parent', $id)
-				->addItem((new CTag('td', true, (new CDiv($srv))->addClass('ep-servers-wrap')))->setAttribute('colspan', count($columns) + 1));
-			if (!$open) {
-				$sub->setAttribute('hidden', 'hidden');
-			}
-			$body->addItem($sub);
+			$head->addItem($th);
 		}
-	}
-
-	$table = (new CTag('table', true))->addClass(ZBX_STYLE_LIST_TABLE)->addClass('ep-res-table')->addItem($thead)->addItem($body);
-	if ($data['totals'] !== null) {
-		$tf = (new CTag('tr', true))->addClass('ep-totals')->setAttribute('data-ep-totals', '')
-			->setAttribute('title', _('Over every client the widget lists; hidden while a search, Type or Needs attention filter is on.'))->addItem($expandable ? (new CTag('td', true, ''))->addClass('ep-res-toggle') : null);
-		foreach ($data['totals'] as $i => $t) {
-			$tf->addItem((new CTag('td', true, $t))->addClass($i === 0 ? 'ep-res-first' : null)->addClass(in_array($i, $starts, true) ? 'ep-res-start' : null));
+		$sb = new CTag('tbody', true);
+		foreach ($row['servers'] as $s) {
+			$str = new CTag('tr', true);
+			foreach ($s['cells'] as $sc) {
+				switch ($sc['kind']) {
+					case 'disks':
+						foreach ($mounts as $m) {
+							$d = $sc['disks'][$m] ?? null;
+							$str->addItem((new CTag('td', true, $d === null ? '' : (new CSpan([
+								$d['mount'] !== null ? [(new CSpan($d['mount']))->addClass('ep-mount'), ' '] : null,
+								$d['used_on'] && $d['bar'] !== null ? (new CSpan((new CTag('i', true, ''))->setAttribute('style', 'width:'.($d['bar'] ?? 0).'%')))->addClass('ep-disk-bar') : null,
+								$d['size'],
+								$d['used_on'] && $d['used'] !== null ? [$d['size'] !== null ? ' · ' : '', new CTag('b', true, $d['used'].' %')] : null
+							]))->addClass('ep-disk-line')->addClass($d['class'] !== '' ? $d['class'] : null)))->setAttribute('data-sc', 'disks'));
+						}
+						break;
+					case 'role':
+						// Each role its own chip; a server with several reads "ES Data · Parser · Engine".
+						$roleCell = [];
+						foreach ($sc['roles'] as $r) {
+							$roleCell[] = (new CSpan($r))->addClass('ep-role-chip');
+							$roleCell[] = ' ';
+						}
+						foreach ($sc['services'] as $svc) {
+							$roleCell[] = (new CSpan($svc))->addClass('ep-svc');
+							$roleCell[] = ' ';
+						}
+						if ($sc['single']) {
+							$roleCell[] = (new CSpan(_('single node')))->addClass('ep-mark');
+						}
+						elseif ($sc['shared']) {
+							$roleCell[] = (new CSpan(_('shared')))->addClass('ep-mark');
+						}
+						$str->addItem((new CTag('td', true, $roleCell))->setAttribute('data-sc', 'role'));
+						break;
+					case 'host':
+						$str->addItem((new CTag('td', true, $sc['url'] !== null ? new CLink($sc['text'], $sc['url']) : $sc['text']))->setAttribute('data-sc', 'host'));
+						break;
+					case 'status':
+						$str->addItem((new CTag('td', true, new CSpan($sc['status'] === 'up' ? _('up') : ($sc['status'] === 'down' ? _('down') : _('no data')))))
+							->setAttribute('data-sc', 'status')->addClass('ep-st-'.$sc['status']));
+						break;
+					default:
+						$str->addItem(ColumnTable::td($sc['cell'] + ['layout' => $sc['layout']])->setAttribute('data-sc', $sc['sc']));
+				}
+			}
+			$sb->addItem($str);
 		}
-		$table->addItem((new CTag('tfoot', true))->addItem($tf));
-	}
-	$scroll = (new CDiv($table))->addClass('ep-res-scroll ep-pscroll ep-view-table');
-	if ($opt['row_height'] !== null) {
-		$scroll->setAttribute('style', '--ep-row-h:'.(int) $opt['row_height'].'px');
-	}
-	if ($bothViews && $opt['view'] !== WidgetForm::VIEW_TABLE) {
-		$scroll->setAttribute('hidden', 'hidden');
-	}
-	$items[] = $scroll;
+		$srv = (new CTag('table', true))->addClass('ep-servers')->addItem((new CTag('thead', true))->addItem($head))->addItem($sb);
+		// Across the whole row, the expand column included: no empty cell pushing the servers right.
+		$sub = (new CTag('tr', true))->addClass('ep-sub')->setAttribute('data-parent', $id)
+			->addItem((new CTag('td', true, (new CDiv($srv))->addClass('ep-servers-wrap')))->setAttribute('colspan', $span));
+		if (!$open) {
+			$sub->setAttribute('hidden', 'hidden');
+		}
+		return $sub;
+	};
+	$rows = $expandable ? [
+		'toggle' => fn(array $row) => $row['servers']
+			? (new CTag('button', true, $open ? '▾' : '▸'))->setAttribute('type', 'button')->addClass('ep-expand')->setAttribute('data-ep-expand', $row['id'])
+				->setAttribute('aria-expanded', $open ? 'true' : 'false')->setAttribute('aria-label', _s('Servers of %1$s', $row['client']))
+			: '',
+		'sub' => $serversOf
+	] : null;
+	$items[] = ColumnTable::scroll(ColumnTable::table($data, $opt, $rows), $opt, $bothViews && $opt['view'] !== WidgetForm::VIEW_TABLE);
 }
 
 /* -------------------------------------- pie chart -------------------------------------- */
@@ -423,10 +230,8 @@ if ($showPie) {
 	$items[] = $pie;
 }
 
-if ($data['dropped']) {
-	// A column a saved widget had that no longer passes the column rule: left out, and named.
-	$items[] = (new CDiv(_n('%1$s column is not drawn', '%1$s columns are not drawn', count($data['dropped']))))->addClass('ep-dropped')
-		->setAttribute('title', implode("\n", $data['dropped']));
+if (($dropped = ColumnTable::dropped($data['dropped'])) !== null) {
+	$items[] = $dropped;
 }
 
 $view
