@@ -130,6 +130,12 @@ namespace {
 				[202, 'vm.memory.size[total]', 8 * 1073741824, 'B'], [201, 'system.uptime', 86400, 'uptime'],
 				[201, 'es.ingest.rate', 18400, '/s'], [202, 'es.ingest.rate', 1600, '/s'], [201, 'es.jvm[heap]', 70, '%'], [201, 'es.jvm[old]', 20, '%']
 			];
+			// "example" as it is on the test Zabbix: a master host whose items all say 0 (requests nobody entered,
+			// no servers in any role, nothing purchased) — and nothing else.
+			if (self::$silent_client) {
+				$all = array_merge($all, [[103, 'ep.es.servers.allocated', 0, ''], [103, 'ep.es.cpu.requested', 0, ''], [103, 'ep.es.cpu.allocated', 0, ''],
+					[103, 'ep.es.storage.purchased', 0, 'B'], [103, 'ep.devices.purchased', 0, '']]);
+			}
 			$all = array_merge($all, self::$extra_items);
 			$out = [];
 			foreach ($all as $i => [$h, $k, $v, $u]) {
@@ -669,14 +675,16 @@ namespace Modules\EpResources\Test {
 	\FakeApi::$silent_client = true;
 	$ds = run(['attention' => ['nodata'], 'attention_default' => WidgetForm::ATTENTION_ONLY]);
 	$byName = array_column($ds['rows'], null, 'client');
-	check('a client with no servers and no figure: Needs attention "No data" matches it, its chip says no data', isset($byName['example'])
+	check('a client with no servers whose master host says only 0: Needs attention "No data" matches it, its chip says no data', isset($byName['example'])
+		&& in_array(0.0, array_column($byName['example']['cells'], 'value'), true)
 		&& $byName['example']['attention'] && $byName['example']['flags']['silent'] && array_column($byName['example']['chips'], 'text') === ['no data'],
 		$byName['example'] ?? array_keys($byName));
 	check('…not acme, which has no servers but reports figures, nor karthi\'s count of servers sending nothing changed', !$byName['acme']['attention']
 		&& !$byName['acme']['flags']['silent'] && $byName['karthi']['attention'] && $byName['karthi']['flags']['nodata'] === 1);
 	\FakeApi::$silent_client = false;
-	check('silent: no figure and no server sending; any figure or any server up or down is not', ColumnCell::silent([['value' => null], ['value' => 'x']], [])
-		&& ColumnCell::silent([], [['status' => 'unknown']]) && !ColumnCell::silent([['value' => 0.0]], []) && !ColumnCell::silent([], [['status' => 'down']]));
+	check('silent: no figure but zeros and no server sending; a figure other than 0 or a server up or down is not', ColumnCell::silent([['value' => null], ['value' => 'x']], [])
+		&& ColumnCell::silent([], [['status' => 'unknown']]) && ColumnCell::silent([['value' => 0.0], ['value' => 0]], []) && !ColumnCell::silent([['value' => 0.5]], [])
+		&& !ColumnCell::silent([['value' => 0.0]], [['status' => 'up']]) && !ColumnCell::silent([], [['status' => 'down']]));
 	check('Needs attention (High, server down): karthi, not acme — whose only fault is a short', $karthi['attention'] && !$acme['attention'] && $acme['flags']['short'] === 1,
 		[$acme['flags'], $karthi['flags']]);
 	check('…by what the widget says it means', !Resources::attention(['warn' => 2], ['high']) && Resources::attention(['warn' => 2], ['warn'])

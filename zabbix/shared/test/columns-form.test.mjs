@@ -236,12 +236,26 @@ test('a column added, edited or removed redraws the form on the tab and at the s
   w.document.querySelector('button[name="add"]').click();
   popups[0].dispatchEvent(new w.CustomEvent('dialogue.submit', { detail: { uid: 'n1', name: 'Docs/s', edit: 0 } }));
   assert.equal(reloads, 1);
-  // Zabbix draws the form again in the same dialogue: a new form, its tabs back on the first, scrolled to the top.
+  // Zabbix draws the form again in the same dialogue: a new form, its tabs back on the first, scrolled to the top —
+  // and the old form going away fires a scroll to 0 first (seen on 7.0.31), which must not become the note.
   body().innerHTML = shell(FORM).replace('<div class="overlay-dialogue"><div class="overlay-dialogue-body">', '').replace('</div></div>', '');
   body().scrollTop = 0;
+  body().dispatchEvent(new w.Event('scroll'));
   open();
   assert.equal(tabs().epActive, 1, 'back on the Columns tab');
   assert.equal(body().scrollTop, 420, 'at the same scroll');
+  // Then Zabbix focuses the first field, which scrolls to the top: put back while the hold lasts.
+  body().scrollTop = 0;
+  body().dispatchEvent(new w.Event('scroll'));
+  assert.equal(body().scrollTop, 420, 'Zabbix\'s own scroll to the top after the redraw is undone');
+  // The person scrolling ends the hold at once: their scroll is theirs, and becomes the note.
+  body().dispatchEvent(new w.Event('wheel'));
+  body().scrollTop = 100;
+  body().dispatchEvent(new w.Event('scroll'));
+  assert.equal(body().scrollTop, 100, 'the person\'s own scroll is never fought');
+  assert.equal(w.document.querySelector('.overlay-dialogue').epFormKeep.scroll, 100, 'and is what the next redraw comes back to');
+  body().scrollTop = 420;
+  body().dispatchEvent(new w.Event('scroll'));
   // Remove, Reset and Columns from redraw the same way.
   w.document.querySelector('button[name="remove"]').click();
   assert.equal(reloads, 2);

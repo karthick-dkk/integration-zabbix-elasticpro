@@ -280,15 +280,20 @@ class ColumnCell {
 	 *                      no figure, and no server sending), full_days (?float)
 	 */
 	/**
-	 * Whether nothing of a client reports: not one of its cells has a figure, and no server of it sends
-	 * anything (it has none, or every one is "no data"). Such a client is "no data", never OK.
+	 * Whether nothing of a client reports: no server of it sends anything (it has none, or every one is
+	 * "no data"), and not one of its cells has a figure other than 0. Such a client is "no data", never OK.
+	 *
+	 * Zeros do not count: a client with no servers still has a master host, whose items say 0 — the
+	 * requests nobody entered, the servers counted in each role (none) — as "example" on the test Zabbix
+	 * does (77 items, every one 0). Those are the absence of anything reporting, not a report.
 	 *
 	 * @param array $cells    the client's cells (ColumnCell::cell)
 	 * @param array $servers  its servers, each with status up / down / unknown
 	 */
 	public static function silent(array $cells, array $servers): bool {
 		foreach ($cells as $cell) {
-			if (is_int($cell['value'] ?? null) || is_float($cell['value'] ?? null)) {
+			$v = $cell['value'] ?? null;
+			if ((is_int($v) || is_float($v)) && $v != 0) {
 				return false;
 			}
 		}

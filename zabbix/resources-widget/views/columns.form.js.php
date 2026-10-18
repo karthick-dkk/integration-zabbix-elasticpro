@@ -96,10 +96,12 @@ window.EpColumnsForm = class {
 	/**
 	 * A column added, edited or removed, Columns from changed, Reset: the form is drawn again with it.
 	 * Where the person was — the tab and how far down — is noted first, so the new form opens there
-	 * (Zabbix draws a reloaded form on its first tab, at the top).
+	 * (Zabbix draws a reloaded form on its first tab, at the top). While it is redrawn the note is
+	 * frozen: the old form going away scrolls the dialogue to the top, which is not the person moving.
 	 */
 	_reload() {
 		const state = this._state();
+		state.frozen = true;
 		window.EpColumnsFormKeep = {tab: state.tab, scroll: state.scroll, action: this._action_name, at: Date.now()};
 		ZABBIX.Dashboard.reloadWidgetProperties();
 	}
@@ -121,14 +123,21 @@ window.EpColumnsForm = class {
 				// Tabs not started: nothing to note.
 			}
 		}
-		if (body !== null) {
+		if (body !== null && !state.frozen) {
 			state.scroll = body.scrollTop;
 		}
 
 		return state;
 	}
 
-	/** Opens a form drawn again on the tab and at the scroll it had; follows both while it is open. */
+	/**
+	 * Opens a form drawn again on the tab and at the scroll it had, and follows both while it is open.
+	 *
+	 * The scroll is put back, then held for a moment: after the form is drawn Zabbix still focuses its
+	 * first field and lays the dialogue out, each of which scrolls it back to the top (seen on 7.0.31).
+	 * The hold ends at the first thing the person does — wheel, pointer, key, touch — or after
+	 * HOLD_MS, so it never fights them.
+	 */
 	_keep() {
 		const dialogue = this._form.closest('.overlay-dialogue');
 		const tabs = this._form.querySelector('.ep-ef-tabs');
@@ -141,7 +150,7 @@ window.EpColumnsForm = class {
 		const stash = window.EpColumnsFormKeep || null;
 		window.EpColumnsFormKeep = null;
 		if (!dialogue.epFormKeep && stash !== null && stash.action === this._action_name && Date.now() - stash.at < 15000) {
-			dialogue.epFormKeep = {tab: stash.tab, scroll: stash.scroll};
+			dialogue.epFormKeep = {tab: stash.tab, scroll: stash.scroll, frozen: true};
 		}
 		const state = dialogue.epFormKeep || (dialogue.epFormKeep = {tab: 0, scroll: 0});
 		if (tabs !== null && state.tab > 0) {
@@ -152,13 +161,11 @@ window.EpColumnsForm = class {
 				// Tabs not started yet: the form opens on its first tab, as Zabbix draws it.
 			}
 		}
-		if (body !== null && state.scroll > 0) {
-			const want = state.scroll;
-			body.scrollTop = want;
-			// Once more after the new form is laid out, if it was not tall enough yet.
-			if (body.scrollTop < want && typeof requestAnimationFrame === 'function') {
-				requestAnimationFrame(() => { body.scrollTop = want; });
-			}
+		if (body !== null && state.frozen && state.scroll > 0) {
+			this._hold(body, state);
+		}
+		else {
+			state.frozen = false;
 		}
 		if (tabs !== null) {
 			jQuery(tabs).on('tabsactivate', () => {
@@ -175,11 +182,38 @@ window.EpColumnsForm = class {
 			body.epKeepBound = true;
 			body.addEventListener('scroll', () => {
 				const d = body.closest('.overlay-dialogue');
-				if (d !== null && d.epFormKeep) {
+				if (d !== null && d.epFormKeep && !d.epFormKeep.frozen) {
 					d.epFormKeep.scroll = body.scrollTop;
 				}
 			}, {passive: true});
 		}
+	}
+
+	/** Puts the dialogue back at the noted scroll and keeps it there until the person acts, or for HOLD_MS. */
+	_hold(body, state) {
+		const want = state.scroll;
+		const HOLD_MS = 1500;
+		const put = () => {
+			if (Math.abs(body.scrollTop - want) > 1) {
+				body.scrollTop = want;
+			}
+		};
+		const events = ['wheel', 'pointerdown', 'keydown', 'touchstart'];
+		let timer = null;
+		const release = () => {
+			body.removeEventListener('scroll', put);
+			events.forEach((e) => body.removeEventListener(e, release, true));
+			clearTimeout(timer);
+			state.frozen = false;
+			state.scroll = body.scrollTop;
+		};
+		put();
+		body.addEventListener('scroll', put, {passive: true});
+		events.forEach((e) => body.addEventListener(e, release, {capture: true, once: true}));
+		if (typeof requestAnimationFrame === 'function') {
+			requestAnimationFrame(put);
+		}
+		timer = setTimeout(release, HOLD_MS);
 	}
 
 	/** Show ticked or not in a list sets that column hidden or not in the form. */
