@@ -115,6 +115,13 @@ test('a value sorts by its number and size unit; unknown sorts last', (t) => {
   assert.equal(v('4 ▼'), 4, 'the shortfall marker is not part of the number');
   for (const unknown of ['—', 'not set', 'not growing', '', 'no data']) assert.equal(v(unknown), null, unknown);
   assert.equal(v('acme'), 'acme');
+  assert.equal(v('+3 %'), 3, 'a change carries its sign');
+  assert.equal(v('18.4k/s'), 18400, 'short numbers');
+  assert.ok(v('2 months') > v('45 days'), 'months are longer than days');
+  assert.equal(v('under a day'), 0);
+  const ds = w.document.createElement('td'); ds.textContent = 'allocated not set'; ds.dataset.sort = '';
+  assert.equal(w.EpPanel.sortValue(ds), null, 'the server\'s figure wins: unknown');
+  ds.dataset.sort = '82.5'; assert.equal(w.EpPanel.sortValue(ds), 82.5);
 });
 
 test('search and the Type filter decide together, servers included, and the count follows', (t) => {

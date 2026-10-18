@@ -230,8 +230,12 @@ class WidgetView extends CControllerDashboardWidgetView {
 				if ($cell['short']) {
 					$flags['short']++;
 				}
-				$sort[$col['uid']] = $fig['sort'] ?? $cell['value'];
-				$export[] = Resources::exportValue($fig['export'] ?? $cell['value'], (string) ($fig['export_units'] ?? $fig['units'] ?? ''), $this->cfg);
+				// A figure that says what it sorts and exports by (a forecast: its days, null when not
+				// growing) is taken at its word, null included.
+				$sort[$col['uid']] = array_key_exists('sort', $fig) ? $fig['sort'] : $cell['value'];
+				$cell['sort'] = $sort[$col['uid']];
+				$export[] = Resources::exportValue(array_key_exists('export', $fig) ? $fig['export'] : $cell['value'],
+					(string) ($fig['export_units'] ?? $fig['units'] ?? ''), $this->cfg);
 				$cells[] = $cell;
 			}
 			// The forecast, when "disk full within 30 days" is part of Needs attention.
@@ -484,8 +488,10 @@ class WidgetView extends CControllerDashboardWidgetView {
 		}
 
 		$a = $this->evaluate($plan['a'], $col, $items, $series, $trendDays, $usage);
-		$fig = ['value' => $a['value'], 'units' => $a['units'] !== '' ? $a['units'] : (string) ($entry['units'] ?? $col['units']), 'why' => $a['why']];
-		if ($source !== Columns::SOURCE_BUILTIN && $col['units'] !== '') {
+		// Count over Warn is a number of servers: no units, never a percentage, whatever it counts.
+		$count = $a['host_levels'] !== null && $source !== Columns::SOURCE_CALC;
+		$fig = ['value' => $a['value'], 'units' => $count ? '' : ($a['units'] !== '' ? $a['units'] : (string) ($entry['units'] ?? $col['units'])), 'why' => $a['why']];
+		if ($source !== Columns::SOURCE_BUILTIN && $col['units'] !== '' && !$count) {
 			$fig['units'] = $col['units'];
 		}
 		$itemids = $a['itemids'];
@@ -538,12 +544,12 @@ class WidgetView extends CControllerDashboardWidgetView {
 					return ['value' => null, 'why' => $a['why'] ?? _('not measured yet'), 'units' => 's'];
 				}
 				return ['value' => $a['now'], 'display' => $fc['text'], 'level' => $fc['level'], 'units' => 's', 'export' => $fc['days'],
-					'export_units' => 'days', 'sort' => $fc['days'] ?? 1e9];
+					'export_units' => 'days', 'sort' => $fc['days'] ?? 1e9, 'url' => null];
 			}
 			if (!empty($entry['requested']) && (int) $col['value'] === Columns::VALUE_NOW && $a['value'] !== null && $a['value'] == 0) {
 				return ['value' => null, 'unset' => true, 'units' => $fig['units']];
 			}
-			if (!empty($entry['settings'])) {
+			if (!empty($entry['settings']) && !$count) {
 				$fig['pct'] = $a['value'];
 			}
 			if (isset($plan['pct'])) {

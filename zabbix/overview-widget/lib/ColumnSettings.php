@@ -275,24 +275,27 @@ class ColumnSettings {
 		$labels = (array) ($in['labels'] ?? []);
 		$hidden = array_flip(array_filter((array) ($in['hidden'] ?? []), 'is_string'));
 		$order = array_values(array_filter((array) ($in['order'] ?? []), 'is_string'));
+		// Keyed 'u'.uid: a uid of digits alone would otherwise become an integer key and no longer
+		// equal the string the dialog sent, and the column would be listed twice.
 		$byUid = [];
 		foreach ($columns as $c) {
-			$byUid[$c['uid']] = $c;
+			$byUid['u'.$c['uid']] = $c;
 		}
 		$seq = [];
 		foreach ($order as $uid) {
-			if (isset($byUid[$uid]) && !in_array($uid, $seq, true)) {
-				$seq[] = $uid;
+			if (isset($byUid['u'.$uid]) && !in_array('u'.$uid, $seq, true)) {
+				$seq[] = 'u'.$uid;
 			}
 		}
-		foreach (array_keys($byUid) as $uid) {
-			if (!in_array($uid, $seq, true)) {
-				$seq[] = $uid;
+		foreach (array_keys($byUid) as $key) {
+			if (!in_array($key, $seq, true)) {
+				$seq[] = $key;
 			}
 		}
 		$out = [];
-		foreach ($seq as $uid) {
-			$c = $byUid[$uid];
+		foreach ($seq as $key) {
+			$c = $byUid[$key];
+			$uid = $c['uid'];
 			$default = (int) $c['source'] === Columns::SOURCE_BUILTIN ? (string) ($catalogue[$c['builtin']]['label'] ?? $c['name']) : $c['name'];
 			if (array_key_exists($uid, $labels) && is_scalar($labels[$uid])) {
 				$name = mb_substr(trim(preg_replace('/[\x00-\x1f\x7f]/', '', (string) $labels[$uid])), 0, Columns::MAX_NAME);

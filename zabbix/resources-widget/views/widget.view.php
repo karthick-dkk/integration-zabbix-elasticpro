@@ -166,6 +166,11 @@ $td = function (array $c, string $tag = 'td') use ($content) {
 	if ($c['hint'] !== '') {
 		$el->setAttribute('title', $c['hint']);
 	}
+	// What a header click sorts by: the figure itself, not its text ("+3 %", "18.4k", "2 months",
+	// a reason). Empty: unknown, last either way. Text columns sort by their text.
+	if (array_key_exists('sort', $c) && !is_string($c['sort'])) {
+		$el->setAttribute('data-sort', $c['sort'] === null ? '' : (string) round((float) $c['sort'], 6));
+	}
 	return $el;
 };
 
@@ -227,6 +232,8 @@ if ($showTable) {
 			if ($i === 0 && $cell['url'] === null) {
 				// The client's name, as the report has always set it: bold.
 				$el = (new CTag('td', true, new CTag('b', true, $content($cell))))->addClass('ep-res-first')
+					->setAttribute('data-sort', array_key_exists('sort', $cell) && !is_string($cell['sort'])
+						? ($cell['sort'] === null ? '' : (string) round((float) $cell['sort'], 6)) : null)
 					->addClass($cell['class'] !== '' ? $cell['class'] : null)->addClass(in_array(0, $starts, true) ? 'ep-res-start' : null);
 				if ($cell['hint'] !== '') {
 					$el->setAttribute('title', $cell['hint']);
@@ -271,7 +278,7 @@ if ($showTable) {
 								$d = $sc['disks'][$m] ?? null;
 								$str->addItem((new CTag('td', true, $d === null ? '' : (new CSpan([
 									$d['mount'] !== null ? [(new CSpan($d['mount']))->addClass('ep-mount'), ' '] : null,
-									$d['used_on'] ? (new CSpan((new CTag('i', true, ''))->setAttribute('style', 'width:'.($d['bar'] ?? 0).'%')))->addClass('ep-disk-bar') : null,
+									$d['used_on'] && $d['bar'] !== null ? (new CSpan((new CTag('i', true, ''))->setAttribute('style', 'width:'.($d['bar'] ?? 0).'%')))->addClass('ep-disk-bar') : null,
 									$d['size'],
 									$d['used_on'] && $d['used'] !== null ? [$d['size'] !== null ? ' · ' : '', new CTag('b', true, $d['used'].' %')] : null
 								]))->addClass('ep-disk-line')->addClass($d['class'] !== '' ? $d['class'] : null)))->setAttribute('data-sc', 'disks'));

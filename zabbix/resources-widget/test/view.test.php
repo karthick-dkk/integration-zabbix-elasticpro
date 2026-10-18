@@ -112,6 +112,7 @@ namespace {
 		public static $asked_history = [];
 		/** itemid => [clock => [avg, min, max]]: the trends the window columns read. */
 		public static $trends = [];
+		public static $extra_items = [];
 		public static function items(): array {
 			$all = [
 				[101, 'ep.es.cpu.requested', 16, ''], [101, 'ep.es.cpu.allocated', 8, ''], [101, 'ep.es.cpu.usage', 95, '%'],
@@ -125,6 +126,7 @@ namespace {
 				[202, 'vm.memory.size[total]', 8 * 1073741824, 'B'], [201, 'system.uptime', 86400, 'uptime'],
 				[201, 'es.ingest.rate', 18400, '/s'], [202, 'es.ingest.rate', 1600, '/s'], [201, 'es.jvm[heap]', 70, '%'], [201, 'es.jvm[old]', 20, '%']
 			];
+			$all = array_merge($all, self::$extra_items);
 			$out = [];
 			foreach ($all as $i => [$h, $k, $v, $u]) {
 				$out[] = ['itemid' => (string) ($h * 1000 + $i), 'hostid' => $h, 'key_' => $k, 'lastvalue' => (string) $v, 'lastclock' => time() - 60,
@@ -569,6 +571,19 @@ namespace Modules\EpResources\Test {
 		&& strpos($c['style'], '--ep-lv-fg:#ffffff') !== false, $c);
 	$c = $byName($d, 'karthi', 'Docs/s');
 	check('a threshold\'s own colour (High under 10k is not crossed; Warn under 25k is)', $c['level'] === 'warn' && strpos($c['style'], '--ep-lv') === false, $c);
+
+	// Count over Warn is a number of servers: no %, no bar of a share.
+	$d = run(['columns_from' => '1', 'columns' => [$col(['name' => 'Client', 'builtin' => 'client.name']),
+		$col(['group' => 'Hot', 'name' => 'Busy servers', 'builtin' => 'srv.cpu', 'combine' => Columns::COMBINE_COUNT, 'show' => Columns::SHOW_BAR])]]);
+	$c = $byName($d, 'karthi', 'Busy servers');
+	check('count over Warn: a count, never a percentage (its bar runs to the highest count seen)', $c['value'] === 1.0 && $c['text'] === '1'
+		&& $c['sub'] === '' && $c['bar']['share'] === 100.0 && $c['level'] === 'warn', $c);
+	// A forecast that is not growing exports nothing, not its raw seconds.
+	\FakeApi::$extra_items = [[101, 'ep.es.storage.full_in', -1, 's']];
+	$d = run(['columns_from' => '1', 'columns' => [$col(['name' => 'Client', 'builtin' => 'client.name']), $col(['group' => 'ES storage', 'name' => 'Full in', 'builtin' => 'storage.full_in'])]]);
+	\FakeApi::$extra_items = [];
+	check('not growing: said, exported empty, never -1', $byName($d, 'karthi', 'Full in')['text'] === 'not growing' && $d['export']['rows'][1][1] === null,
+		[$byName($d, 'karthi', 'Full in')['text'], $d['export']['rows'][1]]);
 
 	/* ---------------- sort, top N, totals ---------------- */
 	$plain = ['columns_from' => '1', 'columns' => [$col(['name' => 'Client', 'builtin' => 'client.name']), $col(['group' => 'ES storage', 'name' => 'Used', 'builtin' => 'storage.used'])]];

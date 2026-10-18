@@ -198,14 +198,20 @@ window.EpPanel = {
 	/** A cell's value for sorting: a number where the text is one (with its size unit), else the text. Unknown sorts last. */
 	sortValue(td) {
 		if (!td) return null;
+		// The figure the server sorted by, where it gave one: empty is unknown.
+		if (td.dataset && td.dataset.sort !== undefined) return td.dataset.sort === '' ? null : parseFloat(td.dataset.sort);
 		const t = td.textContent.replace(/▼|\s+/g, ' ').trim();
 		if (t === '' || t === '—' || /^not (set|growing)$/i.test(t) || /^no data$/i.test(t)) return null;
-		const m = t.match(/^(-?[\d.,]+)\s*(%|[KMGTP]i?B|B|days?|d)?/i);
+		if (/^under a day$/i.test(t)) return 0;
+		const m = t.match(/^([+-]?[\d.,]+)\s*([kMGT](?![a-z])|%|[KMGTP]i?B|B|days?|d|months?)?/i);
 		if (!m) return t.toLowerCase();
 		let n = parseFloat(m[1].replace(/,/g, ''));
-		const u = (m[2] || '').toUpperCase().replace('IB', 'B');
+		const raw = m[2] || '';
+		const u = raw.toUpperCase().replace('IB', 'B');
 		const pow = { B: 0, KB: 1, MB: 2, GB: 3, TB: 4, PB: 5 }[u];
 		if (pow !== undefined) n *= Math.pow(1024, pow);
+		else if (/^months?$/i.test(raw)) n *= 30;
+		else if (/^[kMGT]$/.test(raw)) n *= { k: 1e3, M: 1e6, G: 1e9, T: 1e12 }[raw];
 		return n;
 	},
 

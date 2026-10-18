@@ -307,6 +307,9 @@ namespace EpShared\Test {
 	check('dialog: a name trimmed; an empty one back to the catalogue\'s', $d[array_search($uids[1], array_column($d, 'uid'))]['name'] === 'Renamed'
 		&& $d[1]['name'] === $clientCat[$d[1]['builtin']]['label']);
 	check('dialog: shown and hidden', $d[1]['hidden'] === 1 && $d[0]['hidden'] === 0);
+	$digits = [array_merge($resolved[0], ['uid' => '1234567890']), $resolved[1]];
+	$d = ColumnSettings::applyDialog($digits, ['labels' => [], 'hidden' => [], 'order' => [$resolved[1]['uid'], '1234567890']], $clientCat);
+	check('dialog: a uid of digits alone is one column, not two', array_column($d, 'uid') === [$resolved[1]['uid'], '1234567890'], array_column($d, 'uid'));
 	// Families as their roles: the columns swap.
 	$before = $clientCat;
 	$after = $clientCat;

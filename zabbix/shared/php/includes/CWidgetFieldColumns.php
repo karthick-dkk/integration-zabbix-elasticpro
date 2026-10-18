@@ -57,7 +57,12 @@ class CWidgetFieldColumns extends CWidgetField {
 	}
 
 	public function setValue($value): self {
-		$this->value = array_map(fn(array $c) => $this->withBaseline($c), array_values(array_filter((array) $value, 'is_array')));
+		// In the order of their positions (columns.0, columns.1 …) whatever order they arrived in.
+		$value = (array) $value;
+		if (!array_is_list($value)) {
+			ksort($value, SORT_NUMERIC);
+		}
+		$this->value = array_map(fn(array $c) => $this->withBaseline($c), array_values(array_filter($value, 'is_array')));
 
 		return $this;
 	}
