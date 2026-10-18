@@ -26,6 +26,8 @@ $view
 			$data['error'] === null ? $switch : null
 		]))->addClass('ep-pt'),
 		(new CDiv($body))->addClass('ep-pscroll')
-	]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'tophosts'))
+	]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'tophosts')
+		// ElasticPro -> Settings' palette, for the theme this user chose.
+		->setAttribute('style', \Modules\EpTophosts\Lib\Settings::paletteStyle()))
 	->setVar('ep_tophosts', ['servers' => $data['servers'], 'rank' => $data['rank'], 'count' => $data['count']])
 	->show();

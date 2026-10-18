@@ -2,7 +2,7 @@
 
 namespace Modules\EpOverview\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ClientData', 'Forecast'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ClientData', 'Forecast', 'Columns', 'ColumnMath', 'ColumnReader'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 foreach (['CWidgetFieldStrings', 'CWidgetFieldOptionalNumber', 'CWidgetFieldMetrics', 'Metrics', 'Overview', 'WidgetForm'] as $inc) {
@@ -14,7 +14,7 @@ use API,
 	CControllerResponseData,
 	CSeverityHelper;
 use Modules\EpOverview\Includes\{Metrics, Overview, WidgetForm};
-use Modules\EpOverview\Lib\{ClientData, Forecast, Roles, Settings};
+use Modules\EpOverview\Lib\{ClientData, ColumnMath, ColumnReader, Forecast, Roles, Settings};
 
 /**
  * Client overview: one card per client with the metrics the widget lists, its open problems,
@@ -35,28 +35,16 @@ class WidgetView extends CControllerDashboardWidgetView {
 	/** Items whose newest value says a server is alive, beside whatever the metrics read. */
 	private const HEARTBEAT = ['agent.ping', 'system.cpu.util'];
 
-	/** Under this, a window is read from history: trends are hourly. */
-	private const HISTORY_UNDER = 7200;
-
-	/** History is combined across servers in buckets of this many seconds. */
-	private const HISTORY_BUCKET = 60;
-
-	/** The most items one pattern item.get may return. */
-	private const PATTERN_LIMIT = 10000;
-
-	/** A graph link holds at most this many items; more open Latest data instead. */
-	private const GRAPH_ITEMS = 30;
-
 	/** The Summary view's panels, all on unless the widget turns one off. */
 	public const SUMMARY_PANELS = ['summary', 'used', 'roles'];
-
-	/** Patterns whose item.get hit its limit: their figures may be short of items. */
-	private array $patternCapped = [];
 
 	private const SEVERITY_DEFAULTS = [
 		0 => ['Not classified', '97AAB3'], 1 => ['Information', '7499FF'], 2 => ['Warning', 'FFC859'],
 		3 => ['Average', 'FFA059'], 4 => ['High', 'E97659'], 5 => ['Disaster', 'E45959']
 	];
+
+	/** Reads items and their trends the way every ElasticPro column does: batched, as this user. */
+	private ColumnReader $reader;
 
 	private array $cfg;
 	private array $roles;
@@ -68,6 +56,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$this->roles = Roles::load();
 		$this->f = $this->fields_values;
 		$this->now = time();
+		$this->reader = new ColumnReader();
 		$data = [
 			'name' => $this->getInput('name', $this->widget->getDefaultName()),
 			'error' => null,
@@ -236,75 +225,14 @@ class WidgetView extends CControllerDashboardWidgetView {
 		return $out;
 	}
 
-	/**
-	 * The items one metric reads for one client, as found. A pattern brings in at most
-	 * Metrics::PATTERN_PER_HOST items per host and PATTERN_PER_METRIC in all; $capped says when
-	 * it would have brought more (or the item.get itself hit its limit).
-	 */
+	/** The items one metric reads for one client, as found — capped as ColumnReader caps a pattern. */
 	private function matched(array $target, array $items, ?bool &$capped = null): array {
-		$out = [];
-		$capped = false;
-		foreach ($target['want'] as [$hostid, $key, $pattern]) {
-			if (!$pattern) {
-				if (isset($items[$hostid][$key])) {
-					$out[$items[$hostid][$key]['itemid']] = $items[$hostid][$key];
-				}
-				continue;
-			}
-			$n = 0;
-			foreach ($items[$hostid] ?? [] as $k => $it) {
-				if (!Metrics::keyMatches((string) $k, $key, true)) {
-					continue;
-				}
-				if ($n >= Metrics::PATTERN_PER_HOST || count($out) >= Metrics::PATTERN_PER_METRIC) {
-					$capped = true;
-					break;
-				}
-				$out[$it['itemid']] = $it;
-				$n++;
-			}
-			if (isset($this->patternCapped[$key])) {
-				$capped = true;
-			}
-		}
-		return array_values($out);
+		return $this->reader->matched($target['want'], $items, $capped);
 	}
 
-	/** One item.get for every exact key on every host, one more for the patterns. Numeric items only. */
+	/** One item.get for every exact key on every host, one more for the patterns (ColumnReader). */
 	private function items(array $exact, array $patterns): array {
-		$out = [];
-		$output = ['itemid', 'hostid', 'key_', 'name', 'lastvalue', 'lastclock', 'state', 'value_type', 'units'];
-		$index = function (array $rows, ?array $hosts) use (&$out) {
-			foreach ($rows ?: [] as $it) {
-				if ($hosts !== null && !isset($hosts[$it['key_']][$it['hostid']])) {
-					continue;
-				}
-				$out[$it['hostid']][$it['key_']] = $it;
-			}
-		};
-		if ($exact) {
-			$hostids = array_keys(array_replace(...array_values($exact)));
-			$index(API::Item()->get(['output' => $output, 'hostids' => $hostids, 'filter' => ['key_' => array_keys($exact)]]), $exact);
-		}
-		if ($patterns) {
-			// Every pattern starts with a literal prefix (Metrics::keyError), so the search is anchored
-			// at the start; the limit keeps one careless pattern from pulling every item there is.
-			$hostids = array_keys(array_replace(...array_values($patterns)));
-			$limit = min(self::PATTERN_LIMIT, max(1, count($hostids)) * Metrics::PATTERN_PER_HOST * count($patterns));
-			$rows = API::Item()->get(['output' => $output, 'hostids' => $hostids, 'search' => ['key_' => array_keys($patterns)],
-				'searchByAny' => true, 'searchWildcardsEnabled' => true, 'startSearch' => true, 'limit' => $limit]) ?: [];
-			if (count($rows) >= $limit) {
-				$this->patternCapped = array_fill_keys(array_keys($patterns), true);
-			}
-			foreach ($rows ?: [] as $it) {
-				foreach ($patterns as $p => $hosts) {
-					if (isset($hosts[$it['hostid']]) && Metrics::keyMatches($it['key_'], $p, true)) {
-						$out[$it['hostid']][$it['key_']] = $it;
-					}
-				}
-			}
-		}
-		return $out;
+		return $this->reader->items($exact, $patterns);
 	}
 
 	/** The widget's trend window: [from, till, header label]. */
@@ -323,43 +251,9 @@ class WidgetView extends CControllerDashboardWidgetView {
 		return [$this->now - $days * 86400, $this->now, $days.'d'];
 	}
 
-	/**
-	 * Every item's points in its window: clock => [avg, min, max]. One trend.get for all of
-	 * them; items whose window is under two hours come from history instead (trends are hourly),
-	 * one history.get per value type, put in one-minute buckets (each item's last value in each)
-	 * so servers polled seconds apart are combined, not counted one at a time.
-	 */
+	/** Every item's points in its window: one trend.get, history in one-minute buckets under two hours (ColumnReader). */
 	private function series(array $want): array {
-		$out = [];
-		$trend = [];
-		$history = [];
-		foreach ($want as $itemid => $w) {
-			if ($w['till'] - $w['from'] < self::HISTORY_UNDER) {
-				$history[$w['value_type']][$itemid] = $w;
-			}
-			else {
-				$trend[$itemid] = $w;
-			}
-		}
-		if ($trend) {
-			$rows = API::Trend()->get(['output' => ['itemid', 'clock', 'value_min', 'value_avg', 'value_max'], 'itemids' => array_keys($trend),
-				'time_from' => min(array_column($trend, 'from')), 'time_till' => max(array_column($trend, 'till'))]);
-			foreach ($rows ?: [] as $r) {
-				$out[$r['itemid']][(int) $r['clock']] = [(float) $r['value_avg'], (float) $r['value_min'], (float) $r['value_max']];
-			}
-		}
-		foreach ($history as $type => $ws) {
-			$rows = API::History()->get(['output' => ['itemid', 'clock', 'value'], 'history' => $type, 'itemids' => array_keys($ws),
-				'time_from' => min(array_column($ws, 'from')), 'time_till' => max(array_column($ws, 'till')), 'sortfield' => 'clock']);
-			$byItem = [];
-			foreach ($rows ?: [] as $r) {
-				$byItem[$r['itemid']][] = [(int) $r['clock'], $r['value']];
-			}
-			foreach ($byItem as $itemid => $points) {
-				$out[$itemid] = Overview::bucket($points, self::HISTORY_BUCKET);
-			}
-		}
-		return $out;
+		return $this->reader->series($want);
 	}
 
 	/** Open problems per client and severity: one problem.get, one trigger.get for their hosts. */
@@ -727,18 +621,7 @@ class WidgetView extends CControllerDashboardWidgetView {
 
 	private function metricUrl(int $click, array $itemids, array $hostids): ?string {
 		// A graph of every item a wide pattern found would be an address too long to open: Latest data instead.
-		if ($click === Metrics::CLICK_GRAPH && count($itemids) > self::GRAPH_ITEMS) {
-			$click = Metrics::CLICK_LATEST;
-		}
-		if ($click === Metrics::CLICK_GRAPH && $itemids) {
-			return count($itemids) === 1
-				? Overview::url('history.php', ['action' => 'showgraph', 'itemids' => array_values($itemids)])
-				: Overview::url('history.php', ['action' => 'batchgraph', 'graphtype' => 0, 'itemids' => array_values($itemids)]);
-		}
-		if ($click === Metrics::CLICK_LATEST && $hostids) {
-			return Overview::url('zabbix.php', ['action' => 'latest.view', 'filter_set' => 1, 'hostids' => array_values($hostids)]);
-		}
-		return null;
+		return ColumnMath::clickUrl($click, $itemids, $hostids);
 	}
 
 	private function clientUrl(string $mid, string $name): string {

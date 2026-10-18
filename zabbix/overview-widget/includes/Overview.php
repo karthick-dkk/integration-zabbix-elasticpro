@@ -2,13 +2,18 @@
 
 namespace Modules\EpOverview\Includes;
 
-use Modules\EpOverview\Lib\{ClientData, Forecast};
+use Modules\EpOverview\Lib\{ColumnMath, Forecast};
 
 /**
  * The arithmetic of the Client overview, apart from Zabbix so the tests can hold it: how a
  * metric's servers become one value per client, its level against its thresholds, its trend
  * over a window, the forecast, the contract badge, the problem counts, and which clients show
  * in what order. WidgetView gathers the figures from Zabbix and hands them here.
+ *
+ * The arithmetic a card shares with every ElasticPro column — combining servers, levels, trends,
+ * buckets, sparklines, how a figure is written and the addresses a click may open — is
+ * ColumnMath's (../lib/ColumnMath.php, shared by every widget); the functions of that name here
+ * hand straight to it, so the cards and the Client resources table cannot drift apart.
  *
  * Unknown is not zero anywhere in this class: a value nobody measured is null all the way
  * through, never 0, and every function that combines figures combines only the known ones.
@@ -31,199 +36,39 @@ class Overview {
 	public const ONLY_OVER = 1;
 	public const ONLY_PROBLEMS = 2;
 
-	/**
-	 * One value per client from its servers' values: the known ones only. No known value is
-	 * null, not 0 — a sum of nothing is not a measurement of nothing.
-	 *
-	 * @param float[]       $values
-	 * @param callable|null $over  for Count over Warn: whether a value is at or past Warn
-	 */
+	/** One value per client from its servers' values: the known ones only (ColumnMath::combine). */
 	public static function combine(array $values, int $fn, ?callable $over = null): ?float {
-		$values = array_values(array_filter($values, fn($v) => $v !== null));
-		if (!$values) {
-			return null;
-		}
-		switch ($fn) {
-			case Metrics::COMBINE_SUM:
-				return (float) array_sum($values);
-			case Metrics::COMBINE_MAX:
-				return (float) max($values);
-			case Metrics::COMBINE_MIN:
-				return (float) min($values);
-			case Metrics::COMBINE_COUNT:
-				return (float) count(array_filter($values, fn($v) => $over !== null && $over((float) $v)));
-			default:
-				return array_sum($values) / count($values);
-		}
+		return ColumnMath::combine($values, $fn, $over);
 	}
 
-	/**
-	 * A value's level for a metric: '' (fine), 'warn' or 'high', and the colour its threshold
-	 * asks for (null: the level's own colour).
-	 *
-	 * With ElasticPro -> Settings the level is ClientData::usageClass at the client's thresholds
-	 * ($usage, from Settings::usageFor) — the colour every other ElasticPro report gives the same
-	 * figure. Otherwise the metric's own thresholds decide, in its direction: worse when higher,
-	 * a value at or above a threshold has crossed it; worse when lower, at or below. Of the
-	 * thresholds crossed, the higher level wins, then the furthest one.
-	 */
+	/** A value's level for a metric and the colour its threshold asks for (ColumnMath::level). */
 	public static function level(?float $v, array $metric, array $usage): array {
-		if ($v === null) {
-			return ['level' => '', 'color' => null];
-		}
-		if (!empty($metric['use_settings'])) {
-			$cls = ClientData::usageClass($v, (float) $usage['warn'], (float) $usage['high']);
-			return ['level' => $cls === 'ep-high' ? 'high' : ($cls === 'ep-warn' ? 'warn' : ''), 'color' => null];
-		}
-		$lower = (int) ($metric['worse'] ?? Metrics::WORSE_HIGHER) === Metrics::WORSE_LOWER;
-		$best = null;
-		foreach ($metric['thresholds'] ?? [] as $t) {
-			$at = (float) $t['value'];
-			if ($lower ? $v > $at : $v < $at) {
-				continue;
-			}
-			if ($best === null || (int) $t['level'] > (int) $best['level']
-					|| ((int) $t['level'] === (int) $best['level'] && ($lower ? $at < (float) $best['value'] : $at > (float) $best['value']))) {
-				$best = $t;
-			}
-		}
-		if ($best === null) {
-			return ['level' => '', 'color' => null];
-		}
-		return ['level' => (int) $best['level'] === Metrics::LEVEL_HIGH ? 'high' : 'warn', 'color' => $best['color'] !== '' ? '#'.$best['color'] : null];
+		return ColumnMath::level($v, $metric, $usage);
 	}
 
-	/**
-	 * A metric's trend over a window, from Zabbix trends (or history points shaped like them):
-	 * per item, clock => [avg, min, max].
-	 *
-	 * Servers are combined hour by hour with the metric's function into one series per client:
-	 *  - Sum, Average, Count over Warn: the hour's averages are combined; min and max are the
-	 *    lowest and highest of those combined hours (a sum of peaks that never met would overstate).
-	 *  - Highest: the hour's value is the highest average; max is the highest peak (value_max) of
-	 *    any server, min the highest trough — max of maxes.
-	 *  - Lowest: the mirror — min is the lowest trough of any server (min of mins).
-	 * avg is the mean of the combined hours. An hour in which only some servers reported is
-	 * combined from those that did; an item with no trend in the window adds nothing.
-	 *
-	 * @return array{avg: ?float, min: ?float, max: ?float, series: array}|null  null: no trend in the window
-	 */
+	/** A metric's trend over a window, servers combined hour by hour (ColumnMath::trend). */
 	public static function trend(array $itemSeries, int $fn, int $from, int $till, ?callable $over = null): ?array {
-		$byClock = [];
-		foreach ($itemSeries as $points) {
-			foreach ($points as $clock => $p) {
-				if ($clock >= $from && $clock <= $till) {
-					$byClock[$clock][] = $p;
-				}
-			}
-		}
-		if (!$byClock) {
-			return null;
-		}
-		ksort($byClock);
-		$series = [];
-		$lo = [];
-		$hi = [];
-		foreach ($byClock as $clock => $ps) {
-			$avgs = array_column($ps, 0);
-			$v = self::combine($avgs, $fn, $over);
-			$series[$clock] = $v;
-			if ($fn === Metrics::COMBINE_MAX) {
-				$hi[] = max(array_column($ps, 2));
-				$lo[] = max(array_column($ps, 1));
-			}
-			elseif ($fn === Metrics::COMBINE_MIN) {
-				$hi[] = min(array_column($ps, 2));
-				$lo[] = min(array_column($ps, 1));
-			}
-			else {
-				$hi[] = $v;
-				$lo[] = $v;
-			}
-		}
-		return ['avg' => array_sum($series) / count($series), 'min' => (float) min($lo), 'max' => (float) max($hi), 'series' => $series];
+		return ColumnMath::trend($itemSeries, $fn, $from, $till, $over);
 	}
 
-	/**
-	 * One value per host from its items: a host is one server, however many items a metric reads
-	 * on it (srv.disk has a mount each, a pattern may match several keys). The worst item stands
-	 * for the host — the highest when higher is worse, the lowest when lower is. Unknown items add
-	 * nothing; a host with none known is null.
-	 *
-	 * @param array $values  list of [hostid, ?float]
-	 *
-	 * @return array  hostid => ?float
-	 */
+	/** One value per host from its items: the worst stands for the host (ColumnMath::perHost). */
 	public static function perHost(array $values, bool $lower): array {
-		$out = [];
-		foreach ($values as [$hostid, $v]) {
-			if (!array_key_exists($hostid, $out)) {
-				$out[$hostid] = null;
-			}
-			if ($v !== null && ($out[$hostid] === null || ($lower ? $v < $out[$hostid] : $v > $out[$hostid]))) {
-				$out[$hostid] = (float) $v;
-			}
-		}
-		return $out;
+		return ColumnMath::perHost($values, $lower);
 	}
 
-	/**
-	 * The same for trends: each host's items made into one series, clock by clock taking the point
-	 * of its worst item (by the hour's average), before servers are combined.
-	 *
-	 * @param array $byHost  hostid => [itemid => [clock => [avg, min, max]]]
-	 *
-	 * @return array  hostid => [clock => [avg, min, max]]
-	 */
+	/** The same for trends (ColumnMath::hostSeries). */
 	public static function hostSeries(array $byHost, bool $lower): array {
-		$out = [];
-		foreach ($byHost as $hostid => $items) {
-			foreach ($items as $points) {
-				foreach ($points as $clock => $p) {
-					$cur = $out[$hostid][$clock] ?? null;
-					if ($cur === null || ($lower ? $p[0] < $cur[0] : $p[0] > $cur[0])) {
-						$out[$hostid][$clock] = $p;
-					}
-				}
-			}
-		}
-		return $out;
+		return ColumnMath::hostSeries($byHost, $lower);
 	}
 
-	/**
-	 * History values in buckets of $size seconds, the last value of each item in each bucket, so
-	 * that servers polled a few seconds apart meet in the same bucket and combine — combined by
-	 * exact clock, a sum would be one server's figure.
-	 *
-	 * @param array $rows  [clock, value] in any order
-	 *
-	 * @return array  bucket clock => [v, v, v]
-	 */
+	/** History values in buckets of $size seconds (ColumnMath::bucket). */
 	public static function bucket(array $rows, int $size = 60): array {
-		usort($rows, fn($a, $b) => $a[0] <=> $b[0]);
-		$out = [];
-		foreach ($rows as [$clock, $v]) {
-			$v = (float) $v;
-			$out[intdiv((int) $clock, $size) * $size] = [$v, $v, $v];
-		}
-		return $out;
+		return ColumnMath::bucket($rows, $size);
 	}
 
-	/** At most $n points of a series, each the mean of its stretch — enough for a sparkline. */
+	/** At most $n points of a series, for a sparkline (ColumnMath::downsample). */
 	public static function downsample(array $series, int $n = 48): array {
-		$values = array_values($series);
-		$count = count($values);
-		if ($count <= $n) {
-			return array_map(fn($v) => round((float) $v, 4), $values);
-		}
-		$out = [];
-		for ($i = 0; $i < $n; $i++) {
-			$a = (int) floor($i * $count / $n);
-			$b = max($a + 1, (int) floor(($i + 1) * $count / $n));
-			$slice = array_slice($values, $a, $b - $a);
-			$out[] = round(array_sum($slice) / count($slice), 4);
-		}
-		return $out;
+		return ColumnMath::downsample($series, $n);
 	}
 
 	/**
@@ -345,61 +190,14 @@ class Overview {
 		return $top !== null && $top > 0 ? array_slice($rows, 0, $top) : $rows;
 	}
 
-	/**
-	 * A figure as the card shows it. Bytes in binary units, as Zabbix draws them; a percentage
-	 * with %; a count shortened to k, M, G when asked. null is "—" — the card says why beside it.
-	 */
+	/** A figure as the card shows it (ColumnMath::format). */
 	public static function format(?float $v, string $units, int $decimals, bool $short): string {
-		if ($v === null) {
-			return '—';
-		}
-		$num = function (float $x) use ($decimals): string {
-			$s = number_format($x, $decimals, '.', abs($x) >= 10000 ? ',' : '');
-			return strpos($s, '.') !== false ? rtrim(rtrim($s, '0'), '.') : $s;
-		};
-		if ($units === 'B' || $units === 'Bps') {
-			$u = ['', 'K', 'M', 'G', 'T', 'P'];
-			$i = 0;
-			while (abs($v) >= 1024 && $i < count($u) - 1) {
-				$v /= 1024;
-				$i++;
-			}
-			return $num($v).' '.$u[$i].$units;
-		}
-		$suffix = '';
-		if ($short && $units !== '%' && abs($v) >= 1000) {
-			foreach (['T' => 1e12, 'G' => 1e9, 'M' => 1e6, 'k' => 1e3] as $s => $div) {
-				if (abs($v) >= $div) {
-					$v /= $div;
-					$suffix = $s;
-					break;
-				}
-			}
-		}
-		$text = $num($v).$suffix;
-		if ($units === '') {
-			return $text;
-		}
-		return $units === '%' || $units[0] === '/' ? $text.$units : $text.' '.$units;
+		return ColumnMath::format($v, $units, $decimals, $short);
 	}
 
-	/**
-	 * A Zabbix frontend address: the page and its arguments, arrays as name[]=, everything
-	 * encoded. The card only ever links to addresses made here.
-	 */
+	/** A Zabbix frontend address, everything encoded (ColumnMath::url). The card only links to addresses made here. */
 	public static function url(string $page, array $args): string {
-		$parts = [];
-		foreach ($args as $k => $v) {
-			if (!is_array($v)) {
-				$parts[] = rawurlencode((string) $k).'='.rawurlencode((string) $v);
-				continue;
-			}
-			$list = array_is_list($v);
-			foreach ($v as $i => $one) {
-				$parts[] = rawurlencode((string) $k).'%5B'.($list ? '' : rawurlencode((string) $i)).'%5D='.rawurlencode((string) $one);
-			}
-		}
-		return $page.($parts ? '?'.implode('&', $parts) : '');
+		return ColumnMath::url($page, $args);
 	}
 
 	/** Problems filtered to these hosts (and severities), on Zabbix 7.0's Problems page. */

@@ -72,7 +72,9 @@ else {
 		: (new CDiv(_('No client master hosts yet. Create a host with the "ElasticPro client master" template and set its macros — clients appear here, and export is enabled.')))->addClass('ep-empty');
 
 	$view
-		->addItem((new CDiv([$toolbar, $content]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'capacity'))
+		->addItem((new CDiv([$toolbar, $content]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'capacity')
+		// ElasticPro -> Settings' palette, for the theme this user chose.
+		->setAttribute('style', \Modules\EpCapacity\Lib\Settings::paletteStyle()))
 		->setVar('export', $data['export'])
 		->setVar('ep_meta', $data['meta']);
 }

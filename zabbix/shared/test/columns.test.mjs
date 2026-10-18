@@ -30,7 +30,7 @@ const HTML = `<div id="w">
     <tr class="ep-sub" data-parent="c1" hidden><td></td><td>servers</td></tr>
   </tbody></table></div>`;
 
-function setup(t, canEdit = true) {
+function setup(t, canEdit = true, extra = {}) {
   const lib = jsdom();
   if (!lib) { t.skip('jsdom not found — npm i jsdom at the repository root'); return null; }
   const dom = new lib.JSDOM(`<body>${HTML}</body>`, { runScripts: 'outside-only', url: 'https://zabbix.example/zabbix.php' });
@@ -47,7 +47,7 @@ function setup(t, canEdit = true) {
   const meta = { title: 'Client resources', report: 'resources', action: 'widget.ep_resources.columns', token: 'tok', canEdit,
     columns: [{ id: 'client.name', label: 'Cluster Name', default: 'Cluster Name', hidden: false, section: 'Client' },
       { id: 'client.url', label: 'ES URL', default: 'ES URL', hidden: false, section: 'Client' }],
-    families: [{ id: 'es', label: 'ES', split: false }] };
+    families: [{ id: 'es', label: 'ES', split: false }], ...extra };
   w.EpColumns.init(widget, body, meta);
   const data = { headers: ['Client'], rows: [['acme'], ['karthi']], types: ['On-Prem', 'DI'],
     servers: { headers: ['Client', 'Host'], rows: [['karthi', 'karthi-ES-Data-Hot-1']], types: ['DI'] } };
@@ -124,4 +124,25 @@ test('the Columns dialog posts rename, hide, order and split to the widget\'s ow
 test('without the right to edit, there is no Columns button', (t) => {
   const s = setup(t, false); if (!s) return;
   assert.equal(s.body.querySelector('[data-ep-columns]').hidden, true);
+});
+
+test('report defaults: the dialog says so, and a Super admin can make this widget\'s own columns the defaults', async (t) => {
+  const own = { columns: [{ uid: 'a1', name: 'Client', source: 1, builtin: 'client.name' }], server_columns: [] };
+  const s = setup(t, true, { own }); if (!s) return;
+  const { w, body, posts } = s;
+  w.confirm = () => true;
+  body.querySelector('[data-ep-columns]').click();
+  assert.match(w.document.querySelector('.ep-modal h3').textContent, /\(report defaults\)/);
+  [...w.document.querySelectorAll('.ep-modal button')].find((b) => b.textContent === 'Use this widget\'s columns').click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(posts.length, 1);
+  assert.deepEqual(JSON.parse(posts[0].body.columns), own, 'the widget\'s own lists, for the server to check and save');
+  assert.equal(posts[0].body.settings, undefined);
+});
+
+test('a widget following the report defaults has nothing of its own to offer', (t) => {
+  const s = setup(t, true, { own: null }); if (!s) return;
+  s.body.querySelector('[data-ep-columns]').click();
+  assert.ok(![...s.w.document.querySelectorAll('.ep-modal button')].some((b) => b.textContent === 'Use this widget\'s columns'));
+  assert.match(s.w.document.querySelector('.ep-modal-note').textContent, /Report defaults/);
 });

@@ -680,6 +680,32 @@ test; `-b` below stands for `-b 'zbx_session=<value>'`.
 
 ---
 
+## 12a. Client resources columns, views and the palette (2.1.1)
+
+Test dashboard: one *Client resources* widget saved by 2.1.0 (untouched), one placed fresh. A
+client whose ES storage *allocated* is not set (no `ep.es.storage.allocated` value) is needed for
+CR-09 and CR-14. Check both the Blue and the Dark theme where colours are involved.
+
+| ID | What | Precondition | Steps | Expected | Why it matters | Pri |
+|---|---|---|---|---|---|---|
+| CR-01 | A 2.1.0 widget looks as it did | the untouched widget | Reload the dashboard | Same columns, names, order, hidden columns and families-as-roles as before the upgrade; compact rows; toolbar on hover with search, Type, Expand all, ⋮ (Columns, export) | "keeps exactly its current look" | **P1** |
+| CR-02 | Warn / High empty, never 0 | the untouched widget | Edit it → Columns tab | *Warn at, %* and *High at, %* are **empty**, placeholders *Settings: 80* / *Settings: 90* — not `0` | the old integer box showed 0 for "follow Settings" | **P1** |
+| CR-03 | Columns from: This widget | — | Choose *This widget* | The list fills with the report defaults, now editable (drag, Show, Edit, Remove), Add column / Add group / Add avg / min / max appear | a widget starts from the report defaults | **P1** |
+| CR-04 | Column editor — item key | CR-03 | Add column → *Zabbix item key*, type `es.ind`, pick a key, **Check** | Coverage "Found on N of M client servers"; with *Key is a pattern* and `ab*` → Update refuses "at least 3 plain characters"; every error starts `Column "<group> · <name>"` | the one rule, named errors | **P1** |
+| CR-05 | Column editor — calculated | CR-03 | *Calculated from two items*: ES storage · Used **of** ES storage · Allocated; Show as **Bar**, **Segments** 10 | Table cell "x of y · NN %", ten segments, coloured at Settings' 80 / 90 (judged on the %) | x of y | P1 |
+| CR-06 | Column editor — window | CR-03 | *Add avg / min / max for a column* → ES CPU · Used, Avg + Max → Add | Two columns "7d avg", "7d max" right after it in its group; values from trends; a client with no trend says "no trend yet", not 0 | windows | P1 |
+| CR-07 | Colours are strict | CR-03 | In the editor type `red` in a Warn colour box → Update | Refused: "Warn colour must be a colour like #1F62E0" | colours go into style attributes | **P1** |
+| CR-08 | New role arrives unticked | a widget with its own columns | Add a role to a family in Cluster Management (or split ES via ⋮ → Columns) → edit the widget | The new role's columns are in the list, **unticked**; the table does not grow until ticked | stated behaviour | P2 |
+| CR-09 | Unknown is not zero | the client with allocated not set | View the "Used of allocated" column; switch to Pie chart | Cell says "ES storage allocated not set" (or "—" with *No data: —*); the donut shows **no ring** and "allocated not set" in its centre | never a guessed figure | **P1** |
+| CR-10 | Pie chart | View tab: Pie chart, viewers may switch | Apply | A card per client: name links to its dashboard, type pill, chips (down / high / warn / short / no data, or OK), "Servers (N)"; ES storage, ES CPU, ES memory donuts with used / free / short (hatched) and the legend with % | the Main board | P1 |
+| CR-11 | Table / Pie switch, Servers (N) | CR-10 | Toolbar *Table / Pie chart* → Pie; press a card's *Servers (N)* | The table shows with that client expanded; the switch is the viewer's only and survives the refresh, not a reload | per-viewer convenience | P2 |
+| CR-12 | Needs attention | View tab: *Any of* High, Server down; default *Needs attention only* | Apply | Only clients with a High cell or a down server show, in table and pie; the button reads *Needs attention N* pressed; pressing it shows all | filter semantics | P1 |
+| CR-13 | Report defaults from a widget | Super admin, a widget with its own columns | ⋮ → Columns… → *Use this widget's columns* → confirm | Every widget following the report defaults now shows those columns; a bad column is refused with its name | the Columns dialog edits defaults | P1 |
+| CR-14 | Export follows the visible columns | any | Hide a column, Export CSV / Excel | Headers are exactly the visible columns; x of y exports its % with "(%)"; unknown cells are empty | export contract | **P1** |
+| CR-15 | Palette | Super admin | ElasticPro → Settings → Colours: Warn (Blue) `#7a00ff`, Save | Every Client resources / capacity / overview / Top hosts Warn colour follows in the Blue theme; Dark theme unchanged; *Text on it* flags colours under 4.5:1 | one global palette | **P1** |
+| CR-16 | Palette validation | Super admin | Type `orange` in a colour box, Save | Saved with a warning naming the colour; that place keeps the shipped colour | strict #RRGGBB | P1 |
+| CR-17 | Palette reset | CR-15 | *Reset to defaults*, Save | The shipped colours return everywhere | reversible | P2 |
+
 ## 13. Regression watch-list
 
 Three behaviour changes that can surprise an **existing** install. Each needs an explicit check on
@@ -709,7 +735,9 @@ from CI, not from this document. Listed so a tester knows what the table above d
 | `resources-widget/test/view.test.php` | macro beats field beats global; a global change recolours cells; `bars` inherit resolves; `size_unit = TB` changes the export value **and** its header; the template filter follows `saveTemplateNames()`; `Bars::STYLES` |
 | `volume-widget/test/view.test.php` | The volume controller's columns, decimals override and plan-macro colouring |
 | `shared/test/export.test.mjs` | All 39 generated copies of `shared/` are byte-identical to their source (`node sync-assets.mjs`); the manifest `refresh_rate` ↔ `Settings::DEFAULTS['refresh']` cross-check; the `ZBX_ICON_*` allowlist |
-| `shared/test/columns.test.mjs` | The Columns dialog's own logic under jsdom (rename / hide / reorder / split payload shape) |
+| `shared/test/columns.test.mjs` | The Columns dialog's own logic under jsdom (rename / hide / reorder / split payload shape; report defaults, "Use this widget's columns") |
+| `shared/test/engine.test.php` | The column rule (keys, patterns, colours, threshold order, non-finite numbers, calculated sources, windows), the arithmetic and donuts, the palette (cleaning, contrast, theme, defaults = the panel's colours) and the report defaults' migration |
+| `clients-module/test/palette.test.mjs` | The Colours card under jsdom: marking bad colours, contrast, swatches, Reset |
 | `shared/test/deploy.test.mjs` | Deployment layout checks |
 | `clients-module/test/form.test.mjs` | `EpClientForm.names()` — the server-name preview — against the same table as the PHP `Roles::serverBase()` |
 

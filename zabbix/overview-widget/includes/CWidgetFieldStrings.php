@@ -13,6 +13,8 @@ use Zabbix\Widgets\CWidgetField;
  * An empty list that differs from a non-empty default is stored as one empty string, because
  * Zabbix stores an array as one row per element and nothing at all would read back as the
  * default.
+ *
+ * Copied from ../../shared/php/includes by ../../sync-assets.mjs — edit it there.
  */
 class CWidgetFieldStrings extends CWidgetField {
 

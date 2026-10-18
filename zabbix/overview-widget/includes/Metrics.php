@@ -2,6 +2,8 @@
 
 namespace Modules\EpOverview\Includes;
 
+use Modules\EpOverview\Lib\Columns;
+
 /**
  * The metrics a Client overview card lists: what each one may be, what it is when left alone,
  * and the one function that decides whether a metric as typed is acceptable — used by the
@@ -11,55 +13,60 @@ namespace Modules\EpOverview\Includes;
  * A metric reads either a built-in figure (a client master host item the reports already use,
  * or a figure every client server has) or any Zabbix item key on the client's servers. Pure: no
  * Zabbix API here, so the tests can hold every rule.
+ *
+ * The rules a metric shares with every customisable ElasticPro column — what an item key and a
+ * key pattern may be, what a number is, how thresholds are read and ordered, how an error names
+ * what it is about — are Columns' (../lib/Columns.php, shared by every widget), not repeated
+ * here; this class keeps what is the overview's own: its catalogue, its defaults and its shape.
  */
 class Metrics {
 
 	public const MAX = 20;
-	public const MAX_THRESHOLDS = 10;
-	public const MAX_NAME = 64;
-	public const MAX_KEY = 255;
-	public const MAX_UNITS = 16;
+	public const MAX_THRESHOLDS = Columns::MAX_THRESHOLDS;
+	public const MAX_NAME = Columns::MAX_NAME;
+	public const MAX_KEY = Columns::MAX_KEY;
+	public const MAX_UNITS = Columns::MAX_UNITS;
 
 	/** Largest magnitude a typed number may have: beyond it, it is a typo (or 1e999), not a threshold. */
-	public const MAX_NUMBER = 1e12;
+	public const MAX_NUMBER = Columns::MAX_NUMBER;
 
 	/** A literal start a key pattern needs before its first *, so it cannot match every item there is. */
-	public const PATTERN_PREFIX = 3;
+	public const PATTERN_PREFIX = Columns::PATTERN_PREFIX;
 
 	/** How many items a pattern may bring in, per host and per metric for one client, before it is capped. */
-	public const PATTERN_PER_HOST = 50;
-	public const PATTERN_PER_METRIC = 500;
+	public const PATTERN_PER_HOST = Columns::PATTERN_PER_HOST;
+	public const PATTERN_PER_METRIC = Columns::PATTERN_PER_METRIC;
 
-	public const SOURCE_BUILTIN = 1;
-	public const SOURCE_ITEM = 2;
+	public const SOURCE_BUILTIN = Columns::SOURCE_BUILTIN;
+	public const SOURCE_ITEM = Columns::SOURCE_ITEM;
 
-	public const COMBINE_SUM = 1;
-	public const COMBINE_AVG = 2;
-	public const COMBINE_MAX = 3;
-	public const COMBINE_MIN = 4;
-	public const COMBINE_COUNT = 5;
+	public const COMBINE_SUM = Columns::COMBINE_SUM;
+	public const COMBINE_AVG = Columns::COMBINE_AVG;
+	public const COMBINE_MAX = Columns::COMBINE_MAX;
+	public const COMBINE_MIN = Columns::COMBINE_MIN;
+	public const COMBINE_COUNT = Columns::COMBINE_COUNT;
 
-	public const DISPLAY_AS_IS = 1;
-	public const DISPLAY_BAR = 2;
-	public const DISPLAY_INDICATORS = 3;
-	public const DISPLAY_SPARKLINE = 4;
+	public const DISPLAY_AS_IS = Columns::SHOW_VALUE;
+	public const DISPLAY_BAR = Columns::SHOW_BAR;
+	public const DISPLAY_INDICATORS = Columns::SHOW_INDICATORS;
+	public const DISPLAY_SPARKLINE = Columns::SHOW_SPARKLINE;
 
-	public const WORSE_HIGHER = 1;
-	public const WORSE_LOWER = 2;
+	public const WORSE_HIGHER = Columns::WORSE_HIGHER;
+	public const WORSE_LOWER = Columns::WORSE_LOWER;
 
-	public const LEVEL_WARN = 1;
-	public const LEVEL_HIGH = 2;
+	public const LEVEL_WARN = Columns::LEVEL_WARN;
+	public const LEVEL_HIGH = Columns::LEVEL_HIGH;
 
 	public const NODATA_SHOW = 1;
 	public const NODATA_HIDE = 2;
 
-	public const CLICK_GRAPH = 1;
-	public const CLICK_LATEST = 2;
-	public const CLICK_NONE = 3;
+	public const CLICK_GRAPH = Columns::CLICK_GRAPH;
+	public const CLICK_LATEST = Columns::CLICK_LATEST;
+	public const CLICK_NONE = Columns::CLICK_NONE;
 
 	/** Where a built-in figure lives: one item on the client master host, or one per server. */
-	public const ON_MASTER = 'master';
-	public const ON_SERVERS = 'servers';
+	public const ON_MASTER = Columns::ON_MASTER;
+	public const ON_SERVERS = Columns::ON_SERVERS;
 
 	/** A metric as the editor opens it. Every saved metric is this with its own values on top. */
 	public const DEFAULT = [
@@ -279,57 +286,14 @@ class Metrics {
 		$m['window'] = (int) $win;
 		$m['worse'] = $int('worse', [self::WORSE_HIGHER, self::WORSE_LOWER]);
 
-		// Thresholds: ElasticPro -> Settings for a usage percentage, or the metric's own.
+		// Thresholds: ElasticPro -> Settings for a usage percentage, or the metric's own — read by the
+		// rule every ElasticPro column uses, so a threshold refused here is refused there too.
 		$m['use_settings'] = $builtin !== null && $builtin['settings'] ? $flag('use_settings') : 0;
-		if ($m['use_settings']) {
-			// Settings' thresholds say "usage this high is bad"; a lower-is-worse reading of them would be another rule.
-			$m['worse'] = self::WORSE_HIGHER;
-			foreach (['warn', 'high'] as $k) {
-				$v = $str($k);
-				if ($v !== '' && (!self::isNumber($v) || (float) $v <= 0 || (float) $v > 100)) {
-					$e[] = _s('%1$s must be empty (ElasticPro → Settings) or above 0 and at most 100.', $k === 'warn' ? _('Warn') : _('High'));
-					$v = '';
-				}
-				$m[$k] = $v === '' ? '' : self::num((float) $v);
-			}
-			if ($m['warn'] !== '' && $m['high'] !== '' && (float) $m['warn'] > (float) $m['high']) {
-				$e[] = _('Warn must not be above High.');
-			}
+		$th = Columns::cleanThresholds($in, (bool) $m['use_settings'], $m['worse'], false);
+		foreach (['worse', 'warn', 'high', 'thresholds'] as $k) {
+			$m[$k] = $th[$k];
 		}
-		else {
-			$rows = array_values(array_filter((array) ($in['thresholds'] ?? []), 'is_array'));
-			if (count($rows) > self::MAX_THRESHOLDS) {
-				$e[] = _s('At most %1$s thresholds.', self::MAX_THRESHOLDS);
-				$rows = array_slice($rows, 0, self::MAX_THRESHOLDS);
-			}
-			$seen = [];
-			foreach ($rows as $i => $t) {
-				$v = is_scalar($t['value'] ?? null) ? trim((string) $t['value']) : '';
-				$level = is_scalar($t['level'] ?? null) ? (int) $t['level'] : 0;
-				$color = strtoupper(ltrim(is_scalar($t['color'] ?? null) ? trim((string) $t['color']) : '', '#'));
-				if ($v === '' || !self::isNumber($v)) {
-					$e[] = _s('Threshold %1$s needs a number between -1e12 and 1e12.', $i + 1);
-					continue;
-				}
-				if (!in_array($level, [self::LEVEL_WARN, self::LEVEL_HIGH], true)) {
-					$e[] = _s('Threshold %1$s: the level is Warn or High.', $i + 1);
-					continue;
-				}
-				if ($color !== '' && !preg_match('/^[0-9A-F]{6}$/', $color)) {
-					$e[] = _s('Threshold %1$s: the colour must be six hex digits.', $i + 1);
-					continue;
-				}
-				$v = self::num((float) $v);
-				if (isset($seen[$v])) {
-					$e[] = _s('Threshold %1$s repeats the value %2$s.', $i + 1, $v);
-					continue;
-				}
-				$seen[$v] = true;
-				$m['thresholds'][] = ['level' => $level, 'color' => $color, 'value' => $v];
-			}
-			usort($m['thresholds'], fn($a, $b) => (float) $a['value'] <=> (float) $b['value']);
-			$e = array_merge($e, self::orderErrors($m['thresholds'], $m['worse']));
-		}
+		$e = array_merge($e, $th['errors']);
 
 		$m['nodata'] = $int('nodata', [self::NODATA_SHOW, self::NODATA_HIDE]);
 		$stale = $str('stale');
@@ -343,21 +307,9 @@ class Metrics {
 		return [$m, array_values(array_unique($e))];
 	}
 
-	/**
-	 * Warn and High on the right sides of each other: worse when higher, every Warn below every
-	 * High; worse when lower, every Warn above every High. Otherwise Warn would never show, or
-	 * High would colour values that are better than Warn.
-	 */
+	/** Warn and High on the right sides of each other — Columns::orderErrors. */
 	public static function orderErrors(array $thresholds, int $worse): array {
-		$warn = array_map(fn($t) => (float) $t['value'], array_filter($thresholds, fn($t) => (int) $t['level'] === self::LEVEL_WARN));
-		$high = array_map(fn($t) => (float) $t['value'], array_filter($thresholds, fn($t) => (int) $t['level'] === self::LEVEL_HIGH));
-		if (!$warn || !$high) {
-			return [];
-		}
-		if ($worse === self::WORSE_LOWER) {
-			return min($warn) > max($high) ? [] : [_s('Warn (%1$s) must be above High (%2$s) when lower is worse.', self::num(min($warn)), self::num(max($high)))];
-		}
-		return max($warn) < min($high) ? [] : [_s('Warn (%1$s) must be below High (%2$s) when higher is worse.', self::num(max($warn)), self::num(min($high)))];
+		return Columns::orderErrors($thresholds, $worse);
 	}
 
 	/**
@@ -369,58 +321,23 @@ class Metrics {
 		return array_map(fn($one) => _s('Metric "%1$s": %2$s', $label, $one), $errors);
 	}
 
-	/**
-	 * Why an item key cannot be read, or null. A Zabbix key: a name of letters, digits, _ - .
-	 * and an optional [parameters]; * may stand for anything only when the metric says the key
-	 * is a pattern.
-	 */
+	/** Why an item key cannot be read, or null — the rule every ElasticPro column applies (Columns::keyError). */
 	public static function keyError(string $key, bool $pattern): ?string {
-		if ($key === '') {
-			return _('Item key cannot be empty.');
-		}
-		if (strlen($key) > self::MAX_KEY) {
-			return _s('Item key is longer than %1$s characters.', self::MAX_KEY);
-		}
-		if (preg_match('/[\x00-\x1f\x7f]/', $key)) {
-			return _('Item key contains control characters.');
-		}
-		if (!$pattern && strpos($key, '*') !== false) {
-			return _('Item key has a * — tick "Key is a pattern" to use it as a wildcard.');
-		}
-		$name = $pattern ? '[0-9A-Za-z_.\-*]+' : '[0-9A-Za-z_.\-]+';
-		if (!preg_match('/^'.$name.'(\[.*\])?$/s', $key)) {
-			return _s('"%1$s" is not an item key: letters, digits, _ - . then optional [parameters].', $key);
-		}
-		if ($pattern) {
-			$star = strpos($key, '*');
-			if ($star === false) {
-				return _('A pattern needs a * — or untick "Key is a pattern".');
-			}
-			if ($star < self::PATTERN_PREFIX) {
-				return _s('A pattern must start with at least %1$s plain characters before its first *, so it cannot match every item.',
-					self::PATTERN_PREFIX);
-			}
-		}
-		return null;
+		return Columns::keyError($key, $pattern);
 	}
 
-	/** A finite number of sane size: 1e999 is INF, and INF is not a threshold. */
+	/** A finite number of sane size (Columns::isNumber). */
 	public static function isNumber($v): bool {
-		return is_numeric($v) && is_finite((float) $v) && abs((float) $v) <= self::MAX_NUMBER;
+		return Columns::isNumber($v);
 	}
 
-	/** Whether a key matches a metric's key: equal, or the pattern's * standing for anything. */
+	/** Whether a key matches a metric's key: equal, or the pattern's * standing for anything (Columns::keyMatches). */
 	public static function keyMatches(string $key, string $want, bool $pattern): bool {
-		if (!$pattern) {
-			return $key === $want;
-		}
-		$re = '/^'.str_replace('\*', '.*', preg_quote($want, '/')).'$/s';
-		return (bool) preg_match($re, $key);
+		return Columns::keyMatches($key, $want, $pattern);
 	}
 
-	/** A number as text with no float noise: 80 not 80.0, 0.1 not 0.10000000000000001. */
+	/** A number as text with no float noise (Columns::num). */
 	public static function num(float $v): string {
-		$s = rtrim(rtrim(sprintf('%.6F', $v), '0'), '.');
-		return $s === '-0' ? '0' : $s;
+		return Columns::num($v);
 	}
 }

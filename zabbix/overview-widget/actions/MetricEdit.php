@@ -2,16 +2,15 @@
 
 namespace Modules\EpOverview\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ClientData'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ClientData', 'Columns', 'ColumnMath', 'ColumnReader'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 require_once __DIR__.'/../includes/Metrics.php';
 
-use API,
-	CController,
+use CController,
 	CControllerResponseData;
 use Modules\EpOverview\Includes\Metrics;
-use Modules\EpOverview\Lib\{ClientData, Roles, Settings};
+use Modules\EpOverview\Lib\{ColumnReader, Roles, Settings};
 
 /**
  * The metric editor: the dialog Add metric and Edit open over the widget form, as Top hosts
@@ -101,51 +100,19 @@ class MetricEdit extends CController {
 		$this->setResponse((new CControllerResponseData(['main_block' => json_encode($out, JSON_THROW_ON_ERROR)]))->disableView());
 	}
 
-	/** Every client server this user can see, with its roles. */
+	/** Every client server this user can see, with its roles (ColumnReader, which the column editor uses too). */
 	private function servers(array $roles): array {
-		[, $clients] = ClientData::clients(Settings::all(), []);
-		$out = [];
-		foreach (ClientData::servers($roles, $clients, false) as $list) {
-			foreach ($list as $s) {
-				$out[$s['hostid']] = $s['roles'];
-			}
-		}
-		return $out;
+		return ColumnReader::clientServers($roles, Settings::all());
 	}
 
 	/** Numeric item keys on the client servers, for the key box to suggest. */
 	private function keys(array $roles): array {
 		$servers = $this->servers($roles);
-		if (!$servers) {
-			return [[], $servers];
-		}
-		$keys = array_unique(array_column(API::Item()->get(['output' => ['key_'], 'hostids' => array_keys($servers),
-			'filter' => ['value_type' => [ITEM_VALUE_TYPE_FLOAT, ITEM_VALUE_TYPE_UINT64]], 'limit' => 20000]) ?: [], 'key_'));
-		sort($keys, SORT_NATURAL);
-		return [array_slice($keys, 0, 2000), $servers];
+		return [ColumnReader::keySuggestions($servers), $servers];
 	}
 
 	/** How many client servers (in the chosen roles) have an item with this key: "found on 41 of 52". */
 	private function coverage(string $key, bool $pattern, array $want, array $roles, ?array $servers = null): array {
-		if (Metrics::keyError($key, $pattern) !== null) {
-			return ['found' => null, 'total' => null];
-		}
-		$servers = array_filter($servers ?? $this->servers($roles), fn($held) => !$want || array_intersect($want, $held));
-		if (!$servers) {
-			return ['found' => 0, 'total' => 0];
-		}
-		$options = ['output' => ['hostid', 'key_'], 'hostids' => array_keys($servers)];
-		// A pattern starts with a literal prefix (Metrics::keyError): anchored, and limited.
-		$options += $pattern
-			? ['search' => ['key_' => $key], 'searchWildcardsEnabled' => true, 'startSearch' => true,
-				'limit' => min(10000, count($servers) * Metrics::PATTERN_PER_HOST)]
-			: ['filter' => ['key_' => $key]];
-		$hosts = [];
-		foreach (API::Item()->get($options) ?: [] as $it) {
-			if (Metrics::keyMatches($it['key_'], $key, $pattern)) {
-				$hosts[$it['hostid']] = true;
-			}
-		}
-		return ['found' => count($hosts), 'total' => count($servers)];
+		return ColumnReader::coverage($key, $pattern, $want, $servers ?? $this->servers($roles));
 	}
 }

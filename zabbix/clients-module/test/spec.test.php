@@ -412,6 +412,23 @@ namespace Modules\EpClients\Test {
 			&& (str_contains($view_src, "'".$field."'") || str_contains($view_src, '"'.$field.'"')), $field);
 	}
 
+	// The Colours card: one palette for every widget, per theme, posted as palette[…] and cleaned by
+	// Settings::cleanPalette on the way in; what is not a colour is named in a warning, the rest saved.
+	check('the save accepts the palette and hands it to Settings', str_contains($save_src, "'palette' => 'array'") && str_contains($save_src, "'palette' => \$palette")
+		&& str_contains($save_src, 'Settings::paletteErrors('));
+	check('the page posts every palette colour, for both themes, and the series', str_contains($view_src, "'palette['.\$theme.']['.\$key.']'")
+		&& str_contains($view_src, "'palette[series]['.\$i.']'") && str_contains($view_src, 'data-ep-pal-reset'));
+	$edit_src = file_get_contents(__DIR__.'/../actions/SettingsEdit.php');
+	preg_match_all("/^\t\t\t'([a-z]+)' => \[_\(/m", $edit_src, $m);
+	check('the card lists every palette colour, in the palette\'s order', $m[1] === Settings::PALETTE_KEYS, $m[1]);
+	check('the page loads the card\'s script', str_contains($view_src, "readfile(__DIR__.'/js/ep.clients.settings.js')"));
+	$stored = Settings::save(['palette' => ['light' => ['ok' => '#00AA00', 'warn' => 'nope'], 'dark' => ['link' => '112233']]]);
+	Settings::forget();
+	check('a palette saved is a palette read back', Settings::palette() === $stored['palette'] && Settings::palette()['light']['ok'] === '#00aa00'
+		&& Settings::palette()['dark']['link'] === '#112233' && Settings::palette()['light']['warn'] === Settings::DEFAULTS['palette']['light']['warn']);
+	Settings::reset();
+	check('and Reset to shipped takes the palette back too', Settings::palette() === Settings::DEFAULTS['palette']);
+
 	/* ---------------- which data folder is the live one ---------------- */
 	// The decision whose earlier version deleted Zabbix item history. Each case below is a
 	// folder that must NOT out-rank an older folder holding the real roles.json.

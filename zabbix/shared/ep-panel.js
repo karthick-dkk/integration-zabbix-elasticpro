@@ -1,17 +1,22 @@
 /*
  * The panel controls for Client resources and Client capacity: search, sorting, column widths,
- * the ⋮ menu and Table settings. ep-columns.js keeps the Type filter, expanding and the Columns
- * dialog; this works alongside it and never changes a figure.
+ * the ⋮ menu, Needs attention, Compact, the Table / Pie chart switch, and (Client capacity) Table
+ * settings. ep-columns.js keeps the Type filter, expanding and the Columns dialog; this works
+ * alongside it and never changes a figure.
  *
  * What a viewer does here outlives the widget's refresh. Zabbix replaces the widget's contents
- * every minute, so the search, the sort and the open clients are held on the widget object and
- * put back after each redraw; colours, row height, widths and the server columns are kept per
- * browser (localStorage), because they are one person's preference, not a dashboard setting.
+ * every minute, so the search, the sort, the open clients, Needs attention, Compact and the view
+ * switched to are held on the widget object and put back after each redraw. Those are one
+ * viewer's conveniences, and nothing more: how the report looks — colours (ElasticPro -> Settings'
+ * palette), row height, which server columns show — is the widget's own setting in Client
+ * resources (init with {prefs: false}). Client capacity still keeps its Table settings per
+ * browser (localStorage); a colour chosen there wins over the palette only once it is chosen.
+ * Column widths dragged by hand are kept per browser in both.
  *
  * Shared: sync-assets.mjs copies this into the widgets that use it. Edit it here.
  */
 window.EpPanel = {
-	DEFAULTS: { colors: { ok: '#73bf69', warn: '#ff9830', high: '#f2495c' }, density: 'compact', hiddenSrv: [], widths: {} },
+	DEFAULTS: { colors: { ok: '#73bf69', warn: '#ff9830', high: '#f2495c' }, custom: false, density: 'compact', hiddenSrv: [], widths: {} },
 	SERVER_COLUMNS: [['role', 'Role'], ['host', 'Host'], ['ip', 'IP'], ['status', 'Status'], ['cores', 'CPU cores'], ['cpu', 'CPU used'],
 		['mem', 'Memory'], ['memu', 'Memory used'], ['disks', 'Disks']],
 
@@ -19,7 +24,7 @@ window.EpPanel = {
 		const p = JSON.parse(JSON.stringify(this.DEFAULTS));
 		try {
 			const v = JSON.parse(localStorage.getItem('ep-panel:' + kind) || 'null');
-			if (v && typeof v === 'object') Object.assign(p, v, { colors: { ...p.colors, ...(v.colors || {}) } });
+			if (v && typeof v === 'object') Object.assign(p, v, { colors: { ...p.colors, ...(v.colors || {}) }, custom: !!(v.colors && typeof v.colors === 'object') });
 		}
 		catch (_) { /* a private window: defaults */ }
 		// What comes back from storage is checked before it is drawn: colours must be hex, widths
@@ -38,18 +43,34 @@ window.EpPanel = {
 		return p;
 	},
 	savePrefs(kind, p) {
-		try { localStorage.setItem('ep-panel:' + kind, JSON.stringify(p)); } catch (_) { /* not kept, still applied */ }
+		const out = { ...p };
+		// Colours are stored only once a viewer chose them; until then the palette decides.
+		if (!out.custom) delete out.colors;
+		delete out.custom;
+		try { localStorage.setItem('ep-panel:' + kind, JSON.stringify(out)); } catch (_) { /* not kept, still applied */ }
 	},
 
-	init(widget, body, kind) {
+	/**
+	 * @param {object} opts  prefs: false — the widget's settings decide the look, nothing is read
+	 *                       from or written to this browser but column widths; view: {view,
+	 *                       switch, attention, compact} — where Needs attention and Compact start.
+	 */
+	init(widget, body, kind, opts = {}) {
 		const root = body.querySelector('.ep-panel');
 		if (!root) return;
-		const st = widget._epPanel || (widget._epPanel = { q: '', type: '', sort: null, open: [] });
+		const view = opts.view || {};
+		const st = widget._epPanel || (widget._epPanel = { q: '', type: '', sort: null, open: [], touched: false,
+			attention: !!view.attention, compact: null, view: null });
 		const prefs = this.prefs(kind);
 		const table = root.querySelector('table.ep-res-table, table.ep-cap-table');
-		const ctx = { widget, body, root, table, kind, st, prefs };
+		// The palette as the server set it, so Reset can put it back after a colour of this viewer's.
+		const palette = {};
+		for (const k of ['ok', 'warn', 'high']) palette[k] = root.style.getPropertyValue('--ep-' + k) || undefined;
+		const ctx = { widget, body, root, table, kind, st, prefs, palette, own: opts.prefs !== false };
+		widget._epCtx = ctx;
 
-		this.applyPrefs(ctx);
+		if (ctx.own) this.applyPrefs(ctx);
+		this.viewControls(ctx, view);
 
 		// The Type filter and the search, back where the viewer left them.
 		const sel = root.querySelector('[data-ep-type-filter]');
@@ -61,14 +82,16 @@ window.EpPanel = {
 			q.addEventListener('input', () => { st.q = q.value; this.filter(ctx); });
 		}
 
-		// Open clients, back open; and remembered as they are opened and closed.
-		for (const id of st.open) {
-			const t = root.querySelector(`[data-ep-expand="${CSS.escape(id)}"]`);
-			if (t && window.EpColumns) window.EpColumns.toggle(body, id, t, true);
+		// Open clients, back open (and, once the viewer has opened or closed one, closed ones closed);
+		// remembered as they are opened and closed.
+		for (const t of root.querySelectorAll('[data-ep-expand]')) {
+			const open = st.open.includes(t.dataset.epExpand);
+			if ((open || st.touched) && window.EpColumns) window.EpColumns.toggle(body, t.dataset.epExpand, t, open);
 		}
 		root.addEventListener('click', (e) => {
 			if (e.target.closest('[data-ep-expand], [data-ep-expand-all]')) {
 				setTimeout(() => {
+					st.touched = true;
 					st.open = [...root.querySelectorAll('[data-ep-expand][aria-expanded="true"]')].map((t) => t.dataset.epExpand);
 					this.filter(ctx);
 				}, 0);
@@ -85,26 +108,85 @@ window.EpPanel = {
 		this.filter(ctx);
 	},
 
-	/* ---- search and type, together ---- */
+	/* ---- search, type and Needs attention, together; table rows and pie cards alike ---- */
 	filter(ctx) {
 		const { root, st } = ctx;
 		const sel = root.querySelector('[data-ep-type-filter]');
 		const type = sel ? sel.value : '';
 		const q = st.q.trim().toLowerCase();
+		const att = !!st.attention && !!root.querySelector('[data-ep-attention]');
+		const hidden = (el, text) => (type !== '' && el.dataset.type !== type) || (q !== '' && !text.includes(q))
+			|| (att && el.dataset.attention !== '1');
 		let shown = 0;
-		for (const row of root.querySelectorAll('tbody tr[data-type]')) {
+		for (const row of root.querySelectorAll('.ep-res-table > tbody > tr[data-type], .ep-cap-table > tbody > tr[data-type]')) {
 			const subs = row.dataset.row ? [...root.querySelectorAll(`tr[data-parent="${CSS.escape(row.dataset.row)}"]`)] : [];
 			const text = (row.textContent + ' ' + subs.map((s) => s.textContent).join(' ')).toLowerCase();
-			const hide = (type !== '' && row.dataset.type !== type) || (q !== '' && !text.includes(q));
+			const hide = hidden(row, text);
 			row.hidden = hide;
 			if (!hide) shown++;
 			const open = row.querySelector('[data-ep-expand][aria-expanded="true"]');
 			for (const s of subs) s.hidden = hide || !open;
 		}
+		let cards = 0;
+		for (const card of root.querySelectorAll('.ep-pie-card[data-type]')) {
+			const hide = hidden(card, (card.textContent + ' ' + (card.dataset.search || '')).toLowerCase());
+			card.hidden = hide;
+			if (!hide) cards++;
+		}
+		if (root.dataset.epView === 'pie' || !root.querySelector('.ep-res-table, .ep-cap-table')) shown = cards;
 		const count = root.querySelector('[data-ep-count]');
 		if (count && count.dataset.template) count.textContent = count.dataset.template.replace('%n', shown);
+		const button = root.querySelector('[data-ep-attention]');
+		if (button) button.setAttribute('aria-pressed', String(att));
 		// A filter in force keeps the toolbar showing, so what is hidden is never a mystery.
-		root.classList.toggle('ep-pt-pinned', type !== '' || q !== '');
+		root.classList.toggle('ep-pt-pinned', type !== '' || q !== '' || att);
+	},
+
+	/* ---- Needs attention, Compact, Table / Pie chart: one viewer's switches, kept across redraws ---- */
+	viewControls(ctx, view) {
+		const { root, st } = ctx;
+		const att = root.querySelector('[data-ep-attention]');
+		if (att) att.addEventListener('click', () => { st.attention = !st.attention; this.filter(ctx); });
+		const compact = root.querySelector('[data-ep-compact]');
+		if (st.compact === null) st.compact = view.compact !== undefined ? !!view.compact : !root.classList.contains('ep-comfortable');
+		const applyCompact = () => {
+			root.classList.toggle('ep-comfortable', !st.compact);
+			if (compact) compact.setAttribute('aria-pressed', String(st.compact));
+		};
+		if (compact) {
+			applyCompact();
+			compact.addEventListener('click', () => { st.compact = !st.compact; applyCompact(); });
+		}
+		const to = [...root.querySelectorAll('[data-ep-view-to]')];
+		const show = (which) => {
+			const table = root.querySelector('.ep-view-table'), pie = root.querySelector('.ep-view-pie');
+			if (!table || !pie) return;
+			table.hidden = which !== 'table';
+			pie.hidden = which !== 'pie';
+			root.dataset.epView = which;
+			for (const b of to) b.setAttribute('aria-pressed', String(b.dataset.epViewTo === which));
+			for (const el of root.querySelectorAll('.ep-table-only')) el.hidden = which !== 'table';
+			if (window.EpColumns) window.EpColumns.fitServers(ctx.body);
+		};
+		if (to.length) {
+			if (st.view) show(st.view);
+			for (const b of to) b.addEventListener('click', () => { st.view = b.dataset.epViewTo; show(st.view); this.filter(ctx); });
+		}
+		// A card's Servers (N): the table, that client open, in view.
+		root.addEventListener('click', (e) => {
+			const go = e.target.closest('[data-ep-goto]');
+			if (!go) return;
+			st.view = 'table';
+			show('table');
+			const t = root.querySelector(`[data-ep-expand="${CSS.escape(go.dataset.epGoto)}"]`);
+			if (t && window.EpColumns) {
+				window.EpColumns.toggle(ctx.body, go.dataset.epGoto, t, true);
+				st.touched = true;
+				st.open = [...new Set([...st.open, go.dataset.epGoto])];
+				if (typeof t.scrollIntoView === 'function') t.scrollIntoView({ block: 'nearest' });
+			}
+			this.filter(ctx);
+		});
 	},
 
 	/* ---- sorting ---- */
@@ -263,12 +345,15 @@ window.EpPanel = {
 		ctx.root.classList.toggle('ep-pt-open', !!(pop && !pop.hidden) || !!(set && !set.hidden));
 	},
 
-	/* ---- Table settings ---- */
+	/* ---- Table settings (Client capacity) ---- */
 	applyPrefs(ctx) {
 		const { root, prefs } = ctx;
-		root.style.setProperty('--ep-ok', prefs.colors.ok);
-		root.style.setProperty('--ep-warn', prefs.colors.warn);
-		root.style.setProperty('--ep-high', prefs.colors.high);
+		// A colour this viewer chose wins over the palette; otherwise the palette (ElasticPro ->
+		// Settings, on the panel's style attribute) decides.
+		for (const k of ['ok', 'warn', 'high']) {
+			if (prefs.custom) root.style.setProperty('--ep-' + k, prefs.colors[k]);
+			else if (ctx.palette && ctx.palette[k] !== undefined) root.style.setProperty('--ep-' + k, ctx.palette[k]);
+		}
 		root.classList.toggle('ep-comfortable', prefs.density === 'comfortable');
 		for (const [k] of this.SERVER_COLUMNS) root.classList.toggle('ep-hide-' + k, prefs.hiddenSrv.includes(k));
 	},
@@ -284,10 +369,14 @@ window.EpPanel = {
 		box.setAttribute('role', 'dialog');
 		box.setAttribute('aria-label', 'Table settings');
 		const radios = (name, opts, cur) => opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}"${v === cur ? ' checked' : ''}> ${l}</label>`).join('');
+		const shown = (k) => {
+			const v = prefs.custom ? prefs.colors[k] : (getComputedStyle(root).getPropertyValue('--ep-' + k) || '').trim();
+			return /^#[0-9a-f]{6}$/i.test(v) ? v : this.DEFAULTS.colors[k];
+		};
 		const draw = () => {
 			box.innerHTML = `<div class="ep-set-h"><span>Table settings</span><button type="button" class="ep-pbtn" data-x aria-label="Close">✕</button></div>`
 				+ `<fieldset><legend>Colours</legend><div class="ep-set-row">`
-				+ [['ok', 'Normal'], ['warn', 'Warn'], ['high', 'High']].map(([k, l]) => `<label><input type="color" data-color="${k}" value="${prefs.colors[k]}"> ${l}</label>`).join('')
+				+ [['ok', 'Normal'], ['warn', 'Warn'], ['high', 'High']].map(([k, l]) => `<label><input type="color" data-color="${k}" value="${shown(k)}"> ${l}</label>`).join('')
 				+ `</div></fieldset>`
 				+ `<fieldset><legend>Row height</legend>${radios('ep-dens-' + kind, [['compact', 'Compact'], ['comfortable', 'Comfortable']], prefs.density)}</fieldset>`
 				+ (hasServers
@@ -312,6 +401,7 @@ window.EpPanel = {
 			if (e.target.closest('[data-x]')) open(false);
 			if (e.target.closest('[data-reset]')) {
 				Object.assign(prefs, JSON.parse(JSON.stringify(this.DEFAULTS)));
+				for (const k of ['ok', 'warn', 'high']) root.style.removeProperty('--ep-' + k);
 				this.savePrefs(kind, prefs);
 				this.applyPrefs(ctx);
 				if (ctx.table) this.applyWidths(ctx);
@@ -321,11 +411,11 @@ window.EpPanel = {
 		box.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
 		box.addEventListener('input', (e) => {
 			const c = e.target.dataset.color;
-			if (c) { prefs.colors[c] = e.target.value; this.applyPrefs(ctx); }
+			if (c) { this.choose(ctx, box, c, e.target.value); this.applyPrefs(ctx); }
 		});
 		box.addEventListener('change', (e) => {
 			const t = e.target;
-			if (t.dataset.color) prefs.colors[t.dataset.color] = t.value;
+			if (t.dataset.color) this.choose(ctx, box, t.dataset.color, t.value);
 			else if (t.name === 'ep-dens-' + kind) prefs.density = t.value;
 			else if (t.dataset.sc) {
 				const s = new Set(prefs.hiddenSrv);
@@ -335,5 +425,15 @@ window.EpPanel = {
 			this.applyPrefs(ctx);
 			this.savePrefs(kind, prefs);
 		});
+	},
+
+	/** A colour chosen in Table settings: from now on this viewer's three colours win over the palette. */
+	choose(ctx, box, key, value) {
+		const { prefs } = ctx;
+		if (!prefs.custom) {
+			for (const input of box.querySelectorAll('input[data-color]')) prefs.colors[input.dataset.color] = input.value;
+			prefs.custom = true;
+		}
+		prefs.colors[key] = value;
 	}
 };

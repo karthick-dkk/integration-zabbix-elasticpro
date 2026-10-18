@@ -81,7 +81,10 @@ test('the modules use only Zabbix constants confirmed to exist in Zabbix 7.0', (
     'ZBX_TEXTAREA_TINY_WIDTH', 'HOST_INVENTORY_AUTOMATIC', 'HOST_INVENTORY_DISABLED', 'ZBX_MONITORED_BY_SERVER',
     'ZBX_MONITORED_BY_PROXY', 'ZBX_MONITORED_BY_PROXY_GROUP', 'ZBX_SIDEBAR_VIEW_MODE_COMPACT', 'ZBX_TM_TASK_CHECK_NOW',
     'ITEM_STATE_NOTSUPPORTED', 'HOST_STATUS_MONITORED', 'HOST_STATUS_NOT_MONITORED', 'MAINTENANCE_TYPE_NORMAL', 'MAINTENANCE_TYPE_NODATA',
-    'TIMEPERIOD_TYPE_ONETIME', 'TRIGGER_VALUE_TRUE', 'TRIGGER_SEVERITY_HIGH']);
+    'TIMEPERIOD_TYPE_ONETIME', 'TRIGGER_VALUE_TRUE', 'TRIGGER_SEVERITY_HIGH',
+    // The column editor and the widget fields (2.1.1), checked in the same file of 7.0.31.
+    'ZBX_WIDGET_FIELD_TYPE_STR', 'ZBX_WIDGET_FIELD_TYPE_INT32', 'ZBX_STYLE_BTN_LINK', 'ZBX_STYLE_DRAG_ICON', 'ZBX_STYLE_TD_DRAG_ICON',
+    'ZBX_STYLE_FORM_SUBMIT_HIDDEN', 'ZBX_STYLE_HOR_LIST', 'ZBX_STYLE_TABLE_FORMS', 'ZBX_STYLE_TABLE_FORMS_SEPARATOR', 'ZBX_TEXTAREA_NUMERIC_STANDARD_WIDTH']);
   const used = new Set();
   const scan = (dir) => {
     for (const f of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -99,7 +102,17 @@ test('the modules use only Zabbix constants confirmed to exist in Zabbix 7.0', (
 });
 
 test('every module has the shared styles, PHP and the Columns action, as sync-assets.mjs writes them', async () => {
-  const { WIDGETS, SHARED_CSS, SHARED_PHP, SHARED_ACTIONS, PHP_MODULES, phpFor } = await import(pathToFileURL(path.join(ROOT, 'sync-assets.mjs')).href);
+  const { WIDGETS, SHARED_CSS, SHARED_PHP, SHARED_ACTIONS, SHARED_INCLUDES, SHARED_VIEWS, PHP_MODULES, phpFor } = await import(pathToFileURL(path.join(ROOT, 'sync-assets.mjs')).href);
+  // The widget fields and the column editor's views, under each widget's namespace.
+  for (const [map, from, to] of [[SHARED_INCLUDES, 'php/includes', 'includes'], [SHARED_VIEWS, 'php/views', 'views']]) {
+    for (const [f, mods] of Object.entries(map)) {
+      for (const m of mods) {
+        const copy = fs.readFileSync(path.join(ROOT, m, to, f), 'utf8');
+        assert.equal(copy, phpFor(fs.readFileSync(path.join(HERE, from, f), 'utf8'), PHP_MODULES[m]), `${m}/${to}/${f} — run: node sync-assets.mjs`);
+        assert.doesNotMatch(copy, /EpShared/, `${m}/${to}/${f} still names EpShared`);
+      }
+    }
+  }
   for (const w of WIDGETS) {
     for (const f of SHARED_CSS) {
       assert.equal(fs.readFileSync(path.join(ROOT, w, 'assets/css', f), 'utf8'), fs.readFileSync(path.join(HERE, f), 'utf8'), `${w}/assets/css/${f} — run: node sync-assets.mjs`);
@@ -117,6 +130,9 @@ test('every module has the shared styles, PHP and the Columns action, as sync-as
       assert.match(copy, new RegExp(`namespace Modules\\\\${PHP_MODULES[m]}\\\\Actions;`));
       assert.doesNotMatch(copy, /EpShared/);
       const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, m, 'manifest.json'), 'utf8'));
+      const cls = f.replace(/\.php$/, '');
+      assert.ok(Object.values(manifest.actions).some((a) => a.class === cls), `${m}: manifest lacks the ${cls} action`);
+      if (cls !== 'ColumnsSave') continue;
       const [name, action] = Object.entries(manifest.actions).find(([, a]) => a.class === 'ColumnsSave') || [];
       assert.ok(action, `${m}: manifest lacks the ColumnsSave action`);
       assert.equal(action.layout, 'layout.json');

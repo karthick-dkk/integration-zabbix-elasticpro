@@ -81,7 +81,7 @@ class ClientData {
 	}
 
 	/**
-	 * Every client's machines, each with its role, IP, status and CPU, memory and disk.
+	 * Every client's machines, each with its role, IP, status and CPU, memory, disk and uptime.
 	 * $figures false leaves the CPU, memory and disk figures unread (null) for a caller that
 	 * reads its own items, so it does not ask Zabbix twice.
 	 */
@@ -143,9 +143,9 @@ class ClientData {
 				'shared' => count($held) > 1 && !self::isSingleNode($held), 'single' => self::isSingleNode($held), 'host' => $h['name'], 'hostid' => $hostid, 'ip' => $ip ?? '',
 				'status' => $avail === 1 ? 'up' : ($avail === 2 ? 'down' : 'unknown'), 'mount' => implode(', ', $mine),
 				'disks' => array_map(fn($m) => ['mount' => $m, 'total' => null, 'used' => null], $mine),
-				'cpu_cores' => null, 'cpu_used' => null, 'mem_total' => null, 'mem_used' => null, 'disk_total' => null];
+				'cpu_cores' => null, 'cpu_used' => null, 'mem_total' => null, 'mem_used' => null, 'disk_total' => null, 'uptime' => null];
 			$want[$hostid] = ['system.cpu.num' => 'cpu_cores', 'system.cpu.util' => 'cpu_used', 'vm.memory.size[total]' => 'mem_total',
-				'vm.memory.utilization' => 'mem_used'];
+				'vm.memory.utilization' => 'mem_used', 'system.uptime' => 'uptime'];
 			foreach ($mine as $i => $m) {
 				$want[$hostid]['vfs.fs.dependent.size['.$m.',total]'] = 'disk.'.$i.'.total';
 				$want[$hostid]['vfs.fs.dependent.size['.$m.',pused]'] = 'disk.'.$i.'.used';

@@ -33,7 +33,12 @@ test('one definition: clients, servers, thresholds, forecast and the metric rule
     'Settings::usageFor(', 'Forecast::fullIn(', 'Overview::level(', 'Overview::combine(', 'Overview::trend(', 'Overview::arrange(', 'Overview::countProblems(']) {
     assert.ok(php.includes(call), call);
   }
-  assert.ok(read('includes/Overview.php').includes('ClientData::usageClass('), 'Settings levels are ClientData\'s');
+  // The card's arithmetic is the shared column engine's (lib/ColumnMath.php), which every
+  // customisable widget draws with; Settings levels are still ClientData's underneath.
+  assert.ok(read('includes/Overview.php').includes('ColumnMath::level('), 'levels are the shared column engine\'s');
+  assert.ok(read('lib/ColumnMath.php').includes('ClientData::usageClass('), 'Settings levels are ClientData\'s');
+  assert.ok(read('includes/Metrics.php').includes('Columns::cleanThresholds(') && read('includes/Metrics.php').includes('Columns::keyError('),
+    'a metric\'s thresholds and key follow the rule every column follows');
   assert.ok(read('includes/Overview.php').includes('Forecast::fullIn('), 'forecast bands are Forecast\'s');
   // The editor and the field apply the same rule.
   assert.ok(read('actions/MetricEdit.php').includes('Metrics::clean('));
@@ -69,7 +74,9 @@ test('the form has both tabs and every setting of the design, and still reads th
   assert.ok(read('views/metric.edit.php').includes("_s('Settings: %1\$s'"), 'the editor shows the Settings value as the placeholder');
   assert.ok(fs.readFileSync(path.join(ROOT, 'master/import.py'), 'utf8').includes('"ep_overview"'), 'import.py makes its dashboard');
   const res = fs.readFileSync(path.join(ROOT, 'resources-widget/views/widget.view.php'), 'utf8');
-  assert.ok(!res.includes('ep_overview') && !res.includes("'data-ep-view'"), 'Client resources has no overview of its own');
+  // Client resources has its own Table / Pie chart switch since 2.1.1 — a view of its own figures,
+  // not the Client overview drawn inside it.
+  assert.ok(!res.includes('ep_overview') && !res.includes('ep-ov-'), 'Client resources has no overview of its own');
 });
 
 test('the Summary view is the 2.0 widget restored, with its own scoped styles', () => {
@@ -115,7 +122,7 @@ test('no field in the edit dialog is wider than the dialog', () => {
 });
 
 test('links go to real Zabbix 7.0 pages', () => {
-  const php = read('actions/WidgetView.php') + read('includes/Overview.php');
+  const php = read('actions/WidgetView.php') + read('includes/Overview.php') + read('lib/ColumnMath.php');
   for (const action of ["'problem.view'", "'host.dashboard.view'", "'latest.view'", "'ep.clients.edit'", "'elasticpro.overview'", "'showgraph'", "'batchgraph'"]) {
     assert.ok(php.includes(action), action);
   }
