@@ -43,7 +43,7 @@ namespace {
 		public $fields_values = ['groupids' => []];
 		public $widget;
 		public $response;
-		public function __construct() { $this->widget = new class { public function getDefaultName() { return 'Top hosts'; } }; }
+		public function __construct() { $this->widget = new class { public function getDefaultName() { return 'ElasticPro top hosts'; } }; }
 		public function getInput($k, $d = null) { return $d; }
 		public function getDebugMode() { return 0; }
 		public function getUserType() { return USER_TYPE_SUPER_ADMIN; }

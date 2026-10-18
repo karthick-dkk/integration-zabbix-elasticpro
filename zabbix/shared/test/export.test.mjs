@@ -171,3 +171,20 @@ test('the widgets tell the Columns dialog when the data folder cannot be written
   }
   assert.match(fs.readFileSync(path.join(HERE, 'ep-columns.js'), 'utf8'), /meta\.storeOk === false/);
 });
+
+test('the widget type names are not Zabbix\'s own: the type list never shows two of one name', () => {
+  // The widget names of Zabbix 7.0.31 (widgets/*/manifest.json on the test VM). QA 2.1.1 found two "Top hosts".
+  const CORE = ['Action log', 'Clock', 'Data overview', 'Discovery status', 'Favorite graphs', 'Favorite maps', 'Gauge', 'Geomap', 'Graph',
+    'Graph (classic)', 'Graph prototype', 'Honeycomb', 'Host availability', 'Host navigator', 'Item history', 'Item navigator', 'Item value', 'Map',
+    'Map navigation tree', 'Pie chart', 'Problem hosts', 'Problems', 'Problems by severity', 'SLA report', 'System information', 'Top hosts',
+    'Top triggers', 'Trigger overview', 'URL', 'Web monitoring'];
+  const names = {};
+  for (const w of ['capacity-widget', 'volume-widget', 'resources-widget', 'tophosts-widget', 'overview-widget']) {
+    const m = fs.readFileSync(path.join(ROOT, w, 'Widget.php'), 'utf8').match(/getDefaultName\(\): string \{[^}]*return _\('([^']+)'\)/);
+    assert.ok(m, `${w}: a default name`);
+    names[w] = m[1];
+  }
+  for (const [w, n] of Object.entries(names)) assert.ok(!CORE.map((c) => c.toLowerCase()).includes(n.toLowerCase()), `${w}: "${n}" is a Zabbix widget's name`);
+  assert.equal(new Set(Object.values(names)).size, Object.keys(names).length, 'and no two of ours share one');
+  assert.equal(names['tophosts-widget'], 'ElasticPro top hosts');
+});

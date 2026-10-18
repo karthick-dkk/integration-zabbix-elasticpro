@@ -81,6 +81,9 @@ and the Client overview's Summary view: one column engine, one palette.
     host (the templates the clients use keep it there, none on the servers). A server is read at the
     node of its name, a node that names no server is ranked as itself, and when no node reports it
     the pane says what to link — 2.1.0 read it on the servers and ranked nothing.
+  - ElasticPro's Top hosts is **ElasticPro top hosts** in the widget type list: Zabbix 7.0 has a Top
+    hosts widget of its own, and the list showed two. A Top hosts widget saved with an empty name
+    now shows the new default name, "ElasticPro top hosts"; one given a name keeps it.
   - A widget saved before this release of each kind looks as it did; Warn / High left empty mean
     ElasticPro Settings. Export headers say their unit ("(days)", "(GB)" for a unit Zabbix is told not
     to scale).

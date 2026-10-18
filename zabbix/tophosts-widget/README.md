@@ -1,5 +1,7 @@
 # Top hosts widget (Zabbix 7.0 module)
 
+In Zabbix's widget type list it is **ElasticPro top hosts** — Zabbix has a Top hosts widget of its own.
+
 The busiest client servers, ranked by the figure you choose, in each client's colours.
 
 - **Who**: host groups of the client master hosts, **clients** (pick from the list), **client types**
