@@ -9,10 +9,12 @@ use Modules\EpVolume\Lib\{ClientData, Columns, Settings};
 
 /**
  * The parts of a column widget's settings form that are the same whichever widget it is — Client
- * capacity, Volume and Top hosts (Client resources has the same parts, with server rows and donuts
- * beside them): who is listed (host groups, clients, client types, the trend window), the columns
- * list with Add column / Add group / Add avg-min-max, the bar style and Warn / High a column left
- * alone follows, and the View tab's table, toolbar and Needs attention.
+ * resources, Client capacity, Volume and Top hosts: who is listed (host groups, clients, client
+ * types, the trend window), the columns list with Add column / Add group / Add avg-min-max, the
+ * server rows' columns (Client resources, the one widget whose clients open into server rows), the
+ * bar style and Warn / High a column left alone follows, and the View tab's table, toolbar and
+ * Needs attention. What is a widget's alone (Client resources' donuts, Top hosts' ranking) it draws
+ * beside these.
  *
  * The behaviour is columns.form.js.php (EpColumnsForm); the element ids here are the ones it looks for.
  *
@@ -160,18 +162,6 @@ class ColumnForm {
 
 			return _s('%1$s over %2$s d', Columns::valueLabels()[(int) $c['value']] ?? '', $days);
 		};
-		$displayText = function (array $c) {
-			$parts = [Columns::showLabels()[(int) $c['show']] ?? ''];
-			if (in_array((int) $c['show'], [Columns::SHOW_BAR, Columns::SHOW_INDICATORS], true)) {
-				$parts[] = [Columns::BAR_WIDGET => _('widget style'), Columns::BAR_UNDER => _('under value'), Columns::BAR_CELL => _('in cell'),
-					Columns::BAR_SEGMENTS => _s('segments (%1$s)', $c['segments']), Columns::BAR_GAUGE => _('gauge')][(int) $c['bar_style']] ?? '';
-			}
-			if ((int) $c['short'] === 1) {
-				$parts[] = _('short numbers');
-			}
-
-			return implode(' · ', array_filter($parts));
-		};
 		$thresholdText = function (array $c) use ($catalogue, $usage, $note) {
 			$b = (int) $c['source'] === Columns::SOURCE_BUILTIN ? ($catalogue[$c['builtin']] ?? null) : null;
 			if ($b !== null && !empty($b['text'])) {
@@ -211,7 +201,7 @@ class ColumnForm {
 					: ((int) $c['source'] === Columns::SOURCE_CALC ? (new CSpan(_('calculated')))->addClass('ep-ef-tag') : null)]))->addClass('text'),
 				(new CDiv($sourceText($c)))->addClass('ep-ef-mono')->setTitle($sourceText($c)),
 				$valueText($c),
-				$displayText($c),
+				$this->displayText($c),
 				$thresholdText($c),
 				$own ? (new CList([
 					(new CButton('edit', _('Edit')))->addClass(ZBX_STYLE_BTN_LINK)->removeId(),
@@ -252,6 +242,43 @@ class ColumnForm {
 			$list->addRow((new CCol((new CDiv(_('These are the report defaults. Choose This widget to change them for this widget alone.')))->addClass('ep-ef-hint')))->setColSpan(9));
 		}
 		$this->row($grid, new CLabel(_('Columns')), (new CFormField($list))->addClass(ZBX_STYLE_TABLE_FORMS_SEPARATOR));
+	}
+
+	/**
+	 * The server rows' columns (Role … Uptime) of a widget whose clients open into their servers:
+	 * each on or off, dragged into order, each opening the same column editor (scope "row"). Like
+	 * the columns list, shown as it is while the widget follows the report defaults.
+	 *
+	 * @param array $serverColumns  the server rows' columns in force
+	 */
+	public function serverRows(CFormGrid $grid, array $serverColumns, bool $own): void {
+		$list = (new CTable())->setId('ep-cf-server-columns')->addClass('ep-ef-sortlist')->addClass($own ? null : 'ep-res-readonly');
+		foreach (array_values($serverColumns) as $i => $c) {
+			$c += Columns::DEFAULT;
+			$list->addRow((new CRow([
+				(new CCol($own ? (new CDiv())->addClass(ZBX_STYLE_DRAG_ICON) : ''))->addClass(ZBX_STYLE_TD_DRAG_ICON),
+				(new CCheckBox('ep_srv_'.$i))->setChecked((int) $c['hidden'] === 0)->removeAttribute('name')->setId('ep_cf_srv_'.$i)->addClass('js-show')
+					->setLabel($c['name'])->setEnabled($own),
+				$this->hint($this->displayText($c)),
+				$own ? [(new CButton('edit', _('Edit')))->addClass(ZBX_STYLE_BTN_LINK)->removeId(), $this->hidden('server_columns', $i, $c)] : ''
+			]))->setAttribute('data-uid', $c['uid']));
+		}
+		$this->row($grid, new CLabel(_('Server rows')), [$list,
+			$this->hint(_('When a client is expanded. Drag to reorder. Each opens the same column editor (bars, colours, thresholds).'))]);
+	}
+
+	/** How a list says a column shows: value, bar and its style, short numbers. */
+	private function displayText(array $c): string {
+		$parts = [Columns::showLabels()[(int) $c['show']] ?? ''];
+		if (in_array((int) $c['show'], [Columns::SHOW_BAR, Columns::SHOW_INDICATORS], true)) {
+			$parts[] = [Columns::BAR_WIDGET => _('widget style'), Columns::BAR_UNDER => _('under value'), Columns::BAR_CELL => _('in cell'),
+				Columns::BAR_SEGMENTS => _s('segments (%1$s)', $c['segments']), Columns::BAR_GAUGE => _('gauge')][(int) $c['bar_style']] ?? '';
+		}
+		if ((int) $c['short'] === 1) {
+			$parts[] = _('short numbers');
+		}
+
+		return implode(' · ', array_filter($parts));
 	}
 
 	/** A column's settings as hidden fields of the form, under $name[$i]. */
@@ -302,7 +329,8 @@ class ColumnForm {
 	/* ------------------------------------------ View ------------------------------------------ */
 
 	/**
-	 * The table's options — density and row height, header, rows, totals, sort and top N — as a grid.
+	 * The table's options — density and row height, header, rows, totals, sort and top N — as a grid;
+	 * first, when the widget has server rows, when they show (on click, all, none).
 	 *
 	 * @param array $sortOptions  value => label of what the table can be sorted by
 	 */
@@ -318,6 +346,10 @@ class ColumnForm {
 		$sortDir = $this->view(new CWidgetFieldSelectView($f['sort_dir']));
 		$sortBy = $f['sort_by']->getValue();
 		$grid = new CFormGrid();
+		if (isset($f['server_rows'])) {
+			$serverRows = $this->view(new CWidgetFieldRadioButtonListView($f['server_rows']));
+			$this->row($grid, $serverRows->getLabel(), $serverRows->getView());
+		}
 		$this->row($grid, $density->getLabel(), (new CDiv([$density->getView(), new CSpan(_('row height')),
 			(new CTextBox('row_height', $f['row_height']->getValue(), false, 3))->setWidth(ZBX_TEXTAREA_NUMERIC_STANDARD_WIDTH)
 				->setAttribute('placeholder', _('auto'))->setAttribute('aria-label', _('Row height')),

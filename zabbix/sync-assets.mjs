@@ -40,9 +40,9 @@ export const SHARED_INCLUDES = {
   'CWidgetFieldColumns.php': COLUMN_WIDGETS,
   'TableFields.php': COLUMN_WIDGETS,
   'ColumnTable.php': COLUMN_WIDGETS,
-  'ColumnForm.php': COLUMN_WIDGETS.filter((w) => w !== 'resources-widget')
+  'ColumnForm.php': COLUMN_WIDGETS
 };
-export const SHARED_VIEWS = { 'column.edit.php': COLUMN_WIDGETS, 'column.edit.js.php': COLUMN_WIDGETS, 'columns.form.js.php': COLUMN_WIDGETS.filter((w) => w !== 'resources-widget') };
+export const SHARED_VIEWS = { 'column.edit.php': COLUMN_WIDGETS, 'column.edit.js.php': COLUMN_WIDGETS, 'columns.form.js.php': COLUMN_WIDGETS };
 export const PHP_MODULES = { 'clients-module': 'EpClients', 'resources-widget': 'EpResources', 'capacity-widget': 'EpCapacity', 'volume-widget': 'EpVolume', 'tophosts-widget': 'EpTophosts', 'overview-widget': 'EpOverview' };
 
 /** The shared PHP file as it sits in a module. */

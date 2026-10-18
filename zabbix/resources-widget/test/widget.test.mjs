@@ -47,13 +47,29 @@ test('the form has the three tabs of the design and every setting on them, and s
   assert.match(form, /CWidgetFieldOptionalNumber\('usage_warn'/);
   const edit = read('views/widget.edit.php');
   for (const tab of ["_('Data')", "_('Columns')", "_('View')"]) assert.ok(edit.includes(tab), tab);
-  assert.match(edit, /new CTabView\(\['id' => 'ep_res_tabs'\]\)/, 'the tabs are started on their own element');
+  assert.match(edit, /f->tabs\('ep_res_tabs'/, 'the tabs are started on their own element');
+  // One settings form: the parts every column widget has are the shared ColumnForm's, the same file Client capacity, Volume and Top hosts draw.
+  const shared = read('includes/ColumnForm.php');
+  for (const call of ['new ColumnForm(', '->who(', '->trendRow(', '->columnsFrom(', '->columnsList(', '->serverRows(', '->barsAndThresholds(',
+    '->tableGrid(', '->toolbarGrid(', '->attentionGrid(', '->tabs(']) {
+    assert.ok(edit.includes(call), `the edit view uses ColumnForm: ${call}`);
+  }
+  for (const own of ['$hidden = function', '$sourceText = function', '$thresholdText = function', 'ep-res-columns', 'ep-res-server-columns', 'ep_res_window']) {
+    assert.ok(!edit.includes(own), `no copy of the shared form of its own: ${own}`);
+  }
   for (const copy of ['Report defaults are set by a Super admin', 'Reset to report defaults', 'Add column', 'Add group', 'Add avg / min / max for a column',
-    'New roles from Cluster Management appear here on their own, unticked', 'Viewers may switch on the widget'.slice(0, 0), "_s('Settings: %1\$s'",
-    'Any figure with used, allocated and requested can be a donut', 'Needs attention means', 'Toolbar on the widget']) {
+    "_s('Settings: %1\$s'", 'Server rows', 'When a client is expanded']) {
+    assert.ok(shared.includes(copy), copy);
+  }
+  for (const copy of ['New roles from Cluster Management appear here on their own, unticked',
+    'Any figure with used, allocated and requested can be a donut', 'Needs attention means', 'Toolbar on the widget', 'Server rows and thresholds']) {
     assert.ok(edit.includes(copy), copy);
   }
-  assert.ok(read('views/widget.edit.js.php').includes("'widget.ep_resources.column.edit'"), 'Edit and Add open the column editor');
+  assert.ok(edit.includes("'widget.ep_resources.column.edit'"), 'Edit and Add open the column editor');
+  assert.ok(edit.includes("includeJsFile('columns.form.js.php')"), 'the shared form behaviour is included before its own');
+  const js = read('views/widget.edit.js.php');
+  assert.ok(js.includes('extends window.EpColumnsForm'), 'the form script is the shared one, extended');
+  for (const own of ['_addWindows', '_store(', '_fields(', 'ep_res_reset']) assert.ok(!js.includes(own), `no copy of the shared behaviour: ${own}`);
 });
 
 test('the view draws what the controller sends: table and pie chart, attention, the view switch, the palette', () => {
@@ -212,6 +228,85 @@ test('the column editor previews the look on sample figures, in the palette\'s c
   assert.match(lines[3].textContent, /allocated not set/, 'unknown says why');
   set('[name="nodata"]', '2');
   assert.match(f.querySelectorAll('#ep_ce_preview .ep-ce-pv')[3].textContent, /—/);
+});
+
+/** A form view script as the script it renders: the PHP tags replaced with what they print. */
+function formScript(file, consts) {
+  let src = read(file);
+  src = src.slice(src.indexOf('?>') + 2);
+  src = src.replace(/<\?= (\w+)::(\w+) \?>/g, (_, cls, k) => { assert.ok(`${cls}::${k}` in consts, `${cls}::${k}`); return String(consts[`${cls}::${k}`]); });
+  src = src.replace(/<\?= ZBX_STYLE_DRAG_ICON \?>/g, 'drag-icon');
+  src = src.replace(/<\?= json_encode\(_\('((?:[^'\\]|\\.)*)'\)\) \?>/g, (_, str) => JSON.stringify(str.replace(/\\'/g, "'")));
+  assert.ok(!src.includes('<?'), `${file}: every PHP tag replaced`);
+  return src;
+}
+const RES_FORM = `<form id="widget-dialogue-form">
+  <input type="radio" name="columns_from" value="0"><input type="radio" name="columns_from" value="1" checked>
+  <button id="ep_cf_reset" type="button">Reset</button><span id="ep_cf_clients_note"></span>
+  <input name="trend_days" value="7">
+  <input type="radio" name="view" value="0" checked><input type="radio" name="view" value="1"><input type="checkbox" name="view_switch">
+  <input type="checkbox" name="totals"><select name="totals_fn"></select>
+  <table id="ep-cf-columns"><tbody>
+    <tr data-uid="u0"><td><input type="checkbox" class="js-show" checked><button type="button" name="edit">Edit</button>
+      <input type="hidden" name="sortorder[columns][]" value="0"><input type="hidden" name="columns[0][uid]" value="u0"><input type="hidden" name="columns[0][hidden]" value="0"></td></tr>
+    <tr><td><button type="button" name="add">Add</button></td></tr>
+  </tbody></table>
+  <table id="ep-cf-server-columns"><tbody>
+    <tr data-uid="s0"><td><input type="checkbox" class="js-show" checked><button type="button" name="edit">Edit</button>
+      <input type="hidden" name="sortorder[server_columns][]" value="0"><input type="hidden" name="server_columns[0][uid]" value="s0"><input type="hidden" name="server_columns[0][name]" value="Role"><input type="hidden" name="server_columns[0][hidden]" value="0"></td></tr>
+    <tr data-uid="s1"><td><input type="checkbox" class="js-show" checked><button type="button" name="edit">Edit</button>
+      <input type="hidden" name="sortorder[server_columns][]" value="1"><input type="hidden" name="server_columns[1][uid]" value="s1"><input type="hidden" name="server_columns[1][hidden]" value="0"></td></tr>
+  </tbody></table>
+  <table id="ep-res-donuts"><tbody><tr><td>a</td></tr><tr><td>b</td></tr></tbody></table>
+  <fieldset class="ep-res-pie-only">pie</fieldset><fieldset class="ep-res-table-only">table</fieldset>
+</form>`;
+
+test('the settings form is the shared EpColumnsForm with Client resources\' own: server rows, donuts, the view\'s settings (DOM)', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const dom = new lib.JSDOM(`<body>${RES_FORM}</body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  const calls = { popups: [], sortables: 0, reloads: 0 };
+  w.CSortable = class { constructor() { calls.sortables++; } };
+  w.jQuery = () => ({ hide() {} });
+  w.ZABBIX = { Dashboard: { reloadWidgetProperties: () => { calls.reloads++; } } };
+  w.getFormFields = (form) => {
+    const out = {};
+    for (const el of form.elements) {
+      if (!el.name || ((el.type === 'radio' || el.type === 'checkbox') && !el.checked)) continue;
+      const keys = el.name.replace(/\]/g, '').split('[');
+      let o = out;
+      keys.forEach((k, i) => { if (i === keys.length - 1) { if (k !== '') o[k] = el.value; } else { o = o[k] = o[k] || {}; } });
+    }
+    return out;
+  };
+  w.PopUp = (action, params) => { const dialogue = w.document.createElement('div'); calls.popups.push({ action, params, dialogue }); return { $dialogue: [dialogue] }; };
+  w.eval(formScript('views/columns.form.js.php', { 'Columns::VALUE_AVG': 2, 'Columns::VALUE_MIN': 3, 'Columns::VALUE_MAX': 4 }));
+  w.eval(formScript('views/widget.edit.js.php', { 'WidgetForm::VIEW_PIE': 1 }));
+  const doc = w.document;
+  assert.ok(w.widget_ep_resources_form instanceof w.EpColumnsForm, 'the shared form, extended');
+  w.widget_ep_resources_form.init({ action: 'widget.ep_resources.column.edit', templateid: undefined, trend_days: 7, own: true, max: 400 });
+  assert.equal(calls.sortables, 3, 'columns, server rows and donuts can be dragged');
+  const shown = (sel) => doc.querySelector(sel).style.display !== 'none';
+  assert.ok(shown('.ep-res-table-only') && !shown('.ep-res-pie-only'), 'Table: the table\'s settings');
+  const pie = doc.querySelector('[name="view"][value="1"]');
+  pie.checked = true;
+  pie.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.ok(!shown('.ep-res-table-only') && shown('.ep-res-pie-only'), 'Pie chart: the donuts\' settings');
+  const both = doc.querySelector('[name="view_switch"]');
+  both.checked = true;
+  both.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.ok(shown('.ep-res-table-only') && shown('.ep-res-pie-only'), 'viewers may switch: both');
+  const totals = doc.querySelector('[name="totals"]');
+  assert.equal(doc.querySelector('[name="totals_fn"]').disabled, true, 'the shared notes still run');
+  totals.checked = true;
+  totals.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelector('[name="totals_fn"]').disabled, false);
+  doc.querySelector('#ep-cf-server-columns tr[data-uid="s0"] button[name="edit"]').click();
+  assert.equal(calls.popups[0].action, 'widget.ep_resources.column.edit', 'Client resources\' own column editor');
+  assert.equal(calls.popups[0].params.scope, 'row');
+  assert.equal(calls.popups[0].params.name, 'Role');
+  doc.querySelector('#ep-cf-columns button[name="add"]').click();
+  assert.equal(calls.popups[1].params.scope, 'client');
 });
 
 test('the view offers what the controller sends: expand, type filter, columns, servers export', () => {

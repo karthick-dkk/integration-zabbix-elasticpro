@@ -56,8 +56,9 @@ and the Client overview's Summary view: one column engine, one palette.
 - **Client capacity, Volume and Top hosts on the same engine.** The three widgets join Client
   resources: Data, Columns and View tabs (Top hosts on one page, as designed), the same column
   editor, the same palette, the same table options — and one reading of a figure, a cell, a total and
-  an export (`ColumnReport`, `ColumnCell`, `TableOptions`, `ColumnTable`, shared and copied into
-  every module), so a fix to one is a fix to all four.
+  an export (`ColumnReport`, `ColumnCell`, `TableOptions`, `ColumnTable`), and one settings form
+  (`ColumnForm` and its script `EpColumnsForm`, Client resources' server rows included), shared and
+  copied into every module, so a fix to one is a fix to all four.
   - **Client capacity**: its 31 columns (`columns.json`) are the built-in columns under the ids they
     have always had; beside them any item key on the client's servers, two items calculated, now or
     average / minimum / maximum / change over a window, groups, avg / min / max copies. Report

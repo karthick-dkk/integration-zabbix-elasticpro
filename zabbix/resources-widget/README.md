@@ -87,6 +87,10 @@ Copy this folder to Zabbix's modules directory as `modules/ep_resources`, then r
 `../master/import.py`: it enables the module and creates **ElasticPro — Client resources**.
 Needs the data folder described in `../clients-module/README.md` (roles, column settings).
 Tests: `php test/view.test.php` — the controller against a fake Zabbix API.
+`assets/js/ep-*.js`, `assets/css/ep-*.css`, `lib/`, `actions/Column*.php`, `includes/{CWidgetField*,ColumnForm,ColumnTable,TableFields}.php`,
+`views/column*.php` and `views/columns.form.js.php` are copies of `../shared/` (`node ../sync-assets.mjs`): the settings form's
+Data, Columns (with the server rows) and View parts are the same `ColumnForm` and `EpColumnsForm` the other column widgets use;
+`views/widget.edit.php` and `views/widget.edit.js.php` add only what is this widget's own — the view switch and the donuts.
 
 ## Settings
 

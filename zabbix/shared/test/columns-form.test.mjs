@@ -1,6 +1,6 @@
 /**
  * The Columns tab's behaviour in a widget's settings form (shared/php/views/columns.form.js.php,
- * EpColumnsForm — Client capacity, Volume, Top hosts), in a DOM: Add and Edit open the widget's own
+ * EpColumnsForm — Client resources, Client capacity, Volume, Top hosts), in a DOM: Add and Edit open the widget's own
  * column editor, what the editor returns becomes the form's hidden fields in the order they were
  * dragged to, Remove, Add avg / min / max, Reset to report defaults and the client filter. Needs
  * jsdom; skipped, saying so, otherwise.
@@ -49,8 +49,16 @@ const FORM = `<form id="widget-dialogue-form">
   </tbody></table>
 </form>`;
 
-function setup(lib) {
-  const dom = new lib.JSDOM(`<body>${FORM}</body>`, { runScripts: 'outside-only' });
+/** Client resources' second list: the server rows' columns, edited in the same editor as row columns, never added here. */
+const SERVERS = `<table id="ep-cf-server-columns"><tbody>
+    <tr data-uid="s0"><td><input type="checkbox" class="js-show" checked><button type="button" name="edit">Edit</button>
+      <input type="hidden" name="sortorder[server_columns][]" value="0"><input type="hidden" name="server_columns[0][uid]" value="s0"><input type="hidden" name="server_columns[0][name]" value="Role"><input type="hidden" name="server_columns[0][hidden]" value="0"></td></tr>
+    <tr data-uid="s1"><td><input type="checkbox" class="js-show" checked><button type="button" name="edit">Edit</button>
+      <input type="hidden" name="sortorder[server_columns][]" value="1"><input type="hidden" name="server_columns[1][uid]" value="s1"><input type="hidden" name="server_columns[1][name]" value="CPU"><input type="hidden" name="server_columns[1][hidden]" value="0"></td></tr>
+  </tbody></table>`;
+
+function setup(lib, extra = '') {
+  const dom = new lib.JSDOM(`<body>${FORM.replace('</form>', `${extra}</form>`)}</body>`, { runScripts: 'outside-only' });
   const w = dom.window;
   const calls = { popups: [], reloads: 0, sortables: 0 };
   w.CSortable = class { constructor() { calls.sortables++; } };
@@ -160,8 +168,8 @@ test('Reset to report defaults drops the widget\'s own columns; the client filte
   assert.ok(enter.defaultPrevented, 'Enter in the filter does not apply the whole form');
   doc.getElementById('ep_cf_reset').click();
   assert.equal(doc.querySelector('[name="columns_from"][value="0"]').checked, true);
-  assert.equal(doc.querySelectorAll('[name^="columns["]').length, 0, 'nothing of its own is kept');
-  assert.equal(doc.querySelectorAll('[name^="sortorder["]').length, 0);
+  // Matched on the name itself: jsdom's selector engine never matches [name^="columns["], which made this pass on any form.
+  assert.ok(!names(doc).some((x) => x.startsWith('columns[') || x.startsWith('sortorder[')), 'nothing of its own is kept');
   assert.equal(calls.reloads, 1);
   // Choosing the report defaults by the radio does the same.
   doc.querySelector('[name="columns_from"][value="1"]').checked = true;
@@ -180,4 +188,38 @@ test('the totals function is only for a totals row', (t) => {
   totals.checked = true;
   totals.dispatchEvent(new w.Event('change', { bubbles: true }));
   assert.equal(fn.disabled, false);
+});
+
+test('Server rows (Client resources): Edit opens the editor as a row column and keeps its place; show / hide; drag; Reset drops them too', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w, calls, doc } = setup(lib, SERVERS);
+  assert.equal(calls.sortables, 2, 'both lists can be dragged');
+  doc.querySelector('#ep-cf-server-columns tr[data-uid="s1"] button[name="edit"]').click();
+  assert.equal(calls.popups[0].params.scope, 'row', 'a server row column, not a client column');
+  assert.equal(calls.popups[0].params.name, 'CPU', 'the editor opens on the column as it is');
+  assert.equal(calls.popups[0].params.edit, 1);
+  submit(w, calls.popups[0], { uid: 's1', name: 'CPU %', hidden: '0', edit: 1, scope: 'row' });
+  let n = names(doc);
+  assert.ok(n.includes('server_columns[1][name]=CPU %') && !n.includes('server_columns[1][name]=CPU'), n.join('\n'));
+  assert.ok(!n.some((x) => x.startsWith('server_columns[1][scope]')), 'the editor\'s own flags stay out');
+  assert.ok(n.includes('columns[0][name]=Used'), 'the client columns are left alone');
+  assert.equal(n.filter((x) => x === 'sortorder[server_columns][]=1').length, 1, 'its place kept, not repeated');
+  // The client list's Edit still opens a client column.
+  doc.querySelector('#ep-cf-columns button[name="edit"]').click();
+  assert.equal(calls.popups[1].params.scope, 'client');
+  const box = doc.querySelector('#ep-cf-server-columns tr[data-uid="s0"] .js-show');
+  box.checked = false;
+  box.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelector('[name="server_columns[0][hidden]"]').value, '1', 'hiding a server row column sets it hidden');
+  assert.equal(doc.querySelector('[name="columns[0][hidden]"]').value, '0', '…and not the client column of the same place');
+  assert.ok(doc.querySelector('tr[data-uid="s0"]').classList.contains('ep-res-off'));
+  doc.getElementById('ep_cf_reset').click();
+  n = names(doc);
+  assert.ok(!n.some((x) => /^(columns|server_columns|sortorder)\[/.test(x)), `nothing of its own is kept:\n${n.join('\n')}`);
+});
+
+test('A widget without server rows draws one sortable list and nothing breaks', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { calls } = setup(lib);
+  assert.equal(calls.sortables, 1);
 });

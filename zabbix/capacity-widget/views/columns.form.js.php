@@ -1,9 +1,10 @@
 <?php declare(strict_types = 0);
 /**
- * The behaviour of the Columns tab of an ElasticPro column widget's form (Client capacity, Volume,
- * Top hosts): the columns list (add, add a group, add avg / min / max for a column, edit and
- * remove through the column editor, show or hide, drag to reorder), the client filter, Columns
- * from and Reset to report defaults. A widget's own edit script starts it:
+ * The behaviour of the Columns tab of an ElasticPro column widget's form (Client resources, Client
+ * capacity, Volume, Top hosts): the columns list (add, add a group, add avg / min / max for a
+ * column, edit and remove through the column editor, show or hide, drag to reorder), the server
+ * rows' columns where the widget has them (edit, show or hide, drag to reorder), the client
+ * filter, Columns from and Reset to report defaults. A widget's own edit script starts it:
  *
  *   window.widget_ep_x_form = new window.EpColumnsForm();
  *   widget_ep_x_form.init({action: 'widget.ep_x.column.edit', templateid, trend_days, own, max});
@@ -29,19 +30,21 @@ window.EpColumnsForm = class {
 		this._own = own;
 		this._max = max;
 		this._columns = document.getElementById('ep-cf-columns');
+		this._servers = document.getElementById('ep-cf-server-columns');
 
 		if (own && this._columns !== null) {
 			new CSortable(this._columns.querySelector('tbody'), {selector_handle: 'div.<?= ZBX_STYLE_DRAG_ICON ?>', freeze_end: 1});
-			this._columns.addEventListener('click', (e) => this._action(e, 'columns'));
-			this._columns.addEventListener('change', (e) => {
-				if (e.target.matches('.js-show')) {
-					const hidden = e.target.closest('tr').querySelector('[name^="columns["][name$="[hidden]"]');
-					if (hidden !== null) {
-						hidden.value = e.target.checked ? '0' : '1';
-					}
-					e.target.closest('tr').classList.toggle('ep-res-off', !e.target.checked);
-				}
-			});
+			this._columns.addEventListener('click', (e) => this._action(e, 'columns', 'client'));
+			this._showToggle(this._columns, 'columns');
+		}
+		// The server rows' columns (Client resources): no Add here, each one edited in the same editor as a row column.
+		if (own && this._servers !== null) {
+			const rows = this._servers.querySelector('tbody');
+			if (rows !== null && rows.children.length > 1) {
+				new CSortable(rows, {selector_handle: 'div.<?= ZBX_STYLE_DRAG_ICON ?>'});
+			}
+			this._servers.addEventListener('click', (e) => this._action(e, 'server_columns', 'row'));
+			this._showToggle(this._servers, 'server_columns');
 		}
 
 		const filter = document.getElementById('ep_cf_clients_filter');
@@ -89,8 +92,22 @@ window.EpColumnsForm = class {
 		this._update();
 	}
 
+	/** Show ticked or not in a list sets that column hidden or not in the form. */
+	_showToggle(table, list) {
+		table.addEventListener('change', (e) => {
+			if (e.target.matches('.js-show')) {
+				const hidden = [...e.target.closest('tr').querySelectorAll('[name]')].find((n) => n.name.startsWith(`${list}[`) && n.name.endsWith('[hidden]'));
+				if (hidden !== undefined) {
+					hidden.value = e.target.checked ? '0' : '1';
+				}
+				e.target.closest('tr').classList.toggle('ep-res-off', !e.target.checked);
+			}
+		});
+	}
+
+	/** The widget's own lists out of the form — matched on the name itself, as _store() does, not on a selector with "[" in it. */
 	_dropOwn() {
-		this._form.querySelectorAll('[name^="columns["], [name^="sortorder["]').forEach((n) => n.remove());
+		[...this._form.querySelectorAll('[name]')].filter((n) => /^(columns|server_columns|sortorder)\[/.test(n.name)).forEach((n) => n.remove());
 	}
 
 	_update() {
@@ -109,9 +126,9 @@ window.EpColumnsForm = class {
 		}
 	}
 
-	_common() {
+	_common(scope = 'client') {
 		const fields = getFormFields(this._form);
-		return {templateid: this._templateid ?? undefined, trend_days: fields.trend_days ?? this._trend_days, scope: 'client'};
+		return {templateid: this._templateid ?? undefined, trend_days: fields.trend_days ?? this._trend_days, scope};
 	}
 
 	_nextIndex(list) {
@@ -127,7 +144,7 @@ window.EpColumnsForm = class {
 		popup.addEventListener('dialogue.close', () => jQuery('#color_picker').hide());
 	}
 
-	_action(e, list) {
+	_action(e, list, scope = 'client') {
 		const button = e.target.closest('button[name]');
 		if (button === null) {
 			return;
@@ -136,11 +153,11 @@ window.EpColumnsForm = class {
 		switch (button.getAttribute('name')) {
 			case 'add':
 				this._index = this._nextIndex(list);
-				this._open(this._common(), list);
+				this._open(this._common(scope), list);
 				break;
 			case 'add_group':
 				this._index = this._nextIndex(list);
-				this._open({...this._common(), group: <?= json_encode(_('New group')) ?>}, list);
+				this._open({...this._common(scope), group: <?= json_encode(_('New group')) ?>}, list);
 				break;
 			case 'add_window': {
 				const box = document.getElementById('ep_cf_window');
@@ -152,7 +169,7 @@ window.EpColumnsForm = class {
 				break;
 			case 'edit': {
 				this._index = button.closest('tr').querySelector(`[name="sortorder[${list}][]"]`).value;
-				this._open({...(fields[list] || {})[this._index], ...this._common(), edit: 1}, list);
+				this._open({...(fields[list] || {})[this._index], ...this._common(scope), edit: 1}, list);
 				break;
 			}
 			case 'remove':
