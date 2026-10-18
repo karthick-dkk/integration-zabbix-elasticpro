@@ -98,9 +98,13 @@ class ColumnMath {
 	 * avg is the mean of the combined hours. An hour in which only some servers reported is
 	 * combined from those that did; an item with no trend in the window adds nothing.
 	 *
+	 * `series` is each combined hour's value, from the servers' hourly averages (column 0 of a
+	 * point) — or, for the Client overview's usage chart, from their minima or maxima ($point 1
+	 * or 2), combined the same way; avg, min and max then describe that series.
+	 *
 	 * @return array{avg: ?float, min: ?float, max: ?float, series: array}|null  null: no trend in the window
 	 */
-	public static function trend(array $itemSeries, int $fn, int $from, int $till, ?callable $over = null): ?array {
+	public static function trend(array $itemSeries, int $fn, int $from, int $till, ?callable $over = null, int $point = 0): ?array {
 		$byClock = [];
 		foreach ($itemSeries as $points) {
 			foreach ($points as $clock => $p) {
@@ -117,7 +121,7 @@ class ColumnMath {
 		$lo = [];
 		$hi = [];
 		foreach ($byClock as $clock => $ps) {
-			$avgs = array_column($ps, 0);
+			$avgs = array_column($ps, $point);
 			$v = self::combine($avgs, $fn, $over);
 			$series[$clock] = $v;
 			if ($fn === Columns::COMBINE_MAX) {
@@ -222,6 +226,24 @@ class ColumnMath {
 			$out[intdiv((int) $clock, $size) * $size] = [$v, $v, $v];
 		}
 		return $out;
+	}
+
+	/**
+	 * History values in buckets of $size seconds like bucket(), but keeping what happened in each
+	 * bucket — its mean, lowest and highest value — as a trend hour does, for a chart whose point
+	 * may be the average, the maximum or the minimum.
+	 *
+	 * @param array $rows  [clock, value] in any order
+	 *
+	 * @return array  bucket clock => [avg, min, max]
+	 */
+	public static function bucketStats(array $rows, int $size = 60): array {
+		$groups = [];
+		foreach ($rows as [$clock, $v]) {
+			$groups[intdiv((int) $clock, $size) * $size][] = (float) $v;
+		}
+		ksort($groups);
+		return array_map(fn($vs) => [array_sum($vs) / count($vs), min($vs), max($vs)], $groups);
 	}
 
 	/** At most $n points of a series, each the mean of its stretch — enough for a sparkline. */

@@ -5,6 +5,22 @@
  */
 class WidgetEpOverview extends CWidget {
 
+	/**
+	 * The Summary view's usage chart can be switched by the viewer (its metric, its period): the
+	 * choice goes to the controller with the next refresh, as two fields the form validates and
+	 * never saves, and the controller honours it only where the widget allows it.
+	 */
+	getUpdateRequestData() {
+		const data = super.getUpdateRequestData();
+		const pick = this._epOvSummary && this._epOvSummary.chart;
+
+		if (pick && (pick.metric || pick.period)) {
+			data.fields = {...(data.fields || {}), chart_view_metric: pick.metric || '', chart_view_period: pick.period || 0};
+		}
+
+		return data;
+	}
+
 	setContents(response) {
 		super.setContents(response);
 		const data = response.ep_overview || null;

@@ -53,6 +53,25 @@ one palette.
   setting now: colours, row height and server columns are no longer kept per browser; the browser
   keeps only the search, open clients, Needs attention, Compact, the view switched to and dragged
   column widths. CSV and Excel export follow the widget's visible columns.
+- **Client overview: a usage chart in the Summary view, and more Summary settings.** One line per
+  client over time for CPU or memory of the family the Summary shows, ES storage used, or any
+  metric of the widget's Data and metrics list — combined per client exactly as the Cards combine
+  a metric, with dashed Warn and High lines, a legend table (Mean, Min, Max, Last) coloured over
+  Warn and High, quick 1h / 6h / 24h / 7d buttons and a metric switch on the panel (when the
+  widget allows them), and click a client to show only it. Short periods are read from Zabbix
+  history, long ones from trends, in one call per refresh. A client with no data in the period
+  says "no data" and has no line, never zeros. The lines are drawn in the palette's eight chart
+  series colours (ElasticPro → Settings → Colours).
+  The Layout tab, with View set to Summary, now sets the Summary view's panels (on or off, drag
+  order, full / half / third / quarter width: Summary by client, Usage chart, Used of allocated,
+  Servers by role), its cards (family, tiles, bars, status line, columns), the chart (metric,
+  period, top N clients, line / area / stacked area, point average / max / min, height, Y axis,
+  legend), Used of allocated (groups, row order, segmented or solid bar) and Servers by role
+  (donut, bar or pills; count and percent). Warn and High keep their place; empty still follows
+  ElasticPro → Settings.
+  A Summary widget saved before this release is drawn exactly as it was, byte for byte: no
+  usage chart, no status line, Used of allocated beside Servers by role. Turn the chart on in
+  the widget's settings; a widget being added starts with the chart on.
 
 ## 2.1.0
 
