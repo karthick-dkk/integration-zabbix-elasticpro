@@ -4,9 +4,9 @@
 	"type": "widget",
 	"name": "ElasticPro client capacity",
 	"namespace": "EpCapacity",
-	"version": "2.1.0",
+	"version": "2.1.1",
 	"author": "ElasticPro",
-	"description": "One row per client master host: purchased, requested, allocated and used \u2014 ES storage, CPU and memory for ES nodes, parsers and forwarders, forwarder storage and log delay. Usage coloured at 80 % and 90 %, allocations below the request highlighted, CSV and Excel export.",
+	"description": "One row per client master host: purchased, requested, allocated and used \u2014 ES storage, CPU and memory for ES nodes, parsers and forwarders, forwarder storage and log delay. Every column customisable per widget or as report defaults: names, order, any Zabbix item key or two items calculated, now or average, minimum, maximum or change over a window, shown as a value, bar, coloured cell or text, indicators, sparkline or badge, with its own thresholds and colours or ElasticPro Settings and its palette. Table options (density, totals, sort, top N), toolbar and Needs attention set on the widget; CSV and Excel export.",
 	"widget": {
 		"js_class": "WidgetEpCapacity",
 		"size": {
@@ -22,6 +22,11 @@
 		"widget.ep_capacity.columns": {
 			"class": "ColumnsSave",
 			"layout": "layout.json"
+		},
+		"widget.ep_capacity.column.edit": {
+			"class": "ColumnEdit",
+			"view": "column.edit",
+			"layout": "layout.json"
 		}
 	},
 	"assets": {
@@ -34,7 +39,8 @@
 		],
 		"css": [
 			"ep-widget.css",
-			"widget.css",
+			"ep-table.css",
+			"ep-form.css",
 			"ep-panel.css"
 		]
 	}

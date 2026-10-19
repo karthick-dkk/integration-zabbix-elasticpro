@@ -21,9 +21,9 @@ function jsdom() {
   return null;
 }
 
-test('the panel files are copied to the two client reports, loaded after the shared scripts and before the widget', async () => {
+test('the panel files are copied to the three table reports, loaded after the shared scripts and before the widget', async () => {
   const { PANEL_JS, PANEL_CSS, PANEL_WIDGETS, SHARED } = await import(pathToFileURL(path.join(ROOT, 'sync-assets.mjs')).href);
-  assert.deepEqual(PANEL_WIDGETS.sort(), ['capacity-widget', 'resources-widget']);
+  assert.deepEqual(PANEL_WIDGETS.sort(), ['capacity-widget', 'resources-widget', 'volume-widget']);
   for (const w of PANEL_WIDGETS) {
     for (const f of PANEL_JS) assert.equal(fs.readFileSync(path.join(ROOT, w, 'assets/js', f), 'utf8'), fs.readFileSync(path.join(HERE, f), 'utf8'), `${w}/${f} differs: node sync-assets.mjs`);
     for (const f of PANEL_CSS) assert.equal(fs.readFileSync(path.join(ROOT, w, 'assets/css', f), 'utf8'), fs.readFileSync(path.join(HERE, f), 'utf8'), `${w}/${f} differs: node sync-assets.mjs`);
@@ -34,13 +34,19 @@ test('the panel files are copied to the two client reports, loaded after the sha
     const js = fs.readFileSync(path.join(ROOT, w, 'assets/js/class.widget.js'), 'utf8');
     assert.ok(js.indexOf('EpPanel.init') > js.indexOf('EpColumns.init'), `${w}: the panel starts after EpColumns`);
     const view = fs.readFileSync(path.join(ROOT, w, 'views/widget.view.php'), 'utf8');
-    for (const hook of ["'ep-panel'", 'data-ep-search', 'data-ep-settings', 'data-ep-menu', 'ep-menu-pop', 'data-ep-columns', 'data-ep-type-filter']) assert.ok(view.includes(hook), `${w}: ${hook}`);
-    const menu = view.slice(view.indexOf("addClass('ep-menu-pop')") - 900, view.indexOf("addClass('ep-menu-pop')"));
-    assert.ok(menu.includes("'data-ep-settings'"), `${w}: Table settings is an item in the ⋮ menu`);
+    // The panel, its toolbar and its table are ColumnTable's, the same for each.
+    const table = fs.readFileSync(path.join(ROOT, w, 'includes/ColumnTable.php'), 'utf8');
+    for (const hook of ["'ep-panel'", 'data-ep-search', 'data-ep-menu', 'ep-menu-pop', 'data-ep-columns', 'data-ep-type-filter']) assert.ok(table.includes(hook), `${w}: ${hook}`);
+    assert.ok(view.includes('ColumnTable::panel(') && view.includes('ColumnTable::toolbar('), `${w}: drawn with ColumnTable`);
+    assert.ok(!view.includes('data-ep-settings') && !table.includes('data-ep-settings'), `${w}: no per-browser Table settings`);
+    const controller = fs.readFileSync(path.join(ROOT, w, 'actions/WidgetView.php'), 'utf8');
+    assert.ok(view.includes('paletteStyle(') || (controller.includes('Settings::paletteStyle(') && view.includes("$data['palette']")),
+      `${w}: the panel carries ElasticPro Settings' palette`);
   }
-  // The Volume report keeps its own look.
-  const vol = JSON.parse(fs.readFileSync(path.join(ROOT, 'volume-widget/manifest.json'), 'utf8'));
-  assert.ok(!vol.assets.js.includes('ep-panel.js') && !vol.assets.css.includes('ep-panel.css'));
+  // None of them keeps anything of the look in the browser: it is the widget's own setting since 2.1.1.
+  for (const w of PANEL_WIDGETS) {
+    assert.match(fs.readFileSync(path.join(ROOT, w, 'assets/js/class.widget.js'), 'utf8'), /EpPanel\.init\(this, this\._body, '[a-z]+', \{view:/, `${w}: the panel is started with the widget's view settings`);
+  }
 });
 
 test('the panel follows the Zabbix theme: light by default, dark under Dark and high-contrast dark', () => {
@@ -67,7 +73,7 @@ const HTML = `<div id="w"><div class="ep-panel" data-ep-panel="resources">
     <label><input type="search" data-ep-search></label>
     <select data-ep-type-filter><option value="">All</option><option value="DI">DI</option><option value="On-Prem">On-Prem</option></select>
     <button data-ep-expand-all>Expand all</button>
-    <div class="ep-menu"><button data-ep-menu>⋮</button><div class="ep-menu-pop" hidden><button data-ep-settings>Table settings</button><button data-ep-columns>Columns</button><button data-ep-export="csv">CSV</button></div></div>
+    <div class="ep-menu"><button data-ep-menu>⋮</button><div class="ep-menu-pop" hidden><button data-ep-columns>Columns</button><button data-ep-export="csv">CSV</button></div></div>
   </div>
   <div class="ep-pscroll"><table class="ep-res-table">
     <thead><tr><th class="ep-res-toggle"></th><th colspan="3">x</th></tr>
@@ -105,6 +111,13 @@ test('a value sorts by its number and size unit; unknown sorts last', (t) => {
   assert.equal(v('4 ▼'), 4, 'the shortfall marker is not part of the number');
   for (const unknown of ['—', 'not set', 'not growing', '', 'no data']) assert.equal(v(unknown), null, unknown);
   assert.equal(v('acme'), 'acme');
+  assert.equal(v('+3 %'), 3, 'a change carries its sign');
+  assert.equal(v('18.4k/s'), 18400, 'short numbers');
+  assert.ok(v('2 months') > v('45 days'), 'months are longer than days');
+  assert.equal(v('under a day'), 0);
+  const ds = w.document.createElement('td'); ds.textContent = 'allocated not set'; ds.dataset.sort = '';
+  assert.equal(w.EpPanel.sortValue(ds), null, 'the server\'s figure wins: unknown');
+  ds.dataset.sort = '82.5'; assert.equal(w.EpPanel.sortValue(ds), 82.5);
 });
 
 test('search and the Type filter decide together, servers included, and the count follows', (t) => {
@@ -156,18 +169,19 @@ test('the search, the sort and the open clients survive the widget redrawing', (
   }, 5));
 });
 
-test('what comes back from storage is checked before it is used', (t) => {
+test('the browser holds only dragged column widths: what comes back from storage is checked, and nothing of the look is read', (t) => {
   const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
-  const bad = JSON.stringify({ colors: { ok: '"><img src=x onerror=alert(1)>', warn: '#123456' }, density: 'huge', disks: 'x',
-    hiddenSrv: ['ip', 'nope'], widths: { a: [10, 'x'], b: [100, 120] } });
-  const { body } = setup(lib, { 'ep-panel:resources': bad });
+  // Colours, row height and hidden server columns were kept here before the widgets took them as settings: ignored now.
+  const old = JSON.stringify({ colors: { ok: '"><img src=x onerror=alert(1)>', warn: '#123456' }, density: 'comfortable', hiddenSrv: ['ip', 'nope'],
+    widths: { a: [10, 'x'], b: [100, 120] } });
+  const { w, body } = setup(lib, { 'ep-panel:resources': old });
   const root = body.querySelector('.ep-panel');
-  assert.equal(root.style.getPropertyValue('--ep-ok'), '#73bf69', 'a colour that is not hex falls back');
-  assert.equal(root.style.getPropertyValue('--ep-warn'), '#123456');
-  assert.ok(root.classList.contains('ep-hide-ip') && !root.className.includes('nope'));
-  assert.ok(!root.classList.contains('ep-comfortable'));
-  body.querySelector('[data-ep-settings]').click();
-  assert.ok(!body.querySelector('.ep-set').innerHTML.includes('onerror'), 'nothing from storage reaches the markup unchecked');
+  assert.equal(root.style.getPropertyValue('--ep-ok'), '', 'no colour of the viewer\'s');
+  assert.ok(!root.className.includes('ep-hide-') && !root.classList.contains('ep-comfortable'), 'no row height or hidden column of the viewer\'s');
+  assert.equal(JSON.stringify(w.EpPanel.prefs('resources')), '{"widths":{"b":[100,120]}}', 'only widths that are numbers survive');
+  assert.ok(!body.querySelector('.ep-set') && !w.EpPanel.settings, 'there is no Table settings drawer');
+  w.EpPanel.savePrefs('resources', { widths: { k: [90] }, colors: { ok: '#000000' } });
+  assert.deepEqual(JSON.parse(w.localStorage.getItem('ep-panel:resources')), { widths: { k: [90] } }, 'and only widths are written back');
 });
 
 test('the toolbar hides until hover, and stays while a filter is in force or a menu is open', (t) => {
@@ -185,12 +199,11 @@ test('the toolbar hides until hover, and stays while a filter is in force or a m
   assert.ok(!root.classList.contains('ep-pt-pinned'));
   body.querySelector('[data-ep-menu]').click();
   assert.ok(root.classList.contains('ep-pt-open'), 'an open menu keeps it showing');
-  body.querySelector('[data-ep-settings]').click();
-  assert.equal(body.querySelector('.ep-menu-pop').hidden, true, 'choosing Table settings closes the menu');
-  assert.ok(root.classList.contains('ep-pt-open'), 'and the open drawer keeps the toolbar showing');
+  body.querySelector('.ep-res-first').click();
+  assert.ok(!root.classList.contains('ep-pt-open'), 'and a click elsewhere lets it go');
 });
 
-test('the menu opens and closes, and Table settings opens its drawer', (t) => {
+test('the menu opens and closes', (t) => {
   const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
   const { body } = setup(lib);
   const pop = body.querySelector('.ep-menu-pop');
@@ -198,7 +211,136 @@ test('the menu opens and closes, and Table settings opens its drawer', (t) => {
   assert.equal(pop.hidden, false);
   body.querySelector('.ep-res-first').click();
   assert.equal(pop.hidden, true, 'a click elsewhere closes it');
-  body.querySelector('[data-ep-settings]').click();
-  assert.equal(body.querySelector('.ep-set').hidden, false);
-  assert.ok(body.querySelector('.ep-set input[data-sc="ip"]'), 'a report with servers offers its server columns');
+});
+
+/* ---- 2.1.1: Needs attention, Compact, Table / Pie chart, and the palette ---- */
+
+const RES = `<div id="w"><div class="ep-panel" data-ep-panel="resources" data-ep-view="table" style="--ep-ok:#3e9b3a;--ep-warn:#e5860b;--ep-high:#e0314a">
+  <div class="ep-pt"><span data-ep-count data-template="%n clients">2 clients</span>
+    <label><input type="search" data-ep-search></label>
+    <select data-ep-type-filter><option value="">All</option><option value="DI">DI</option></select>
+    <button data-ep-attention aria-pressed="false">Needs attention <span>1</span></button>
+    <button data-ep-compact aria-pressed="true">Compact</button>
+    <div class="ep-seg"><button data-ep-view-to="table" aria-pressed="true">Table</button><button data-ep-view-to="pie" aria-pressed="false">Pie chart</button></div>
+    <button data-ep-expand-all class="ep-table-only">Expand all</button>
+  </div>
+  <div class="ep-pscroll ep-view-table"><table class="ep-res-table">
+    <thead><tr><th class="ep-res-toggle"></th><th class="ep-res-first">Client</th><th>Used</th></tr></thead>
+    <tbody>
+      <tr data-type="On-Prem" data-row="c0" data-attention="0"><td class="ep-res-toggle"><button data-ep-expand="c0" aria-expanded="false">▸</button></td><td class="ep-res-first">acme</td><td>30 %</td></tr>
+      <tr class="ep-sub" data-parent="c0" hidden><td colspan="3"><table class="ep-servers"><tr><td>acme-es-1 10.0.0.9</td></tr></table></td></tr>
+      <tr data-type="DI" data-row="c1" data-attention="1"><td class="ep-res-toggle"><button data-ep-expand="c1" aria-expanded="false">▸</button></td><td class="ep-res-first">beta</td><td>95 %</td></tr>
+      <tr class="ep-sub" data-parent="c1" hidden><td colspan="3"><table class="ep-servers"><tr><td>beta-data-1 10.40.1.21</td></tr></table></td></tr>
+    </tbody><tfoot><tr class="ep-totals" data-ep-totals><td></td><td>Total (all clients)</td><td>62 %</td></tr></tfoot></table></div>
+  <div class="ep-pie ep-pscroll ep-view-pie" hidden>
+    <article class="ep-pie-card" data-type="On-Prem" data-card="c0" data-attention="0" data-search="acme acme-es-1 10.0.0.9">acme <button data-ep-goto="c0">Servers (1)</button></article>
+    <article class="ep-pie-card" data-type="DI" data-card="c1" data-attention="1" data-search="beta beta-data-1 10.40.1.21">beta <button data-ep-goto="c1">Servers (1)</button></article>
+  </div></div></div>`;
+
+function resources(lib, view = { view: 0, switch: true, attention: false, compact: true }, widget = {}) {
+  const dom = new lib.JSDOM(`<body>${RES}</body>`, { runScripts: 'outside-only', url: 'https://zabbix.example/zabbix.php' });
+  const w = dom.window;
+  w.CSS = { escape: (s) => String(s).replace(/"/g, '\\"') };
+  w.eval(fs.readFileSync(path.join(HERE, 'ep-columns.js'), 'utf8'));
+  w.eval(fs.readFileSync(path.join(HERE, 'ep-panel.js'), 'utf8'));
+  const body = w.document.getElementById('w');
+  w.EpColumns.init(widget, body, null);
+  w.EpPanel.init(widget, body, 'resources', { view });
+  return { w, body, widget, root: body.querySelector('.ep-panel') };
+}
+const shownCards = (body) => [...body.querySelectorAll('.ep-pie-card')].filter((c) => !c.hidden).map((c) => c.dataset.card);
+
+test('Needs attention filters the table and the cards together, and keeps the toolbar showing', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w, body, root } = resources(lib);
+  const att = body.querySelector('[data-ep-attention]');
+  att.click();
+  assert.deepEqual(visible(body), ['beta']);
+  assert.deepEqual(shownCards(body), ['c1']);
+  assert.equal(att.getAttribute('aria-pressed'), 'true');
+  assert.ok(root.classList.contains('ep-pt-pinned'), 'a filter in force keeps the toolbar');
+  assert.equal(body.querySelector('[data-ep-count]').textContent, '1 clients');
+  const q = body.querySelector('[data-ep-search]');
+  q.value = '10.0.0.9'; q.dispatchEvent(new w.Event('input'));
+  assert.deepEqual(shownCards(body), [], 'search and attention decide together');
+  att.click();
+  assert.deepEqual(shownCards(body), ['c0'], 'a host\'s IP finds its client\'s card');
+});
+
+test('the widget\'s default filter starts Needs attention on, and a viewer\'s choice outlives the redraw', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const first = resources(lib, { view: 0, switch: true, attention: true, compact: true });
+  assert.deepEqual(visible(first.body), ['beta'], 'Needs attention only, by the widget\'s setting');
+  first.body.querySelector('[data-ep-attention]').click();
+  const again = resources(lib, { view: 0, switch: true, attention: true, compact: true }, first.widget);
+  assert.deepEqual(visible(again.body), ['acme', 'beta'], 'the viewer turned it off; a refresh does not turn it back on');
+});
+
+test('Table / Pie chart switches the view, the count follows, and a card\'s Servers opens its client in the table', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { body, root, widget } = resources(lib);
+  body.querySelector('[data-ep-view-to="pie"]').click();
+  assert.equal(body.querySelector('.ep-view-pie').hidden, false);
+  assert.equal(body.querySelector('.ep-view-table').hidden, true);
+  assert.equal(root.dataset.epView, 'pie');
+  assert.equal(body.querySelector('[data-ep-expand-all]').hidden, true, 'Expand all is for the table');
+  assert.equal(body.querySelector('[data-ep-view-to="pie"]').getAttribute('aria-pressed'), 'true');
+  body.querySelector('[data-ep-goto="c1"]').click();
+  assert.equal(root.dataset.epView, 'table');
+  assert.equal(body.querySelector('[data-ep-expand="c1"]').getAttribute('aria-expanded'), 'true');
+  assert.equal(body.querySelector('tr[data-parent="c1"]').hidden, false);
+  assert.equal(widget._epPanel.view, 'table', 'the switch is this viewer\'s, held on the widget');
+});
+
+test('Compact is one viewer\'s switch, and nothing of the look is read from or written to the browser', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w, body, root } = resources(lib);
+  assert.ok(!root.classList.contains('ep-comfortable'));
+  body.querySelector('[data-ep-compact]').click();
+  assert.ok(root.classList.contains('ep-comfortable'));
+  assert.equal(root.style.getPropertyValue('--ep-ok'), '#3e9b3a', 'the palette on the panel is left alone');
+  assert.equal(w.localStorage.getItem('ep-panel:resources'), null, 'nothing kept in the browser');
+});
+
+test('the totals row, which is over every client, steps aside while a filter is on', (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const { w, body } = resources(lib);
+  const totals = body.querySelector('[data-ep-totals]');
+  assert.equal(totals.hidden, false);
+  body.querySelector('[data-ep-attention]').click();
+  assert.equal(totals.hidden, true, 'Needs attention');
+  body.querySelector('[data-ep-attention]').click();
+  const q = body.querySelector('[data-ep-search]');
+  q.value = 'beta'; q.dispatchEvent(new w.Event('input'));
+  assert.equal(totals.hidden, true, 'a search');
+  q.value = ''; q.dispatchEvent(new w.Event('input'));
+  assert.equal(totals.hidden, false, 'back when the filter is cleared');
+  const sel = body.querySelector('[data-ep-type-filter]');
+  sel.value = 'DI'; sel.dispatchEvent(new w.Event('change'));
+  assert.equal(totals.hidden, true, 'a Type filter');
+});
+
+test('group headers: the column names sit exactly under the first header row, sticky or not — never over the first data row', (t) => {
+  // QA 2.1.1: a Volume widget with the sticky header off (its 2.1.0 look) drew its second header row 24px low, over the
+  // first cluster. ep-panel.js makes a static header cell position: relative for its resize handle, and the sticky
+  // offset (top: 24px) then moved it. Off: top is auto. On: the offset is the first row's measured height.
+  const css = fs.readFileSync(path.join(HERE, 'ep-table.css'), 'utf8') + fs.readFileSync(path.join(HERE, 'ep-panel.css'), 'utf8');
+  assert.match(css, /\.ep-panel\.ep-nosticky \.ep-res-table thead th \{ position: static; top: auto; \}/, 'no sticky header: no offset, whatever position the cell gets');
+  assert.match(css, /\.ep-panel \.ep-res-table thead tr \+ tr th \{ top: var\(--ep-head1, 22px\); \}/, 'sticky: the measured height of the first row');
+  assert.ok(!/thead tr \+ tr th \{ top: 24px/.test(css), 'no fixed 24px');
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const dom = new lib.JSDOM(`<body><table class="ep-res-table"><thead><tr><th class="ep-res-group">Live</th></tr><tr><th>Used</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>
+    <table class="ep-res-table" id="one"><thead><tr><th>Used</th></tr></thead></table></body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  w.eval(fs.readFileSync(path.join(HERE, 'ep-panel.js'), 'utf8'));
+  const [two, one] = w.document.querySelectorAll('table');
+  two.tHead.rows[0].getBoundingClientRect = () => ({ height: 21.5 });  // jsdom lays nothing out
+  w.EpPanel.headOffset(two);
+  w.EpPanel.headOffset(one);
+  assert.equal(two.style.getPropertyValue('--ep-head1'), '21.5px', 'the second row sticks at the first row\'s own height');
+  assert.equal(one.style.getPropertyValue('--ep-head1'), '', 'one header row: nothing to offset');
+  const hidden = w.document.createElement('table');
+  hidden.innerHTML = '<thead><tr><th>a</th></tr><tr><th>b</th></tr></thead>';
+  w.EpPanel.headOffset(hidden);
+  assert.equal(hidden.style.getPropertyValue('--ep-head1'), '', 'a table not laid out (height 0) keeps the CSS fallback');
 });

@@ -49,6 +49,7 @@ namespace {
 		public $response;
 		public function __construct() { $this->widget = new class { public function getDefaultName() { return 'Client overview'; } }; }
 		public function getInput($k, $d = null) { return $d; }
+		public $form = null;
 		public function getDebugMode() { return 0; }
 		public function setResponse($r) { $this->response = $r; }
 	}
@@ -168,7 +169,21 @@ namespace {
 					}
 					return $out;
 				case 'History':
-					return [];
+					// A point every five minutes in the window at the item's value; the newest two higher, so the
+					// period's max and last are not its mean.
+					$byId = array_column(self::items(), null, 'itemid');
+					$out = [];
+					foreach ($o['itemids'] as $id) {
+						$base = (float) $byId[$id]['lastvalue'];
+						$clocks = [];
+						for ($t = (int) (ceil($o['time_from'] / 300) * 300); $t <= $o['time_till']; $t += 300) {
+							$clocks[] = $t;
+						}
+						foreach ($clocks as $i => $t) {
+							$out[] = ['itemid' => $id, 'clock' => (string) $t, 'value' => (string) ($i >= count($clocks) - 2 ? $base + 2 : $base)];
+						}
+					}
+					return $out;
 				case 'Problem':
 					$all = [
 						['eventid' => 1, 'objectid' => 11, 'severity' => '5', 'acknowledged' => '0', 'suppressed' => '0'],
@@ -198,8 +213,8 @@ namespace {
 namespace Modules\EpOverview\Test {
 	require __DIR__.'/../actions/WidgetView.php';
 	use Modules\EpOverview\Actions\WidgetView;
-	use Modules\EpOverview\Includes\{CWidgetFieldMetrics, CWidgetFieldStrings, Metrics, Overview, WidgetForm};
-	use Modules\EpOverview\Lib\{Roles, Settings};
+	use Modules\EpOverview\Includes\{Chart, CWidgetFieldMetrics, CWidgetFieldStrings, Metrics, Overview, WidgetForm};
+	use Modules\EpOverview\Lib\{ColumnMath, Roles, Settings};
 
 	$failed = 0; $passed = 0;
 	function check(string $what, bool $ok, $detail = null): void {
@@ -217,7 +232,8 @@ namespace Modules\EpOverview\Test {
 		$roles = Roles::load();
 		$v = WidgetForm::upgrade($raw + ['groupids' => []], $roles, Settings::all());
 		[$v['metrics']] = CWidgetFieldMetrics::cleanList($v['metrics'] ?? [], Metrics::catalogue($roles), array_column(Roles::allRoles($roles), 'id'), false);
-		foreach (['clients', 'client_types', 'section_order', 'sections', 'role_order', 'roles_hidden', 'severities'] as $k) {
+		foreach (['clients', 'client_types', 'section_order', 'sections', 'role_order', 'roles_hidden', 'severities', 'summary_panels', 'summary_order',
+				'summary_tiles', 'summary_bars', 'summary_status', 'chart_legend', 'ua_groups'] as $k) {
 			if (array_key_exists($k, $v)) {
 				$v[$k] = CWidgetFieldStrings::clean($v[$k]);
 			}
@@ -242,9 +258,22 @@ namespace Modules\EpOverview\Test {
 
 	/* ---------------------------------- config validation ---------------------------------- */
 
-	[$m, $e] = $metric(['source' => 2, 'key' => 'es.ingest.rate', 'roles' => ['es_data_hot', 'nope'], 'combine' => 1, 'units' => '/s',
+	[, $e] = $metric(['source' => 2, 'key' => 'es.ingest.rate', 'roles' => ['es_data_hot', 'nope', 'gone']]);
+	check('a role that is gone is refused, not dropped: a metric scoped to it would quietly read every server', $e === ['Servers: the role "nope", "gone" is not in Cluster Management any more — choose its servers again.'], $e);
+	[$m, $e] = $metric(['source' => 1, 'builtin' => 'storage.usage', 'roles' => ['nope']]);
+	check('…but not for a figure read off the client master host, which has no servers to scope', $e === [] && $m['roles'] === [], [$m['roles'], $e]);
+	[, $e] = $metric(['source' => 1, 'builtin' => 'srv.cpu', 'roles' => ['nope']]);
+	check('…and a built-in read off the servers is refused like an item', count($e) === 1 && strpos($e[0], 'the role "nope"') !== false, $e);
+	[, $e] = CWidgetFieldMetrics::cleanList([['name' => 'Gone role', 'source' => 2, 'key' => 'k', 'roles' => ['nope']], ['name' => 'ok', 'source' => 1, 'builtin' => 'srv.cpu']], $cat, $roleIds, true);
+	check('on Apply the metric is named with the refusal', $e === ['Metric "Gone role": Servers: the role "nope" is not in Cluster Management any more — choose its servers again.'], $e);
+	[$list, $e, $dropped] = CWidgetFieldMetrics::cleanList([['name' => 'Gone role', 'source' => 2, 'key' => 'k', 'roles' => ['nope']], ['name' => 'ok', 'source' => 1, 'builtin' => 'srv.cpu']], $cat, $roleIds, false);
+	check('on the dashboard it is left out, named with why, and the rest kept', $e === [] && array_column($list, 'name') === ['ok']
+		&& $dropped === ['Metric "Gone role": Servers: the role "nope" is not in Cluster Management any more — choose its servers again.'], [$list, $dropped]);
+	[, , $dropped] = CWidgetFieldMetrics::cleanList(array_fill(0, Metrics::MAX + 2, ['name' => 'cpu', 'source' => 1, 'builtin' => 'srv.cpu']), $cat, $roleIds, false);
+	check('the metrics past the cap are named among the dropped, never silently', count($dropped) === 2 && strpos($dropped[0], 'more than 20 metrics') !== false, $dropped);
+	[$m, $e] = $metric(['source' => 2, 'key' => 'es.ingest.rate', 'roles' => ['es_data_hot'], 'combine' => 1, 'units' => '/s',
 		'use_settings' => 1, 'thresholds' => [['level' => 2, 'color' => '#ff0000', 'value' => '1000'], ['level' => 1, 'color' => '', 'value' => '5000']], 'worse' => 2]);
-	check('a custom item metric is accepted, unknown roles dropped, thresholds sorted, colour without #', $e === [] && $m['roles'] === ['es_data_hot']
+	check('a custom item metric is accepted, thresholds sorted, colour without #', $e === [] && $m['roles'] === ['es_data_hot']
 		&& $m['use_settings'] === 0 && $m['thresholds'][0]['value'] === '1000' && $m['thresholds'][0]['color'] === 'FF0000' && $m['worse'] === 2, [$m, $e]);
 	foreach (['bad key!' => false, 'es.jvm[*]' => false, str_repeat('a', 256) => false, 'a b' => false] as $key => $pattern) {
 		[, $e] = $metric(['source' => 2, 'key' => $key, 'pattern' => $pattern ? 1 : 0]);
@@ -357,10 +386,10 @@ namespace Modules\EpOverview\Test {
 	check('servers with their status and CPU and memory classes', count($k['servers']) === 4 && in_array('down', array_column($k['servers'], 'status'), true)
 		&& isset($k['servers'][0]['classes']['cpu']));
 	check('acme at its own thresholds (30 / 40): 35 % ES CPU is warn', $byName($d)['acme']['families']['es']['cpu']['class'] === 'ep-warn');
-	check('by default every panel, cards for ES, no client chosen', $ov['settings']['panels'] === ['summary' => true, 'used' => true, 'roles' => true]
+	check('by default every panel, cards for ES, no client chosen', $ov['settings']['panels'] === ['summary' => true, 'chart' => false, 'used' => true, 'roles' => true]
 		&& $ov['settings']['family'] === 'es' && $ov['settings']['client'] === '');
 	$d = run(['show_used' => 0, 'show_roles' => 0, 'family' => WidgetForm::key('parser'), 'usage_warn' => '96', 'usage_high' => '98']);
-	check('its panels, family and thresholds carry on', $d['overview']['settings']['panels'] === ['summary' => true, 'used' => false, 'roles' => false]
+	check('its panels, family and thresholds carry on', $d['overview']['settings']['panels'] === ['summary' => true, 'chart' => false, 'used' => false, 'roles' => false]
 		&& $d['overview']['settings']['family'] === 'parser' && $byName($d)['karthi']['families']['es']['cpu']['class'] === '', $d['overview']['settings']);
 	$d = run(['client' => 'KARTHI']);
 	check('old Client: that client alone, opened on its own view', array_column($d['overview']['clients'], 'name') === ['karthi'] && $d['overview']['settings']['client'] === 'karthi');
@@ -492,6 +521,290 @@ namespace Modules\EpOverview\Test {
 		&& $ov['settings']['window'] === '7d');
 	$d2 = run($cards + ['section_order' => ['warnings', 'metrics', 'summary'], 'sections' => ['summary', 'metrics', 'warnings']]);
 	check('sections on and in the order chosen', $d2['overview']['settings']['sections'] === ['warnings', 'metrics', 'summary'], $d2['overview']['settings']['sections']);
+
+	/* ---------------------------- Summary view: settings and chart ---------------------------- */
+
+	$callsOf = fn(string $what) => count(array_filter(\FakeApi::$calls, fn($c) => $c === $what));
+	$sv = ['view' => 1, 'summary_version' => 1, 'hide_inactive' => 0];
+
+	// A Summary widget saved before the view had settings keeps exactly its look.
+	$d = run(['view' => 1, 'config_version' => 2]);
+	$ov = $d['overview'];
+	check('a 2.1.0 Summary widget: legacy, no usage chart, its three panels, no status line, no Zabbix history or trend read',
+		$ov['settings']['legacy'] === true && $ov['chart'] === null && $ov['settings']['panels']['chart'] === false
+		&& $ov['settings']['cards']['status'] === [] && $callsOf('History') === 0 && $callsOf('Trend') === 0 && $callsOf('Problem') === 0, $ov['settings']);
+	$d = run(['view' => 1, 'config_version' => 2, 'summary_panels' => ['summary', 'used']]);
+	check('…and the panels it had turned off stay off', $d['overview']['settings']['panels'] === ['summary' => true, 'chart' => false, 'used' => true, 'roles' => false]);
+	$d = run([]);
+	check('a 2.0 widget (host groups only) is legacy too', $d['overview']['settings']['legacy'] === true && $d['overview']['chart'] === null);
+	$up = WidgetForm::upgrade(['config_version' => 2, 'view' => 1], $roles, Settings::all());
+	check('upgrade names what differs for a saved Summary widget: panels without the chart, no status line, used and roles half a row each',
+		$up['summary_panels'] === ['summary', 'used', 'roles'] && $up['summary_status'] === '' && $up['summary_w_used'] === WidgetForm::WIDTH_HALF
+		&& $up['summary_w_roles'] === WidgetForm::WIDTH_HALF, $up);
+	$up = WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'summary_version' => 1], $roles, Settings::all());
+	check('once the form has saved it (summary_version) nothing is filled in: the widget\'s own choices stand', !array_key_exists('summary_panels', $up)
+		&& !array_key_exists('summary_status', $up));
+	$up = WidgetForm::upgrade(['config_version' => 2], $roles, Settings::all());
+	check('a Cards widget, or one being added, gets the design\'s defaults, not the old look', !array_key_exists('summary_panels', $up) && !array_key_exists('summary_status', $up));
+	$up = WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'summary_panels' => ['summary', 'used', 'roles'], 'summary_w_used' => 3], $roles, Settings::all());
+	check('an old widget\'s own stored settings are not overwritten by the fill-in', $up['summary_w_used'] === 3 && $up['summary_w_roles'] === WidgetForm::WIDTH_HALF);
+
+	// A new widget on Summary: the chart on, the panels as the design lays them out.
+	$d = run($sv);
+	$ov = $d['overview'];
+	$s = $ov['settings'];
+	check('a new Summary widget: legacy off, the usage chart on', $s['legacy'] === false && $ov['chart'] !== null && $s['panels'] === ['summary' => true, 'chart' => true, 'used' => true, 'roles' => true], $s['panels']);
+	check('…panels in the design\'s order and widths (full, half, quarter, quarter)', $s['layout'] === [['id' => 'summary', 'width' => 'full'], ['id' => 'chart', 'width' => 'half'],
+		['id' => 'used', 'width' => 'quarter'], ['id' => 'roles', 'width' => 'quarter']], $s['layout']);
+	check('…cards: tiles up, down and devices; bars CPU, memory, storage; every status item; columns auto', $s['cards'] === ['tiles' => ['up', 'down', 'devices'],
+		'bars' => ['cpu', 'mem', 'storage'], 'status' => ['down', 'high', 'warn', 'short', 'nodata'], 'columns' => 0], $s['cards']);
+	check('…Used of allocated: CPU, memory, storage by name, segmented; Servers by role: donut with count and percent', $s['used'] === ['groups' => ['cpu', 'mem', 'storage'], 'sort' => 'name', 'bar' => 'segmented']
+		&& $s['roles'] === ['style' => 'donut', 'count' => true, 'percent' => true], [$s['used'], $s['roles']]);
+	$d = run($sv + ['summary_order' => ['roles', 'used', 'chart', 'summary'], 'summary_panels' => ['roles', 'chart'], 'summary_w_roles' => 2, 'summary_w_chart' => 0]);
+	check('panels on, in the order the widget keeps them, at the widths chosen', $d['overview']['settings']['layout'] === [['id' => 'roles', 'width' => 'third'], ['id' => 'chart', 'width' => 'full']],
+		$d['overview']['settings']['layout']);
+	$d = run($sv + ['summary_order' => ['used'], 'summary_w_chart' => 9, 'summary_columns' => 7]);
+	check('a panel left out of the order still has its place, a width that is not one of four and a column count that is not 2, 3 or 4 fall back',
+		array_column($d['overview']['settings']['layout'], 'id') === ['used', 'summary', 'chart', 'roles'] && $d['overview']['settings']['layout'][2]['width'] === 'half'
+		&& $d['overview']['settings']['cards']['columns'] === 0, $d['overview']['settings']['layout']);
+	$d = run($sv + ['summary_tiles' => ['up', 'problems', 'nope'], 'summary_bars' => ['storage'], 'summary_status' => ['warn', 'nodata'], 'summary_columns' => 3]);
+	check('card settings: tiles, bars and status items that exist, in the order drawn, and the columns', $d['overview']['settings']['cards'] === ['tiles' => ['up', 'problems'],
+		'bars' => ['storage'], 'status' => ['warn', 'nodata'], 'columns' => 3], $d['overview']['settings']['cards']);
+	$d = run($sv + ['ua_groups' => ['devices', 'cpu'], 'ua_sort' => 1, 'ua_bar' => 1, 'sr_style' => 2, 'sr_count' => 0, 'sr_percent' => 1]);
+	check('Used of allocated and Servers by role settings', $d['overview']['settings']['used'] === ['groups' => ['cpu', 'devices'], 'sort' => 'value', 'bar' => 'solid']
+		&& $d['overview']['settings']['roles'] === ['style' => 'pills', 'count' => false, 'percent' => true]);
+
+	// The cards' tiles and status line.
+	$d = run($sv);
+	$k = $byName($d)['karthi'];
+	$a = $byName($d)['acme'];
+	check('status counts: karthi has 1 server down and 3 high on a figure (CPU at 95, a disk at 99 or 91)',
+		$k['status']['down'] === 1 && $k['status']['high'] === 3 && $k['status']['warn'] === 0 && $k['status']['nodata'] === 0, $k['status']);
+	check('…acme, at its own 30 / 40, has one server warn', $a['status'] === ['down' => 0, 'high' => 0, 'warn' => 1, 'short' => 0, 'nodata' => 0], $a['status']);
+	check('open problems are not read unless the tile is on', $k['problems'] === null && $callsOf('Problem') === 0);
+	$d = run($sv + ['summary_tiles' => ['up', 'problems']]);
+	$k = $byName($d)['karthi'];
+	check('Open problems tile: the Cards\' problem.get, counted per client (karthi: the disaster on two of its hosts counts once)', $k['problems'] === 1
+		&& $byName($d)['acme']['problems'] === 1 && $callsOf('Problem') === 1 && $callsOf('Trigger') === 1, [$k['problems'], $byName($d)['acme']['problems']]);
+	check('devices carry their usage and class for Used of allocated', array_key_exists('usage', $k['devices']) && array_key_exists('class', $k['devices']));
+
+	// The usage chart: Zabbix history for a short period, trends for a long one, one call each.
+	$d = run($sv);
+	$ov = $d['overview'];
+	$c = $ov['chart'];
+	$chartBy = array_column($c['clients'], null, 'name');
+	check('chart: ES CPU by default, in %, over six hours from history', $c['metric'] === ['id' => 'cpu', 'label' => 'ES CPU', 'units' => '%'] && $c['period']['key'] === '6h'
+		&& $c['period']['seconds'] === 21600 && $c['period']['source'] === 'history', [$c['metric'], $c['period']]);
+	check('…one History read and no Trend read, whatever the number of clients', $callsOf('History') === 1 && $callsOf('Trend') === 0, array_count_values(\FakeApi::$calls));
+	check('…a client per line, by place among all the widget\'s clients (acme, dis, karthi), all with data', array_column($c['clients'], 'i', 'name') === ['karthi' => 2, 'acme' => 0, 'dis' => 1]
+		&& count($chartBy['karthi']['points']) > 20, array_column($c['clients'], 'i', 'name'));
+	$n = count($chartBy['karthi']['points']);
+	$lg = $chartBy['karthi']['legend'];
+	check('legend: Mean, Min, Max and Last of the line drawn (95, with the two newest points at 97)', abs($lg['mean']['v'] - (95 + 4 / $n)) < 0.001 && $lg['min']['v'] === 95.0
+		&& $lg['max']['v'] === 97.0 && $lg['last']['v'] === 97.0, $lg);
+	check('…written like the cards write a figure, coloured by level (97 % is high; 95 % is high)', $lg['last']['text'] === '97%' && $lg['last']['level'] === 'high' && $lg['min']['level'] === 'high');
+	check('…and at the client\'s own thresholds (acme 30 / 40: 35 % is warn)', $chartBy['acme']['legend']['min']['level'] === 'warn' && $chartBy['dis']['legend']['min']['level'] === '', $chartBy['acme']['legend']);
+	check('points are [clock, value] in time order, none outside the period', $chartBy['karthi']['points'][0][0] >= $c['period']['from'] && end($chartBy['karthi']['points'])[0] <= $c['period']['till']
+		&& $chartBy['karthi']['points'] === array_values(array_filter($chartBy['karthi']['points'], fn($p) => is_int($p[0]) && is_float($p[1]))));
+	check('Warn and High lines: the Settings thresholds, unless the widget sets its own', $c['lines'] === ['warn' => (float) Settings::usage()['warn'], 'high' => (float) Settings::usage()['high']]
+		&& run($sv + ['summary_warn' => '70', 'summary_high' => '85'])['overview']['chart']['lines'] === ['warn' => 70.0, 'high' => 85.0]
+		&& run($sv + ['chart_lines' => 0])['overview']['chart']['lines'] === ['warn' => null, 'high' => null]);
+	check('a percentage metric draws 0–100, unless the Y axis is always auto', $c['percent'] === true && run($sv + ['chart_yaxis' => 1])['overview']['chart']['percent'] === false);
+	$auto = run($sv + ['chart_yaxis' => 1])['overview']['chart'];
+	check('…and "Always auto" says so, so the data alone set the range (the Warn / High lines do not)', $c['auto'] === false && $auto['auto'] === true
+		&& $auto['lines'] === $c['lines'], [$c['auto'], $auto['auto']]);
+
+	// Unknown is not zero.
+	$d = run($sv + ['chart_metric' => 'mem']);
+	$c = $d['overview']['chart'];
+	$chartBy = array_column($c['clients'], null, 'name');
+	check('a client with nothing to draw has no points and no legend figures — "no data", never zeros', $chartBy['acme']['points'] === [] && $chartBy['acme']['legend'] === null
+		&& $chartBy['dis']['legend'] === null && $chartBy['karthi']['legend']['mean']['v'] > 49 && count($chartBy['karthi']['points']) > 20, [$chartBy['acme'], $chartBy['dis']]);
+	check('…the metric is the family\'s memory', $c['metric']['label'] === 'ES memory');
+
+	// Top N.
+	$d = run($sv + ['chart_clients' => 1, 'chart_top_n' => 1, 'chart_top_by' => 0]);
+	check('top 1 by max: karthi (97) only, colour index kept', array_column($d['overview']['chart']['clients'], 'name') === ['karthi'] && $d['overview']['chart']['clients'][0]['i'] === 2
+		&& $d['overview']['chart']['total'] === 3);
+	$d = run($sv + ['chart_clients' => 1, 'chart_top_n' => 2, 'chart_top_by' => 1]);
+	check('top 2 by mean: karthi and acme (35), dis (5) left out', array_column($d['overview']['chart']['clients'], 'name') === ['karthi', 'acme']);
+	$d = run($sv + ['chart_metric' => 'mem', 'chart_clients' => 1, 'chart_top_n' => 2, 'chart_top_by' => 2]);
+	check('top 2 where only one client has data: it comes first, a client with none takes the second place after it', count($d['overview']['chart']['clients']) === 2
+		&& $d['overview']['chart']['clients'][0]['name'] === 'karthi' && $d['overview']['chart']['clients'][1]['legend'] === null);
+	$d = run($sv + ['chart_clients' => 0, 'chart_top_n' => 1]);
+	check('all clients ignores top N', count($d['overview']['chart']['clients']) === 3);
+	$d = run($sv + ['chart_sort' => 3]);
+	check('legend sort: by name', array_column($d['overview']['chart']['clients'], 'name') === ['acme', 'dis', 'karthi']);
+	check('legend sort: by mean, highest first (the default)', array_column(run($sv)['overview']['chart']['clients'], 'name') === ['karthi', 'acme', 'dis']);
+
+	// Metric: the viewer's switch, the widget's own metrics.
+	$d = run($sv + ['chart_view_metric' => 'storage']);
+	check('viewers may switch the metric: ES storage used', $d['overview']['chart']['metric']['id'] === 'storage' && $d['overview']['chart']['metric']['label'] === 'ES storage used'
+		&& count($d['overview']['chart']['metrics']) >= 3, $d['overview']['chart']['metric']);
+	$d = run($sv + ['chart_view_metric' => 'storage', 'chart_switch' => 0]);
+	check('…not when the widget says no (the choice is ignored, and no switch is offered)', $d['overview']['chart']['metric']['id'] === 'cpu' && $d['overview']['chart']['metrics'] === []);
+	$d = run($sv + ['chart_view_metric' => 'm:nosuch']);
+	check('…and a metric the widget does not have is ignored', $d['overview']['chart']['metric']['id'] === 'cpu');
+	$d = run($sv + ['chart_view_metric' => "cpu'); drop"]);
+	check('…whatever it is made of', $d['overview']['chart']['metric']['id'] === 'cpu');
+	$d = run($sv + $custom + ['chart_metric' => 'm:ingest']);
+	$c = $d['overview']['chart'];
+	check('any metric of the Data and metrics list, combined as the Cards combine it (karthi: sum 18400 + 1600)', $c['metric']['id'] === 'm:ingest' && $c['metric']['label'] === 'Ingest'
+		&& array_column($c['clients'], null, 'name')['karthi']['legend']['last']['text'] === '20k/s', array_column($c['clients'], null, 'name')['karthi']['legend'] ?? null);
+	check('…with its own thresholds as the Warn and High lines (lower is worse: 5000 and 1000)', $c['lines'] === ['warn' => 5000.0, 'high' => 1000.0] && $c['percent'] === false, $c['lines']);
+	check('…acme\'s 900/s is high against them, as on its card', array_column($c['clients'], null, 'name')['acme']['legend']['last']['level'] === 'high');
+	$d = run($sv + $custom + ['chart_metric' => 'm:hot']);
+	check('Count over Warn is coloured by its servers, never against the per-server thresholds it counts with', array_column($d['overview']['chart']['clients'], null, 'name')['karthi']['legend']['last']['level'] === '');
+	$d = run(array_merge($custom, ['chart_metric' => 'm:cpu', 'metrics' => array_slice($custom['metrics'], 0, 1)]) + $sv);
+	check('a metric removed from the list falls back to CPU', $d['overview']['chart']['metric']['id'] === 'cpu');
+
+	// Period.
+	$d = run($sv + ['chart_view_period' => 86400]);
+	$c = $d['overview']['chart'];
+	check('a quick button: 24 hours, from trends (hourly) in one Trend read', $c['period']['key'] === '24h' && $c['period']['source'] === 'trends' && $callsOf('Trend') === 1 && $callsOf('History') === 0
+		&& count($c['quick']) === 4 && array_column($c['quick'], 'key') === ['1h', '6h', '24h', '7d']);
+	$d = run($sv + ['chart_view_period' => 3600, 'chart_quick' => 0]);
+	check('…the buttons are the widget\'s to offer: off, the viewer\'s press is ignored and none is drawn', $d['overview']['chart']['period']['key'] === '6h' && $d['overview']['chart']['quick'] === []);
+	$d = run($sv + ['chart_view_period' => 12345]);
+	check('…and only one of the four periods counts', $d['overview']['chart']['period']['seconds'] === 21600);
+	$d = run($sv + ['chart_period_n' => 3, 'chart_period_unit' => 1]);
+	check('Last N days: 3 days, "custom" is not one of the buttons', $d['overview']['chart']['period']['seconds'] === 259200 && $d['overview']['chart']['period']['key'] === 'custom'
+		&& $d['overview']['chart']['period']['source'] === 'trends');
+	$d = run($sv + ['chart_period_source' => 0, 'time_period' => ['from_ts' => time() - 7200, 'to_ts' => time()]]);
+	check('the dashboard\'s time period when the widget follows it (two hours: from history)', $d['overview']['chart']['period']['seconds'] >= 7199 && $d['overview']['chart']['period']['seconds'] <= 7200
+		&& $d['overview']['chart']['period']['source'] === 'history');
+	$d = run($sv + ['chart_point' => 1, 'chart_view_period' => 86400]);
+	$k = array_column($d['overview']['chart']['clients'], null, 'name')['karthi'];
+	check('each point the max: the hour\'s peak (95 + 5), and the stats are of that line', $k['legend']['mean']['v'] === 100.0 && $k['legend']['min']['v'] === 100.0, $k['legend']);
+	$d = run($sv + ['chart_point' => 2, 'chart_view_period' => 86400]);
+	check('each point the min: the hour\'s trough (95 - 5)', array_column($d['overview']['chart']['clients'], null, 'name')['karthi']['legend']['last']['v'] === 90.0);
+
+	// The rest of the chart's presentation.
+	$s = run($sv + ['chart_style' => 2, 'chart_height' => 2, 'chart_legend' => ['max', 'last'], 'chart_color' => 0, 'chart_isolate' => 0, 'chart_point' => 1])['overview']['settings']['chart'];
+	check('style, height, legend columns, colouring, isolation and point', $s === ['style' => 'stacked', 'height' => 340, 'legend' => ['max', 'last'], 'color' => false, 'isolate' => false, 'point' => 'maximum'], $s);
+	$d = run($sv + ['summary_panels' => ['summary', 'used', 'roles']]);
+	check('the chart panel off: no chart and nothing read for it', $d['overview']['chart'] === null && $callsOf('History') === 0 && $callsOf('Trend') === 0);
+	$d = run($sv + ['clients' => ['karthi']]);
+	check('one client alone is a chart of one', array_column($d['overview']['chart']['clients'], 'name') === ['karthi']);
+
+	// The sums themselves.
+	$two = ['h1' => ['i1' => [100 => [10, 5, 20], 200 => [30, 25, 40]]], 'h2' => ['i2' => [100 => [1, 0, 2], 200 => [3, 2, 50]]]];
+	check('line: servers summed hour by hour as the cards sum them (avg 11, 33; max 22, 90; min 5, 27)',
+		Chart::line($two, false, Metrics::COMBINE_SUM, 0, 1000, null, Chart::POINT_AVG) === [100 => 11.0, 200 => 33.0]
+		&& Chart::line($two, false, Metrics::COMBINE_SUM, 0, 1000, null, Chart::POINT_MAX) === [100 => 22.0, 200 => 90.0]
+		&& Chart::line($two, false, Metrics::COMBINE_SUM, 0, 1000, null, Chart::POINT_MIN) === [100 => 5.0, 200 => 27.0]);
+	check('…average, highest and lowest server, and count over Warn', Chart::line($two, false, Metrics::COMBINE_AVG, 0, 1000, null, Chart::POINT_AVG) === [100 => 5.5, 200 => 16.5]
+		&& Chart::line($two, false, Metrics::COMBINE_MAX, 0, 1000, null, Chart::POINT_AVG) === [100 => 10.0, 200 => 30.0]
+		&& Chart::line($two, false, Metrics::COMBINE_MIN, 0, 1000, null, Chart::POINT_AVG) === [100 => 1.0, 200 => 3.0]
+		&& Chart::line($two, false, Metrics::COMBINE_COUNT, 0, 1000, fn($v) => $v >= 20, Chart::POINT_AVG) === [100 => 0.0, 200 => 1.0]);
+	check('…the same line the cards\' trend gives (one definition)', Chart::line($two, false, Metrics::COMBINE_SUM, 0, 1000, null, Chart::POINT_AVG)
+		=== Overview::trend(Overview::hostSeries($two, false), Metrics::COMBINE_SUM, 0, 1000)['series']);
+	check('a host with two items counts once: its worst item stands for it', Chart::line(['h1' => ['a' => [100 => [10, 10, 10]], 'b' => [100 => [40, 40, 40]]], 'h2' => ['c' => [100 => [2, 2, 2]]]],
+		false, Metrics::COMBINE_SUM, 0, 1000, null, Chart::POINT_AVG) === [100 => 42.0]
+		&& Chart::line(['h1' => ['a' => [100 => [10, 10, 10]], 'b' => [100 => [40, 40, 40]]]], true, Metrics::COMBINE_SUM, 0, 1000, null, Chart::POINT_AVG) === [100 => 10.0]);
+	check('nothing in the period is an empty line, not zeros', Chart::line($two, false, Metrics::COMBINE_SUM, 500, 1000, null, Chart::POINT_AVG) === [] && Chart::line([], false, Metrics::COMBINE_SUM, 0, 1000, null, 0) === []);
+	check('stats: mean, min, max and last by time, not by order given', Chart::stats([300 => 22, 100 => 11, 200 => 33]) === ['mean' => 22.0, 'min' => 11.0, 'max' => 33.0, 'last' => 22.0]);
+	check('…a zero is a measurement (mean 0), no point is none', Chart::stats([100 => 0.0, 200 => 0.0]) === ['mean' => 0.0, 'min' => 0.0, 'max' => 0.0, 'last' => 0.0] && Chart::stats([]) === null
+		&& Chart::stats([100 => null]) === null);
+	$rows = [['name' => 'b', 'stats' => ['mean' => 10, 'max' => 50, 'last' => 5]], ['name' => 'a', 'stats' => ['mean' => 30, 'max' => 40, 'last' => 35]], ['name' => 'c', 'stats' => null],
+		['name' => 'd', 'stats' => ['mean' => 30, 'max' => 40, 'last' => 1]]];
+	check('top N by max, mean or last; a tie goes by name; no data ranks after every client with data', array_column(Chart::select($rows, Chart::CLIENTS_TOP, 2, Chart::BY_MAX), 'name') === ['b', 'a']
+		&& array_column(Chart::select($rows, Chart::CLIENTS_TOP, 2, Chart::BY_MEAN), 'name') === ['a', 'd']
+		&& array_column(Chart::select($rows, Chart::CLIENTS_TOP, 1, Chart::BY_LAST), 'name') === ['a'], array_column(Chart::select($rows, Chart::CLIENTS_TOP, 2, Chart::BY_MEAN), 'name'));
+	check('…N at or above the count, or "all", draws everyone in the order given; a client without data fills a spare place last', array_column(Chart::select($rows, Chart::CLIENTS_TOP, 4, Chart::BY_MAX), 'name') === ['b', 'a', 'c', 'd']
+		&& array_column(Chart::select($rows, Chart::CLIENTS_ALL, 1, Chart::BY_MAX), 'name') === ['b', 'a', 'c', 'd']
+		&& array_column(Chart::select($rows, Chart::CLIENTS_TOP, 4 - 1, Chart::BY_MAX), 'name') === ['b', 'a', 'd']);
+	check('legend order: by a stat, highest first, no data last; or by name', array_column(Chart::legendOrder($rows, Chart::SORT_MEAN), 'name') === ['a', 'd', 'b', 'c']
+		&& array_column(Chart::legendOrder($rows, Chart::SORT_LAST), 'name') === ['a', 'b', 'd', 'c'] && array_column(Chart::legendOrder($rows, Chart::SORT_NAME), 'name') === ['a', 'b', 'c', 'd']);
+	check('metric ids: CPU, memory, storage or m:<id>', Chart::isMetricId('cpu') && Chart::isMetricId('m:abc12') && !Chart::isMetricId('m:') && !Chart::isMetricId('m:A') && !Chart::isMetricId('cpu ')
+		&& !Chart::isMetricId("cpu\n") && !Chart::isMetricId('') && !Chart::isMetricId('m:'.str_repeat('a', 17)));
+	check('pick: the viewer\'s when allowed, else the configured one, else CPU', Chart::pickMetric('mem', 'storage', true, ['cpu', 'mem', 'storage']) === 'storage'
+		&& Chart::pickMetric('mem', 'storage', false, ['cpu', 'mem', 'storage']) === 'mem' && Chart::pickMetric('m:x', '', true, ['cpu']) === 'cpu' && Chart::pickMetric('mem', 'zzz', true, ['cpu', 'mem']) === 'mem');
+	$now = 1700000000;
+	check('window: last N hours or days, never under an hour or over a year', Chart::window(['chart_period_n' => 6], 0, $now) === [$now - 21600, $now, 21600, '6h']
+		&& Chart::window(['chart_period_n' => 7, 'chart_period_unit' => 1], 0, $now)[3] === '7d' && Chart::window(['chart_period_n' => 999, 'chart_period_unit' => 1], 0, $now)[2] === 31536000
+		&& Chart::window(['chart_period_n' => 0], 0, $now)[2] === 3600 && Chart::window([], 0, $now)[2] === 21600);
+	check('…a quick button wins over the setting; the dashboard\'s period when followed; a broken period falls back to the setting', Chart::window(['chart_period_n' => 6], 3600, $now)[3] === '1h'
+		&& Chart::window(['chart_period_source' => 0, 'time_period' => ['from_ts' => $now - 90000, 'to_ts' => $now + 500]], 0, $now) === [$now - 90000, $now, 90000, 'custom']
+		&& Chart::window(['chart_period_source' => 0, 'time_period' => ['from_ts' => $now, 'to_ts' => $now - 5]], 0, $now)[2] === 21600
+		&& Chart::window(['chart_period_source' => 0], 0, $now)[2] === 21600);
+	check('history up to six hours, trends beyond; a history point is a stretch of at least a minute, ninety to a period',
+		Chart::usesHistory(3600) && Chart::usesHistory(21600) && !Chart::usesHistory(21601) && Chart::bucketSeconds(3600) === 60 && Chart::bucketSeconds(21600) === 240 && Chart::bucketSeconds(86400) === 960);
+	check('bucketStats: each bucket\'s mean, lowest and highest', ColumnMath::bucketStats([[0, 10], [30, 20], [70, 40]], 60) === [0 => [15.0, 10.0, 20.0], 60 => [40.0, 40.0, 40.0]]);
+	$t = ColumnMath::trend(['a' => [100 => [10, 5, 20]], 'b' => [100 => [1, 0, 2]]], Metrics::COMBINE_SUM, 0, 1000, null, 2);
+	check('trend can combine the maxima (or minima) as it combines the averages; the cards\' trend is unchanged', $t['series'] === [100 => 22.0]
+		&& Overview::trend(['a' => [100 => [10, 5, 20]]], Metrics::COMBINE_SUM, 0, 1000)['series'] === [100 => 10.0]);
+	$long = [];
+	for ($i = 0; $i < 1000; $i++) {
+		$long[100 + $i * 3600] = $i === 500 ? 99.0 : 10.0;
+	}
+	$thin = Chart::thin($long, Chart::POINT_MAX, 240);
+	check('a long line is cut to at most 240 points, and a maximum is not averaged away', count($thin) === 240 && max(array_column($thin, 1)) === 99.0
+		&& Chart::thin($long, Chart::POINT_AVG, 240) !== $thin && max(array_column(Chart::thin($long, Chart::POINT_AVG, 240), 1)) < 99.0
+		&& Chart::stats($long)['max'] === 99.0 && count(Chart::thin([100 => 1.0, 200 => 2.0], 0)) === 2);
+	check('Warn and High lines: the Settings pair for a usage percentage; otherwise the metric\'s own, in its direction; none when off or not set',
+		Chart::lines(['use_settings' => 1], ['warn' => 80, 'high' => 90], true) === ['warn' => 80.0, 'high' => 90.0]
+		&& Chart::lines(['use_settings' => 1], ['warn' => 80, 'high' => 90], false) === ['warn' => null, 'high' => null]
+		&& Chart::lines(['use_settings' => 0, 'worse' => 1, 'thresholds' => [['level' => 1, 'value' => '60'], ['level' => 1, 'value' => '40'], ['level' => 2, 'value' => '300']]], [], true) === ['warn' => 40.0, 'high' => 300.0]
+		&& Chart::lines(['use_settings' => 0, 'worse' => 2, 'thresholds' => [['level' => 1, 'value' => '5000'], ['level' => 1, 'value' => '4000']]], [], true) === ['warn' => 5000.0, 'high' => null]
+		&& Chart::lines(['use_settings' => 0, 'thresholds' => []], [], true) === ['warn' => null, 'high' => null]);
+
+	// Validated server-side.
+	$strings = fn(string $name, array $allowed, $value) => (new CWidgetFieldStrings($name, null, 8, 16))->setAllowed($allowed)->setValue($value)->getValue();
+	check('lists keep only what exists: panels, tiles, bars, status items, legend columns, groups',
+		$strings('summary_panels', WidgetForm::PANELS, ['chart', 'x', 'summary', 'chart']) === ['chart', 'summary'] && $strings('summary_tiles', WidgetForm::TILES, ['problems', '<b>']) === ['problems']
+		&& $strings('summary_status', WidgetForm::STATUS, ['', 'nodata', 'zzz']) === ['nodata'] && $strings('chart_legend', Chart::LEGEND, 'mean') === ['mean']
+		&& $strings('ua_groups', WidgetForm::UA_GROUPS, [['devices']]) === [] && $strings('summary_bars', WidgetForm::BARS, ['storage', 'cpu']) === ['storage', 'cpu']);
+	check('a period over a year is refused when applied (days; hours are checked the same)', WidgetForm::pairErrors(['chart_period_source' => 1, 'chart_period_n' => 400, 'chart_period_unit' => 1])
+		=== ['Invalid parameter "Usage chart: Period": must not be longer than 365 days.'] && WidgetForm::pairErrors(['chart_period_n' => 365, 'chart_period_unit' => 1]) === []
+		&& WidgetForm::pairErrors(['chart_period_n' => 999, 'chart_period_unit' => 0]) === [] && WidgetForm::pairErrors(['chart_period_source' => 0, 'chart_period_n' => 999, 'chart_period_unit' => 1]) === []);
+	check('a chart metric the widget no longer has is refused when applied, and one it has is not', WidgetForm::pairErrors(['chart_metric' => 'm:gone', 'metrics' => [['uid' => 'abc']]])
+		=== ['Invalid parameter "Usage chart: Metric": "m:gone" is not CPU, memory, ES storage or a metric of the Metrics list.']
+		&& WidgetForm::pairErrors(['chart_metric' => 'm:abc', 'metrics' => [['uid' => 'abc']]]) === [] && WidgetForm::pairErrors(['chart_metric' => 'storage', 'metrics' => []]) === []);
+	$up = WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'summary_version' => 1, 'chart_period_source' => 0], $roles, Settings::all());
+	check('the dashboard\'s time period is referred to when the chart follows it, and then only', ($up['time_period']['_reference'] ?? '') === 'DASHBOARD._timeperiod'
+		&& !array_key_exists('time_period', WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'summary_version' => 1], $roles, Settings::all()))
+		&& !array_key_exists('time_period', WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'summary_version' => 1, 'chart_period_source' => 0, 'summary_panels' => ['summary']], $roles, Settings::all()))
+		&& !array_key_exists('time_period', WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'chart_period_source' => 0], $roles, Settings::all())), $up);
+	$up = WidgetForm::upgrade(['config_version' => 2, 'view' => 1, 'summary_version' => 1, 'trend_source' => 0], $roles, Settings::all());
+	check('the Summary view has no trend window: Cards\' choice of the dashboard period does not make it follow', !array_key_exists('time_period', $up));
+
+	// A metric the widget cannot draw is said on the dashboard, in both views.
+	$field = (new CWidgetFieldMetrics('metrics', null, $cat, $roleIds))->setValue([['name' => 'Gone role', 'source' => 2, 'key' => 'k', 'roles' => ['nope']],
+		['name' => 'ok', 'source' => 1, 'builtin' => 'srv.cpu', 'uid' => 'okok']]);
+	$field->validate(false);
+	foreach ([['view' => 0, 'config_version' => 2], $sv] as $fields) {
+		\FakeApi::$calls = [];
+		$v = new WidgetView();
+		$v->fields_values = values($fields + ['metrics' => $field->getValue()]);
+		$v->form = new class($field) { public function __construct(private $f) {} public function getFields() { return ['metrics' => $this->f]; } };
+		(new \ReflectionMethod($v, 'doAction'))->invoke($v);
+		check('the draw names a metric it left out ('.($fields['view'] ? 'Summary' : 'Cards').')', $v->response->data['overview']['dropped']
+			=== ['Metric "Gone role": Servers: the role "nope" is not in Cluster Management any more — choose its servers again.'], $v->response->data['overview']['dropped']);
+	}
+	check('…and says nothing when nothing was left out', run($sv)['overview']['dropped'] === []);
+
+	// A chart period too long to read for every item at once: those clients say "not read", never "no data".
+	$cap = new class extends WidgetView {
+		protected function newReader(): \Modules\EpOverview\Lib\ColumnReader { $r = parent::newReader(); $r->maxItemDays = 400; return $r; }
+	};
+	$runCapped = function (array $fields) use ($cap) {
+		\FakeApi::$calls = [];
+		$v = new $cap();
+		$v->fields_values = values($fields);
+		(new \ReflectionMethod($v, 'doAction'))->invoke($v);
+		return $v->response->data['overview']['chart'];
+	};
+	$long = $custom + $sv + ['chart_metric' => 'm:cpu', 'chart_period_n' => 365, 'chart_period_unit' => 1];
+	$c = $runCapped($long);
+	$by = array_column($c['clients'], null, 'name');
+	check('a year of three servers\' CPU is more than the reader will read: the clients say "not read", with no line and no legend figures', $by['karthi']['not_read'] === true
+		&& $by['karthi']['legend'] === null && $by['karthi']['points'] === [] && $by['acme']['not_read'] === true, array_map(fn($x) => $x['not_read'], $by));
+	$c = $runCapped($long + ['clients' => ['acme']]);
+	check('…a client whose items fit in the budget is drawn as usual', $c['clients'][0]['not_read'] === false && count($c['clients'][0]['points']) > 100 && $c['clients'][0]['legend'] !== null);
+	check('…and a client with no data is "no data", not "not read"', array_column(run($sv + ['chart_metric' => 'mem'])['overview']['chart']['clients'], 'not_read', 'name')['acme'] === false);
+	$c = run($long)['overview']['chart'];
+	check('…and nothing is capped at the reader\'s own limit', !in_array(true, array_column($c['clients'], 'not_read'), true));
 
 	/* ---------------------------------- the arithmetic ---------------------------------- */
 

@@ -86,8 +86,8 @@ class Bars {
 		return [self::INHERIT => _('From ElasticPro settings')] + self::options();
 	}
 
-	/** How many lit-or-unlit blocks the segmented style draws. */
-	private const SEGMENTS = 12;
+	/** How many lit-or-unlit blocks the segmented style draws, unless a column asks for another number. */
+	public const SEGMENTS = 12;
 
 	/**
 	 * $content as the cell should render it: untouched when there is no percentage to draw or
@@ -96,8 +96,9 @@ class Bars {
 	 * @param mixed       $content  the cell's text, or the nodes making it up
 	 * @param float|null  $pct      0-100, or null when the figure was not reported
 	 * @param string      $style    one of STYLES
+	 * @param int         $segments how many blocks the segmented style draws (a column's own choice)
 	 */
-	public static function cell($content, ?float $pct, string $style, string $class = '') {
+	public static function cell($content, ?float $pct, string $style, string $class = '', int $segments = self::SEGMENTS) {
 		if ($pct === null || $style === 'none' || !in_array($style, self::STYLES, true)) {
 			return $content;
 		}
@@ -105,9 +106,10 @@ class Bars {
 		$width = rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.');
 
 		if ($style === 'segments') {
-			$lit = (int) floor($pct / (100 / self::SEGMENTS) + 1e-9);
+			$segments = max(2, min(50, $segments));
+			$lit = (int) floor($pct / (100 / $segments) + 1e-9);
 			$segs = [];
-			for ($i = 0; $i < self::SEGMENTS; $i++) {
+			for ($i = 0; $i < $segments; $i++) {
 				$segs[] = (new CTag('i', true, ''))->addClass($i < $lit ? 'ep-seg-on' : null);
 			}
 			return (new CDiv([(new CSpan($segs))->addClass('ep-bar-segs'), (new CSpan($content))->addClass('ep-bar-val')]))

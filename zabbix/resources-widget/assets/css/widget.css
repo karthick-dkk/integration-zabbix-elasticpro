@@ -1,31 +1,45 @@
-/* Client resources widget: sections over their columns (as the Volume report), values centred,
-   the client fixed on the left. */
-.ep-res-toolbar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; padding: 0 0 6px; }
-.ep-res-count { margin-right: auto; opacity: .75; }
-.ep-res-scroll { overflow-x: auto; }
-.ep-res-table { white-space: nowrap; font-variant-numeric: tabular-nums; }
-/* The frozen first column must hide what scrolls under it in every Zabbix theme: rows and row
-   groups pass the table's own (theme) background down to it, instead of staying transparent. */
-.ep-res-table thead, .ep-res-table tbody, .ep-res-table tr { background: inherit; }
-.ep-res-table th, .ep-res-table td { text-align: center; }
-.ep-res-table .ep-res-first { position: sticky; left: 0; z-index: 1; text-align: left; background: inherit; font-weight: bold; }
-.ep-res-table thead .ep-res-first { z-index: 2; }
-.ep-res-table th.ep-res-group { font-weight: bold; }
-.ep-res-table .ep-res-start { border-left: 2px solid rgba(128, 128, 128, .45); }
-.ep-res-table td .ep-res-sub { opacity: .8; font-size: 11px; }
-/* Used: yellow at {$EP.USAGE.WARN} (80), red at {$EP.USAGE.HIGH} (90). */
-.ep-res-table td.ep-warn { background: #ffd54f; color: #1f1f1f; }
-.ep-res-table td.ep-high { background: #e53935; color: #fff; }
-/* Allocated below requested (or below purchased): outlined, marked, the request in the tooltip. */
-.ep-res-table td.ep-short { outline: 2px dashed #e53935; outline-offset: -3px; font-weight: bold; }
-.ep-res-table td.ep-short::after { content: ' \25BC'; color: #e53935; }
-.ep-res-table td.ep-high.ep-short::after { color: #fff; }
-/* A request nobody entered. */
-.ep-res-table td.ep-unset { opacity: .55; font-style: italic; }
-/* The empty state, in view at the left rather than centred across a very wide table. */
-.ep-empty { text-align: left; padding: 14px 4px; }
-/* The expand column, and the type pills. */
-.ep-res-table .ep-res-toggle { width: 22px; padding: 0 2px; }
-.ep-pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: bold; }
-.ep-res-table td.ep-di { color: #0d47a1; } .ep-res-table td.ep-op { color: #4527a0; }
-.ep-res-toolbar select { font: inherit; padding: 3px 4px; }
+/* Client resources: the Pie chart. The table, the cells and the settings form are shared (ep-table.css, ep-form.css). */
+/* ---- Pie chart ---- */
+.ep-panel .ep-pie { display: flex; flex-direction: column; gap: 10px; padding: 2px 0; }
+.ep-panel .ep-defs { position: absolute; width: 0; height: 0; }
+.ep-panel .ep-hatch-bg { fill: var(--ep-short); opacity: .3; }
+.ep-panel .ep-hatch-fg { fill: var(--ep-short); }
+.ep-panel .ep-pie-card { border: 1px solid var(--ep-line); border-radius: 4px; padding: 10px 14px; display: flex; flex-direction: column; gap: 10px; background: var(--ep-bg); }
+.ep-panel .ep-pie-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ep-panel .ep-pie-name { font-weight: 600; font-size: 15px; color: var(--ep-strong); text-decoration: none; }
+.ep-panel .ep-pie-name:hover { color: var(--ep-link); }
+.ep-panel .ep-grow { flex: 1; }
+.ep-panel .ep-muted { color: var(--ep-muted); font-size: 12px; }
+.ep-panel .ep-chip { font-size: 11.5px; padding: 1px 8px; border-radius: 3px; background: var(--ep-bg-2); color: var(--ep-fg); }
+.ep-panel .ep-chip-high { background: var(--ep-high); color: var(--ep-high-fg); }
+.ep-panel .ep-chip-warn { background: var(--ep-warn); color: var(--ep-warn-fg); }
+.ep-panel .ep-chip-ok { background: var(--ep-bg-2); color: var(--ep-muted); }
+.ep-panel .ep-pie-grid { display: grid; gap: 20px; grid-template-columns: repeat(var(--ep-per-row, auto-fill), minmax(min(100%, var(--ep-d-min, 190px)), 1fr)); }
+.ep-panel .ep-pie[style*="--ep-per-row"] .ep-pie-grid { grid-template-columns: repeat(var(--ep-per-row), minmax(0, 1fr)); }
+.ep-panel .ep-pie-s { --ep-d-size: 84px; --ep-d-min: 150px; }
+.ep-panel .ep-pie-m { --ep-d-size: 120px; --ep-d-min: 190px; }
+.ep-panel .ep-pie-l { --ep-d-size: 160px; --ep-d-min: 240px; }
+.ep-panel .ep-d { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.ep-panel .ep-donut { width: var(--ep-d-size); height: var(--ep-d-size); }
+.ep-panel .ep-d-track { stroke: var(--ep-track); }
+.ep-panel .ep-d-used, .ep-panel .ep-sw.ep-d-ok { stroke: var(--ep-ok); }
+.ep-panel .ep-d-used.ep-d-warn { stroke: var(--ep-warn); }
+.ep-panel .ep-d-used.ep-d-high { stroke: var(--ep-high); }
+.ep-panel .ep-d-short.ep-d-solid { stroke: var(--ep-short); }
+.ep-panel .ep-d-pct { font-size: 7px; font-weight: 600; fill: var(--ep-strong); }
+.ep-panel .ep-d-t-warn { fill: var(--ep-warn); }
+.ep-panel .ep-d-t-high { fill: var(--ep-high); }
+.ep-panel .ep-d-t-unknown { fill: var(--ep-faint); }
+.ep-panel .ep-d-sub { font-size: 2.7px; fill: var(--ep-muted); }
+.ep-panel .ep-d-title { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ep-fg); text-align: center; }
+.ep-panel .ep-legend { width: 100%; max-width: 300px; border-collapse: collapse; font-size: 12px; }
+.ep-panel .ep-legend th { text-align: left; font-weight: 400; padding: 1px 0; white-space: nowrap; }
+.ep-panel .ep-legend td { text-align: right; padding: 1px 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ep-panel .ep-legend td.ep-lg-pct { color: var(--ep-muted); padding-right: 0; width: 40px; }
+.ep-panel .ep-sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: transparent; }
+.ep-panel .ep-sw-used { background: var(--ep-ok); }
+.ep-panel .ep-sw-used.ep-d-warn { background: var(--ep-warn); }
+.ep-panel .ep-sw-used.ep-d-high { background: var(--ep-high); }
+.ep-panel .ep-sw-used.ep-d-unknown { background: var(--ep-faint); }
+.ep-panel .ep-sw-free { background: var(--ep-track); border: 1px solid var(--ep-line); }
+.ep-panel .ep-sw-short { background: repeating-linear-gradient(45deg, var(--ep-short) 0 2px, transparent 2px 4px); border: 1px solid var(--ep-short); }

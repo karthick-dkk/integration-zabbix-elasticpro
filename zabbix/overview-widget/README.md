@@ -6,21 +6,70 @@ Every client at a glance, in one of two views (Layout and production → **View*
 (now, and avg / min / max over a trend window), used of allocated with a forecast, servers by
 role and what is wrong with the client's data.
 - **Summary**: the overview as releases before 2.1 drew it — a summary card per client (servers
-  up and down, devices, the chosen family's CPU and memory, ES storage), Used of allocated and
-  Servers by role, or one client's tiles and gauges when exactly one client is picked. Its own
-  settings: *Cards show* (family), its three panels, Warn and High (empty: ElasticPro → Settings).
-  It never lists decommissioned clients; *Hide disabled…* decides the disabled ones.
+  up and down, devices, the chosen family's CPU and memory, ES storage), a usage chart, Used of
+  allocated and Servers by role, or one client's tiles and gauges when exactly one client is
+  picked. Its settings are under *Summary view* (below). It never lists decommissioned clients;
+  *Hide disabled…* decides the disabled ones.
 
 Copy into Zabbix's `modules/` as `ep_overview`;
 `master/import.py` enables it and makes the *ElasticPro — Client overview* dashboard.
+
+## Summary view
+
+Layout and production → **View: Summary** shows these settings:
+
+- **Panels**: Summary by client, Usage chart, Used of allocated and Servers by role — on or off,
+  dragged into order, each full width, half, a third or a quarter of a row (a narrow widget
+  stacks them).
+- **Summary cards**: *Cards show* (the family whose CPU and memory the cards, the chart and the
+  gauges use), tiles (servers up, down, devices, open problems), bars (CPU, memory, storage), a
+  status line (servers down, high or warn on any figure; resources allocated *short* of what was
+  requested; servers with *no data*), and columns (auto, 2, 3, 4).
+- **Usage chart**: one line per client over a period, for CPU or memory of that family, ES storage
+  used (the percentage), or any metric of the Data and metrics list — its servers combined exactly
+  as the Cards combine it (same function, same worst-item-per-server rule, same hourly trends).
+  The period is the dashboard's time period or the last N hours or days (up to a year); the
+  quick buttons 1h · 6h · 24h · 7d and the metric switch on the panel are the widget's to offer and
+  are asked of the server, which honours only a choice the widget allows. Periods up to six hours
+  are read from Zabbix history (at most ninety points), longer ones from hourly trends; either
+  way one call for every client per refresh. Clients: all, or the top N by max, mean or last.
+  Each point is the average, maximum or minimum. Style: line, area or stacked area (clients
+  without a point at a time add nothing to the stack there). Height small, medium or large. The Y
+  axis is 0–100 for a percentage (or always automatic; a stacked area is always automatic, as
+  stacked percentages add up past 100). *Always auto* scales to the data alone, with a little
+  headroom: a Warn or High line outside that range is not drawn, and the note says it is above
+  the chart. Otherwise an automatic axis brings a line near the data into view. The time axis
+  is labelled in one unit — minutes under two hours, hours under two days, days from there — at
+  round steps back from now. Dashed Warn and High lines are the
+  widget's thresholds (its Warn / High, else ElasticPro → Settings) for a usage percentage, or
+  the metric's own Warn and High otherwise; a client with its own thresholds on its master host
+  is coloured by those in the legend. The legend gives Mean, Min, Max and Last of the line drawn,
+  coloured over Warn and High, sorted by mean, max, last or name. Click a client (or its line)
+  to show only it; click again for all. **A client with no data in the period says "no data"
+  and has no line** — never a line of zeros. A refresh keeps the widget scrolled where the viewer
+  left it, with the period, metric and client they chose.
+- **Used of allocated**: groups (CPU, memory, storage, devices), rows by client name or by value,
+  a segmented or a solid bar; a figure nobody measured is a dash.
+- **Servers by role**: donut, bar or pills; count and percent in the legend.
+- **Warn at / High at**: empty follows ElasticPro → Settings; Warn above High is refused.
+
+The chart's line colours are the palette's eight chart series colours (ElasticPro → Settings →
+Colours, by the viewer's Zabbix theme), by the client's place among the widget's clients.
+
+A Summary widget saved before these settings existed (by 2.0 or 2.1.0) keeps its exact look: no
+usage chart, no status line, and Used of allocated beside Servers by role in one row. Opening
+its settings shows that as the choices, and applying saves them; turn the usage chart on there.
+A widget being added starts with the chart on.
 
 ## Data and metrics
 
 - **Host groups** of the client master hosts; **Clients** picked by name (none ticked: every
   client); **Hide disabled and decommissioned clients** (on by default); **Client types**
   (none ticked: every type).
-- **Trend window**: the dashboard's time period, or the last N days (7). avg, min and max come
-  from Zabbix trends; a window under two hours is read from history instead.
+- **Trend window** (Cards): the dashboard's time period, or the last N days (7). avg, min and max
+  come from Zabbix trends; a window under two hours is read from history instead. The Summary
+  view's chart has its own period, so with View set to Summary this, the order, the top N and
+  *Only show* are hidden; the Metrics list stays, since the chart's metric menu offers it.
 - **Metrics** (up to 20, dragged into order, each edited in its own dialog like Top hosts'
   columns): a **built-in** figure — the client master host's `ep.*` items (ES storage, devices,
   log delay, every family's CPU, memory, disk and servers) or each server's CPU, memory and role

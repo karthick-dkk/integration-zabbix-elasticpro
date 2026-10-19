@@ -23,7 +23,7 @@ namespace {
 	if (!function_exists('_n')) { function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); } }
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'Columns', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	use Modules\EpClients\Lib\{AlertRouting, Backups, Bars, ClientSpec, ClientTypes, ClusterTemplate, ColumnSettings, Csv, DevicesTemplate, Forecast, History, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Registry, Roles, Settings, SetupChecks, Store};
@@ -412,6 +412,23 @@ namespace Modules\EpClients\Test {
 			&& (str_contains($view_src, "'".$field."'") || str_contains($view_src, '"'.$field.'"')), $field);
 	}
 
+	// The Colours card: one palette for every widget, per theme, posted as palette[…] and cleaned by
+	// Settings::cleanPalette on the way in; what is not a colour is named in a warning, the rest saved.
+	check('the save accepts the palette and hands it to Settings', str_contains($save_src, "'palette' => 'array'") && str_contains($save_src, "'palette' => \$palette")
+		&& str_contains($save_src, 'Settings::paletteErrors('));
+	check('the page posts every palette colour, for both themes, and the series', str_contains($view_src, "'palette['.\$theme.']['.\$key.']'")
+		&& str_contains($view_src, "'palette[series]['.\$i.']'") && str_contains($view_src, 'data-ep-pal-reset'));
+	$edit_src = file_get_contents(__DIR__.'/../actions/SettingsEdit.php');
+	preg_match_all("/^\t\t\t'([a-z]+)' => \[_\(/m", $edit_src, $m);
+	check('the card lists every palette colour, in the palette\'s order', $m[1] === Settings::PALETTE_KEYS, $m[1]);
+	check('the page loads the card\'s script', str_contains($view_src, "readfile(__DIR__.'/js/ep.clients.settings.js')"));
+	$stored = Settings::save(['palette' => ['light' => ['ok' => '#00AA00', 'warn' => 'nope'], 'dark' => ['link' => '112233']]]);
+	Settings::forget();
+	check('a palette saved is a palette read back', Settings::palette() === $stored['palette'] && Settings::palette()['light']['ok'] === '#00aa00'
+		&& Settings::palette()['dark']['link'] === '#112233' && Settings::palette()['light']['warn'] === Settings::DEFAULTS['palette']['light']['warn']);
+	Settings::reset();
+	check('and Reset to shipped takes the palette back too', Settings::palette() === Settings::DEFAULTS['palette']);
+
 	/* ---------------- which data folder is the live one ---------------- */
 	// The decision whose earlier version deleted Zabbix item history. Each case below is a
 	// folder that must NOT out-rank an older folder holding the real roles.json.
@@ -631,6 +648,16 @@ namespace Modules\EpClients\Test {
 	check('full in: unknown stays unknown', Forecast::fullIn(null) === null);
 	check('full in: red under 7 days, yellow under 30', Forecast::fullIn(3 * 86400.0)['level'] === 'bad' && Forecast::fullIn(20 * 86400.0)['level'] === 'warn'
 		&& Forecast::fullIn(45 * 86400.0)['level'] === 'ok' && Forecast::fullIn(45 * 86400.0)['text'] === '45 days' && Forecast::fullIn(1e12)['level'] === 'flat');
+	// One definition of "a share of what": the widgets' Columns::shareOf must agree with every share the master template writes.
+	$shares = [];
+	foreach ((new MasterTemplate(Roles::defaults()))->export()['zabbix_export']['templates'][0]['items'] as $it) {
+		if (preg_match('#^100\*last\(//([^)]+)\)/last\(//([^)]+)\)$#', (string) ($it['params'] ?? ''), $m)) {
+			$shares[$it['key']] = $m[2];
+		}
+	}
+	check('every share the master template computes is known to the widgets, with what it is a share of', count($shares) >= 4
+		&& !array_filter($shares, fn($of, $key) => \Modules\EpClients\Lib\Columns::shareOf($key) !== $of, ARRAY_FILTER_USE_BOTH),
+		array_filter(array_map(fn($of, $key) => [$key, $of, \Modules\EpClients\Lib\Columns::shareOf($key)], $shares, array_keys($shares)), fn($r) => $r[1] !== $r[2]));
 	check('the master template measures what the forecast reads', in_array(Forecast::KEY, array_column((new MasterTemplate(Roles::defaults()))->export()['zabbix_export']['templates'][0]['items'], 'key'), true));
 
 	/* ---------------- status and the register ---------------- */

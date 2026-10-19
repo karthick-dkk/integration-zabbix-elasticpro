@@ -63,8 +63,37 @@ class Settings {
 		'refresh' => ['capacity' => 60, 'resources' => 60, 'volume' => 300],
 		'forecast' => ['bad_days' => 7, 'warn_days' => 30, 'flat_days' => 3650,
 			'day_text_days' => 1, 'month_text_days' => 60, 'month_days' => 30],
-		'types' => ['all' => ['CI', 'DI', 'On-Prem'], 'default' => 'On-Prem']
+		'types' => ['all' => ['CI', 'DI', 'On-Prem'], 'default' => 'On-Prem'],
+		// The colours every ElasticPro widget draws with: the panel's own, light and dark, as
+		// shared/ep-panel.css has always had them, so a site that never opens the Colours card
+		// sees what it saw before. The series are the Client overview's donut-by-role colours.
+		'palette' => [
+			'light' => ['ok' => '#3e9b3a', 'warn' => '#e5860b', 'high' => '#e0314a', 'unknown' => '#9aa0aa', 'short' => '#e0314a',
+				'free' => '#e3e6ea', 'down' => '#e0314a', 'stale' => '#e5860b', 'link' => '#1f62e0'],
+			'dark' => ['ok' => '#73bf69', 'warn' => '#ff9830', 'high' => '#f2495c', 'unknown' => '#6b6f7c', 'short' => '#f2495c',
+				'free' => '#22252b', 'down' => '#f2495c', 'stale' => '#ff9830', 'link' => '#6e9fff'],
+			'series' => ['#5794f2', '#73bf69', '#b877d9', '#fade2a', '#ff9830', '#8ab8ff', '#ca95e5', '#96d98d']
+		]
 	];
+
+	/**
+	 * The palette's colours, in the order the Colours card lists them, each with what it is used
+	 * for. The CSS custom property each becomes is --ep-<key> (unknown is --ep-faint and free is
+	 * --ep-track, the names the panel sheet already gave them).
+	 */
+	public const PALETTE_KEYS = ['ok', 'warn', 'high', 'unknown', 'short', 'free', 'down', 'stale', 'link'];
+	public const PALETTE_SERIES = 8;
+	private const PALETTE_VARS = ['ok' => 'ok', 'warn' => 'warn', 'high' => 'high', 'unknown' => 'faint', 'short' => 'short', 'free' => 'track',
+		'down' => 'down', 'stale' => 'stale', 'link' => 'link'];
+
+	/** The page a theme's colours are judged against: Zabbix's panel background, light and dark. */
+	public const PALETTE_BACKGROUND = ['light' => '#ffffff', 'dark' => '#181b1f'];
+
+	/** Text on a coloured cell or badge: white where it reads, this where it does not. */
+	public const DARK_TEXT = '#111217';
+
+	/** WCAG AA for normal text. A colour whose white text falls below it is flagged and gets dark text. */
+	public const MIN_CONTRAST = 4.5;
 
 	/** The master host macros that override the thresholds for one client. */
 	public const WARN_MACRO = '{$EP.USAGE.WARN}';
@@ -203,7 +232,138 @@ class Settings {
 		$types = ['all' => $all, 'default' => $default];
 
 		return ['usage' => ['warn' => $warn, 'high' => $high], 'display' => $display, 'export' => $export,
-			'refresh' => $refresh, 'forecast' => $forecast, 'types' => $types];
+			'refresh' => $refresh, 'forecast' => $forecast, 'types' => $types, 'palette' => self::cleanPalette((array) ($in['palette'] ?? []))];
+	}
+
+	/**
+	 * The palette, cleaned: every colour #rrggbb (six hex digits, nothing else — it goes into a
+	 * style attribute), anything else back to the shipped colour for that place. One theme's
+	 * colour never fills in for the other's.
+	 */
+	public static function cleanPalette(array $in): array {
+		$d = self::DEFAULTS['palette'];
+		$out = [];
+		foreach (['light', 'dark'] as $theme) {
+			$t = (array) ($in[$theme] ?? []);
+			foreach (self::PALETTE_KEYS as $k) {
+				$out[$theme][$k] = self::hex($t[$k] ?? null) ?? $d[$theme][$k];
+			}
+		}
+		$series = array_values((array) ($in['series'] ?? []));
+		for ($i = 0; $i < self::PALETTE_SERIES; $i++) {
+			$out['series'][$i] = self::hex($series[$i] ?? null) ?? $d['series'][$i];
+		}
+		return $out;
+	}
+
+	/**
+	 * What in a palette as typed will not be kept, one line per colour, for the page to say beside
+	 * "Settings saved". Empty when every colour is a colour.
+	 */
+	public static function paletteErrors(array $in, array $labels = []): array {
+		$errors = [];
+		foreach (['light' => _('Blue theme'), 'dark' => _('Dark theme')] as $theme => $themeLabel) {
+			foreach (self::PALETTE_KEYS as $k) {
+				$v = $in[$theme][$k] ?? null;
+				if ($v !== null && trim((string) $v) !== '' && self::hex($v) === null) {
+					$errors[] = _s('%1$s, %2$s: "%3$s" is not a colour like #1f62e0 — the shipped colour is kept.', $labels[$k] ?? $k, $themeLabel,
+						mb_substr((string) $v, 0, 32));
+				}
+			}
+		}
+		foreach (array_values((array) ($in['series'] ?? [])) as $i => $v) {
+			if ($v !== null && trim((string) $v) !== '' && self::hex($v) === null) {
+				$errors[] = _s('Chart series %1$s: "%2$s" is not a colour like #1f62e0 — the shipped colour is kept.', $i + 1, mb_substr((string) $v, 0, 32));
+			}
+		}
+		return $errors;
+	}
+
+	/** #rrggbb, lower case, or null for anything that is not six hex digits (with or without #). */
+	public static function hex($v): ?string {
+		if (!is_string($v)) {
+			return null;
+		}
+		$v = trim($v);
+		return preg_match('/^#?([0-9a-fA-F]{6})$/', $v, $m) ? '#'.strtolower($m[1]) : null;
+	}
+
+	/** The palette in force. */
+	public static function palette(?array $s = null): array {
+		return ($s ?? self::all())['palette'];
+	}
+
+	/** WCAG relative luminance of #rrggbb. */
+	public static function luminance(string $hex): float {
+		$hex = ltrim($hex, '#');
+		$lin = function (int $c): float {
+			$c /= 255;
+			return $c <= 0.03928 ? $c / 12.92 : (($c + 0.055) / 1.055) ** 2.4;
+		};
+		return 0.2126 * $lin(hexdec(substr($hex, 0, 2))) + 0.7152 * $lin(hexdec(substr($hex, 2, 2))) + 0.0722 * $lin(hexdec(substr($hex, 4, 2)));
+	}
+
+	/** WCAG contrast ratio of two #rrggbb colours, 1 to 21. */
+	public static function contrast(string $a, string $b): float {
+		[$x, $y] = [self::luminance($a), self::luminance($b)];
+		return (max($x, $y) + 0.05) / (min($x, $y) + 0.05);
+	}
+
+	/**
+	 * The text a colour carries when it fills a cell or a badge: white when white reads at
+	 * MIN_CONTRAST or better. Below that the colour is flagged — the Colours card says so beside it
+	 * — and carries dark text instead, unless dark text would read even worse than the white it
+	 * replaces (a mid red, say), in which case white stays: the flag is the warning, not a swap
+	 * that makes it worse.
+	 *
+	 * @return array{color: string, ratio: float, flagged: bool, white: float}
+	 */
+	public static function textOn(string $hex): array {
+		$white = self::contrast($hex, '#ffffff');
+		if ($white >= self::MIN_CONTRAST) {
+			return ['color' => '#ffffff', 'ratio' => round($white, 1), 'flagged' => false, 'white' => round($white, 1)];
+		}
+		$dark = self::contrast($hex, self::DARK_TEXT);
+		return ['color' => $dark >= $white ? self::DARK_TEXT : '#ffffff', 'ratio' => round(max($dark, $white), 1), 'flagged' => true,
+			'white' => round($white, 1)];
+	}
+
+	/** 'dark' under Zabbix's Dark and high-contrast dark themes, 'light' under every other. */
+	public static function themeOf(?string $theme): string {
+		return in_array($theme, ['dark-theme', 'hc-dark'], true) ? 'dark' : 'light';
+	}
+
+	/**
+	 * The palette for one theme as CSS custom properties, for a widget's panel to carry in its
+	 * style attribute: --ep-ok, --ep-ok-fg (the text that reads on it), … --ep-s1 … --ep-s8. Every
+	 * value has been through hex(), so nothing else can reach the attribute.
+	 */
+	public static function paletteVars(array $palette, string $theme): string {
+		$p = self::cleanPalette($palette);
+		$set = $p[$theme === 'dark' ? 'dark' : 'light'];
+		$out = [];
+		foreach (self::PALETTE_VARS as $k => $var) {
+			$out[] = '--ep-'.$var.':'.$set[$k];
+			if ($k !== 'link' && $k !== 'free') {
+				$out[] = '--ep-'.$k.'-fg:'.self::textOn($set[$k])['color'];
+			}
+		}
+		foreach ($p['series'] as $i => $c) {
+			$out[] = '--ep-s'.($i + 1).':'.$c;
+		}
+		return implode(';', $out);
+	}
+
+	/**
+	 * The palette for the theme the user viewing the page chose, as paletteVars() writes it. Read
+	 * from Zabbix when it is there; the light colours otherwise (a test, a script).
+	 */
+	public static function paletteStyle(?array $s = null): string {
+		$theme = null;
+		if (function_exists('getUserTheme') && class_exists('CWebUser', false) && isset(\CWebUser::$data)) {
+			$theme = getUserTheme(\CWebUser::$data);
+		}
+		return self::paletteVars(self::palette($s), self::themeOf($theme));
 	}
 
 	/**

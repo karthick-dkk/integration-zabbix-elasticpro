@@ -1,0 +1,25 @@
+/* The settings form of the ElasticPro column widgets (Zabbix's own dialog): tabs, lists, inline rows.
+   Shared by Client resources, Client capacity, Volume and Top hosts; copied into each by sync-assets.mjs, edit it in shared/. */
+form:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) { width: 1040px; max-width: calc(100vw - 42px); min-width: 0; box-sizing: border-box; }
+form:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .form-grid > .ep-ef-tabs { grid-column: 1 / -1; box-sizing: border-box; max-width: 100%; min-width: 0; }
+form:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-tabs .form-grid { grid-template-columns: minmax(15%, max-content) minmax(0, 1fr); }
+form:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-tabs .form-field { min-width: 0; max-width: 100%; box-sizing: border-box; }
+form:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-tabs > .ui-tabs-nav { position: sticky; top: 0; z-index: 3; background: inherit; }
+form:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-tabs.table-forms-container { margin: 0; border: 1px solid rgba(127, 127, 127, .25); border-top: none; padding: 10px; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-inline { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-inline > * { min-width: 0; max-width: 100%; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-hint { opacity: .7; font-size: 11px; white-space: normal; overflow-wrap: break-word; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-hint-block { display: block; line-height: 1.4; margin-top: 2px; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-tag { font-size: 10px; margin-left: 6px; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; opacity: .75; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-mono { font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-metrics { width: 100%; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-metrics th, :is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-metrics td { padding: 4px 10px 4px 0; vertical-align: middle; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-metrics tr.ep-res-off td:not(:first-child):not(:nth-child(2)) { opacity: .55; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-res-readonly { opacity: .85; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-clients { max-height: 132px; overflow-y: auto; padding: 4px 0; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-sortlist td { padding: 2px 6px 2px 0; vertical-align: middle; line-height: 24px; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-sortlist td.td-drag-icon { padding-top: 4px; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-layout fieldset { margin: 0 0 18px; padding-bottom: 6px; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-layout legend { margin-bottom: 8px; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-ef-layout legend span { font-weight: bold; }
+:is(.dashboard-widget-ep_resources, .dashboard-widget-ep_capacity, .dashboard-widget-ep_volume, .dashboard-widget-ep_tophosts) .ep-res-window { margin: 6px 0; }

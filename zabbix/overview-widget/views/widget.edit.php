@@ -11,7 +11,7 @@
  * @var array $data
  */
 
-use Modules\EpOverview\Includes\{Metrics, Overview, WidgetForm};
+use Modules\EpOverview\Includes\{Chart, Metrics, Overview, WidgetForm};
 use Modules\EpOverview\Lib\{ClientData, Roles, Settings};
 
 $fields = $data['fields'];
@@ -155,7 +155,12 @@ $metricsTable->addRow((new CCol([
 	' ',
 	$hint(_s('Built-in metrics or any Zabbix item key, up to %1$s. Drag rows to reorder. A blank Warn or High uses ElasticPro Settings.', Metrics::MAX))
 ]))->setColSpan(8));
-$row($dataGrid, new CLabel(_('Metrics')), (new CFormField($metricsTable))->addClass(ZBX_STYLE_TABLE_FORMS_SEPARATOR), 'ep-ov-cards-only');
+// Both views read the list: the Cards draw it, and the Summary view's usage chart offers it in its metric menu
+// (after CPU, memory and ES storage), coloured at each metric's Warn / High — so it stays where it is edited.
+$row($dataGrid, new CLabel(_('Metrics')), (new CFormField([$metricsTable,
+	(new CDiv(_('Summary view: the usage chart offers these metrics in its metric menu, after CPU, memory and ES storage, and colours its legend at each one\'s Warn / High.')))
+		->addClass('ep-ov-hint ep-ov-hint-block ep-ov-summary-only')
+]))->addClass(ZBX_STYLE_TABLE_FORMS_SEPARATOR));
 
 // Order clients by: any metric now or its trend max, problems, days until full, contract end, name.
 $windowLabel = (int) $fields['trend_source']->getValue() === WidgetForm::TREND_DAYS ? $fields['trend_days']->getValue().'d' : _('period');
@@ -311,15 +316,105 @@ $viewGrid = new CFormGrid();
 $row($viewGrid, $viewField->getLabel(), [$viewField->getView(),
 	(new CDiv(_('Cards: the metrics and sections set here. Summary: the overview as it was before 2.1.')))->addClass('ep-ov-hint')->addClass('ep-ov-hint-block')
 ]);
-$summaryGrid = new CFormGrid();
-$row($summaryGrid, new CLabel(_('Cards show'), 'ep_ov_summary_family_btn'), [
+
+// Summary view, panels: on, off, order and the width each takes of a row.
+$panelNames = [
+	'summary' => _('Summary by client'),
+	'chart' => _('Usage chart'),
+	'used' => _('Used of allocated'),
+	'roles' => _('Servers by role')
+];
+$panelsOn = $fields['summary_panels']->getValue();
+$panelOrder = array_values(array_unique(array_merge(array_intersect($fields['summary_order']->getValue(), WidgetForm::PANELS), WidgetForm::PANELS)));
+$panelList = (new CTable())->setId('ep-ov-panels')->addClass('ep-ov-sortlist');
+foreach ($panelOrder as $id) {
+	$panelList->addRow([
+		(new CCol((new CDiv())->addClass(ZBX_STYLE_DRAG_ICON)))->addClass(ZBX_STYLE_TD_DRAG_ICON),
+		[(new CVar('summary_order[]', $id))->removeId(),
+			(new CCheckBox('summary_panels[]', $id))->setId('ep_ov_panel_'.$id)->setLabel($panelNames[$id])->setChecked(in_array($id, $panelsOn, true))],
+		$view(new CWidgetFieldSelectView($fields['summary_w_'.$id]))->getView()
+	]);
+}
+$panelsGrid = new CFormGrid();
+$row($panelsGrid, new CLabel(_('Panels')), [(new CVar('summary_panels[]', ''))->removeId(), $panelList,
+	$hint(_('Drag to reorder. Width sets how much of a row each panel takes; a narrow widget stacks them.'))]);
+
+// Summary cards.
+$cardsGrid = new CFormGrid();
+$row($cardsGrid, new CLabel(_('Cards show'), 'ep_ov_summary_family_btn'), [
 	(new CSelect('summary_family'))->setId('ep_ov_summary_family')->setFocusableElementId('ep_ov_summary_family_btn')
 		->setValue(array_key_exists($summaryFamily, $families) ? $summaryFamily : 'es')->addOptions(CSelect::createOptionsFromArray($families)),
-	' ', $hint(_('the family whose CPU and memory the summary cards and the gauges show'))
+	' ', $hint(_('the family whose CPU and memory the summary cards, the usage chart and the gauges show'))
 ]);
-$row($summaryGrid, new CLabel(_('Panels')), $boxes('summary_panels', ['summary' => _('Summary'), 'used' => _('Used of allocated'), 'roles' => _('Servers by role')],
-	$fields['summary_panels']->getValue()));
-$row($summaryGrid, new CLabel(_('Thresholds')), (new CDiv([
+$row($cardsGrid, new CLabel(_('Tiles')), $boxes('summary_tiles', ['up' => _('Servers up'), 'down' => _('Down'), 'devices' => _('Devices'),
+	'problems' => _('Open problems')], $fields['summary_tiles']->getValue()));
+$row($cardsGrid, new CLabel(_('Bars')), $boxes('summary_bars', ['cpu' => _('CPU'), 'mem' => _('Memory'), 'storage' => _('Storage')],
+	$fields['summary_bars']->getValue()));
+$row($cardsGrid, new CLabel(_('Status line')), [
+	$boxes('summary_status', ['down' => _('Down'), 'high' => _('High'), 'warn' => _('Warn'), 'short' => _('Short'), 'nodata' => _('No data')],
+		$fields['summary_status']->getValue()),
+	$hint(_('servers down, servers high or warn on any figure, resources allocated short of what was requested, servers with no data'))
+]);
+$summaryColumns = $view(new CWidgetFieldRadioButtonListView($fields['summary_columns']));
+$row($cardsGrid, $summaryColumns->getLabel(), $summaryColumns->getView());
+
+// Usage chart.
+$chartMetrics = ['cpu' => _('CPU (the family above)'), 'mem' => _('Memory (the family above)'), 'storage' => _('ES storage used')];
+foreach ($fields['metrics']->getValue() as $m) {
+	$chartMetrics['m:'.$m['uid']] = _s('Metric: %1$s', $m['name']);
+}
+$chartMetric = (string) $fields['chart_metric']->getValue();
+$chartSwitch = $view(new CWidgetFieldCheckBoxView($fields['chart_switch']));
+$periodSource = $view(new CWidgetFieldRadioButtonListView($fields['chart_period_source']));
+$periodN = $view(new CWidgetFieldIntegerBoxView($fields['chart_period_n']));
+$periodUnit = $view(new CWidgetFieldSelectView($fields['chart_period_unit']));
+$chartQuick = $view(new CWidgetFieldCheckBoxView($fields['chart_quick']));
+$chartClients = $view(new CWidgetFieldRadioButtonListView($fields['chart_clients']));
+$chartTopN = $view(new CWidgetFieldIntegerBoxView($fields['chart_top_n']));
+$chartTopBy = $view(new CWidgetFieldSelectView($fields['chart_top_by']));
+$chartIsolate = $view(new CWidgetFieldCheckBoxView($fields['chart_isolate']));
+$chartStyle = $view(new CWidgetFieldRadioButtonListView($fields['chart_style']));
+$chartPoint = $view(new CWidgetFieldSelectView($fields['chart_point']));
+$chartHeight = $view(new CWidgetFieldSelectView($fields['chart_height']));
+$chartYaxis = $view(new CWidgetFieldRadioButtonListView($fields['chart_yaxis']));
+$chartLines = $view(new CWidgetFieldCheckBoxView($fields['chart_lines']));
+$chartSort = $view(new CWidgetFieldSelectView($fields['chart_sort']));
+$chartColor = $view(new CWidgetFieldCheckBoxView($fields['chart_color']));
+$chartGrid = new CFormGrid();
+$row($chartGrid, new CLabel(_('Metric'), 'ep_ov_chart_metric_btn'), (new CDiv([
+	(new CSelect('chart_metric'))->setId('ep_ov_chart_metric')->setFocusableElementId('ep_ov_chart_metric_btn')
+		->setValue(array_key_exists($chartMetric, $chartMetrics) ? $chartMetric : 'cpu')->addOptions(CSelect::createOptionsFromArray($chartMetrics)),
+	$chartSwitch->getView()
+]))->addClass('ep-ov-inline'));
+$row($chartGrid, new CLabel(_('Period')), (new CDiv([$periodSource->getView(), $periodN->getView(), $periodUnit->getView(), $chartQuick->getView()]))
+	->addClass('ep-ov-inline'));
+$row($chartGrid, $chartClients->getLabel(), (new CDiv([$chartClients->getView(), $chartTopN->getView(), new CSpan(_('by')), $chartTopBy->getView(),
+	$chartIsolate->getView()]))->addClass('ep-ov-inline'));
+$row($chartGrid, $chartStyle->getLabel(), (new CDiv([$chartStyle->getView(), new CSpan(_('Each point')), $chartPoint->getView(), new CSpan(_('Height')),
+	$chartHeight->getView()]))->addClass('ep-ov-inline'));
+$row($chartGrid, $chartYaxis->getLabel(), (new CDiv([$chartYaxis->getView(), $chartLines->getView()]))->addClass('ep-ov-inline'));
+$row($chartGrid, new CLabel(_('Legend')), (new CDiv([
+	$boxes('chart_legend', ['mean' => _('Mean'), 'min' => _('Min'), 'max' => _('Max'), 'last' => _('Last')], $fields['chart_legend']->getValue()),
+	new CSpan(_('sorted by')), $chartSort->getView(), $chartColor->getView()
+]))->addClass('ep-ov-inline'));
+
+// Used of allocated.
+$uaSort = $view(new CWidgetFieldSelectView($fields['ua_sort']));
+$uaBar = $view(new CWidgetFieldRadioButtonListView($fields['ua_bar']));
+$uaGrid = new CFormGrid();
+$row($uaGrid, new CLabel(_('Groups')), $boxes('ua_groups', ['cpu' => _('CPU'), 'mem' => _('Memory'), 'storage' => _('Storage'), 'devices' => _('Devices')],
+	$fields['ua_groups']->getValue()));
+$row($uaGrid, $uaSort->getLabel(), $uaSort->getView());
+$row($uaGrid, $uaBar->getLabel(), $uaBar->getView());
+
+// Servers by role, and the thresholds.
+$srStyle = $view(new CWidgetFieldRadioButtonListView($fields['sr_style']));
+$srCount = $view(new CWidgetFieldCheckBoxView($fields['sr_count']));
+$srPercent = $view(new CWidgetFieldCheckBoxView($fields['sr_percent']));
+$srGrid = new CFormGrid();
+$row($srGrid, $srStyle->getLabel(), $srStyle->getView());
+$row($srGrid, new CLabel(_('Legend')), (new CDiv([$srCount->getView(), $srPercent->getView()]))->addClass('ep-ov-inline'));
+$row($srGrid, new CLabel(_('Thresholds')), (new CDiv([
 	new CSpan(_('Warn at, %')),
 	(new CTextBox('summary_warn', $summaryWarn, false, 3))->setWidth(ZBX_TEXTAREA_NUMERIC_STANDARD_WIDTH)
 		->setAttribute('placeholder', Metrics::num((float) $usage['warn'])),
@@ -331,7 +426,11 @@ $row($summaryGrid, new CLabel(_('Thresholds')), (new CDiv([
 
 $layout = [
 	$viewGrid,
-	(new CFormFieldset(_('Summary view'), $summaryGrid))->addClass('ep-ov-summary-only'),
+	(new CFormFieldset(_('Summary view: panels — on, off, order and width'), $panelsGrid))->addClass('ep-ov-summary-only'),
+	(new CFormFieldset(_('Summary cards'), $cardsGrid))->addClass('ep-ov-summary-only'),
+	(new CFormFieldset(_('Usage chart'), $chartGrid))->addClass('ep-ov-summary-only'),
+	(new CFormFieldset(_('Used of allocated'), $uaGrid))->addClass('ep-ov-summary-only'),
+	(new CFormFieldset(_('Servers by role and thresholds'), $srGrid))->addClass('ep-ov-summary-only'),
 	(new CFormFieldset(_('Sections — on, off and order'), $sectionsGrid))->addClass('ep-ov-cards-only'),
 	(new CFormFieldset(_('Used of allocated and forecast'), $usedGrid))->addClass('ep-ov-cards-only'),
 	(new CFormFieldset(_('Servers by role'), $rolesGrid))->addClass('ep-ov-cards-only'),
@@ -350,6 +449,7 @@ $tabs = (new CTabView(['id' => 'ep_ov_tabs']))
 
 $form
 	->addVar('config_version', (string) WidgetForm::CONFIG_VERSION)
+	->addVar('summary_version', (string) WidgetForm::SUMMARY_VERSION)
 	->addItem($tabs)
 	->addJavaScript($tabs->makeJavascript())
 	->includeJsFile('widget.edit.js.php')

@@ -4,9 +4,9 @@
 	"type": "widget",
 	"name": "ElasticPro client resources",
 	"namespace": "EpResources",
-	"version": "2.1.0",
+	"version": "2.1.1",
 	"author": "ElasticPro",
-	"description": "One row per client: requested, allocated and used \u2014 servers, CPU, memory, disk \u2014 per family (ES, Parser, Forwarder, Engine \u2026) or per role, ES storage and log delay; each client expands into its servers. Columns renamed, hidden and reordered in the Columns dialog; a Type filter; CSV and Excel export with a Servers sheet.",
+	"description": "One row per client, as a table or as donuts of used, free and short: requested, allocated and used \u2014 servers, CPU, memory, disk \u2014 per family (ES, Parser, Forwarder, Engine \u2026) or per role, ES storage, devices and log delay; each client expands into its servers. Every column customisable per widget or as report defaults: built-in figures, any Zabbix item key or two items calculated, now or average, minimum, maximum or change over a window, shown as a value, bar, coloured cell or text, indicators, sparkline or badge, with its own thresholds and colours or ElasticPro Settings and its palette. Needs attention, a Type filter, search, totals, CSV and Excel export with a Servers sheet.",
 	"widget": {
 		"js_class": "WidgetEpResources",
 		"size": {
@@ -21,6 +21,11 @@
 		},
 		"widget.ep_resources.columns": {
 			"class": "ColumnsSave",
+			"layout": "layout.json"
+		},
+		"widget.ep_resources.column.edit": {
+			"class": "ColumnEdit",
+			"view": "column.edit",
 			"layout": "layout.json"
 		}
 	},

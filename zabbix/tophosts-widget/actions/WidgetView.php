@@ -2,80 +2,251 @@
 
 namespace Modules\EpTophosts\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ClientData'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'ClientData', 'Bars', 'Forecast', 'Columns', 'ColumnMath', 'ColumnReader', 'ColumnCell', 'ColumnReport'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
-require_once __DIR__.'/../includes/WidgetForm.php';
+foreach (['CWidgetFieldStrings', 'CWidgetFieldOptionalNumber', 'CWidgetFieldColumns', 'Catalogue', 'JvmNodes', 'WidgetForm'] as $inc) {
+	require_once __DIR__.'/../includes/'.$inc.'.php';
+}
 
 use CControllerDashboardWidgetView,
 	CControllerResponseData;
-use Modules\EpTophosts\Includes\WidgetForm;
-use Modules\EpTophosts\Lib\{ClientData, Roles, Settings};
+use Modules\EpTophosts\Includes\{Catalogue, JvmNodes, WidgetForm};
+use Modules\EpTophosts\Lib\{Bars, ClientData, ColumnCell, ColumnMath, ColumnReport, ColumnSettings, Columns, Roles, Settings};
 
 /**
- * Top hosts: the busiest client servers, by CPU or memory. The clients and their
- * servers are ClientData's — the same reading Client resources expands into — and each server's
- * colour is decided with its own client's thresholds, so a host is the same colour here as in
- * Client resources. Every server goes to the page with all three figures, so the ranking can be
- * switched on the widget without asking Zabbix again.
+ * Top hosts: the busiest client servers by the figure the widget ranks by — CPU, memory, disk used,
+ * JVM heap or any Zabbix item, now or its average or maximum over the window — drawn as a list with
+ * bars, a table or a bar chart. The clients and their servers are ClientData's (the same reading
+ * Client resources expands into), the figures are the column model's (ColumnReport: one item.get
+ * for every key on every server, one trend.get per window), and each server is judged at its own
+ * client's thresholds, so a host is the same colour here as in Client resources.
+ *
+ * Every metric the widget offers is ranked and drawn on the page (a pane each), so switching on
+ * the widget costs no trip to Zabbix. A server with no figure for the metric is left out of its
+ * ranking — unknown is not zero.
+ *
+ * JVM heap is reported per Elasticsearch node on the client's cluster host, not on the servers
+ * (JvmNodes): a server is read at the node of its name there, and a node that names no server is
+ * ranked as itself. When no node reports it at all, the pane says where it is read and what to link.
  */
 class WidgetView extends CControllerDashboardWidgetView {
 
 	protected function doAction(): void {
 		$cfg = Settings::all();
-		// A widget saved when it could also rank by disk falls back to CPU.
-		$rank = WidgetForm::RANKS[(int) ($this->fields_values['rank'] ?? 0)] ?? 'cpu';
+		$roles = Roles::load();
+		$f = $this->fields_values;
+		$now = time();
+
+		$catalogue = Catalogue::columns($roles);
+		$columns = $this->columns($f, $catalogue);
+		[$list, $dropped] = $columns;
+		$visible = array_values(array_filter($list, fn($c) => !$c['hidden']));
+		$report = new ColumnReport($cfg, $now, $f['usage_warn'] ?? '', $f['usage_high'] ?? '', null, true);
+
+		// What is ranked: the metric the widget is set to, then the others a viewer may switch to.
+		$main = Catalogue::RANKS[(int) ($f['rank'] ?? 0)] ?? 'cpu';
+		$offered = array_values(array_unique(array_merge([$main], array_intersect(WidgetForm::SWITCH, $f['switch_metrics'] ?? WidgetForm::SWITCH_DEFAULT))));
 		$data = [
 			'name' => $this->getInput('name', $this->widget->getDefaultName()),
-			'rank' => $rank,
-			'count' => max(1, min(100, (int) ($this->fields_values['count'] ?? 10))),
+			'view' => (int) ($f['view'] ?? WidgetForm::VIEW_LIST),
+			'rank' => $main,
+			'metrics' => [],
+			'panes' => [],
+			'columns' => array_map(fn($c) => $report->head($c, $catalogue), $visible),
+			'count' => max(1, min(100, (int) ($f['count'] ?? 10))),
 			'scope' => '',
-			'servers' => [],
+			'dropped' => $dropped,
+			'palette' => Settings::paletteStyle($cfg),
 			'error' => null,
 			'user' => ['debug_mode' => $this->getDebugMode()]
 		];
-		[, $clients, $error] = ClientData::clients($cfg, $this->fields_values['groupids'] ?? []);
+		foreach ($offered as $id) {
+			$data['metrics'][] = ['id' => $id, 'label' => Catalogue::metric($id, $f)['label']];
+		}
+
+		[, $clients, $error] = ClientData::clients($cfg, $f['groupids'] ?? []);
 		if ($error !== null) {
 			$data['error'] = $error;
 			$this->setResponse(new CControllerResponseData($data));
 			return;
 		}
-
-		// The client and the client type the settings name, if any.
-		$want_client = trim((string) ($this->fields_values['client'] ?? ''));
-		$want_type = null;
-		$type_key = (int) ($this->fields_values['client_type'] ?? 0);
-		if ($type_key !== 0) {
-			foreach (Settings::types($cfg)['all'] as $t) {
-				if (WidgetForm::typeKey($t) === $type_key) {
-					$want_type = $t;
-				}
-			}
-		}
-		$clients = array_filter($clients, fn($c) => ($want_client === '' || strcasecmp($c['name'], $want_client) === 0)
-			&& ($want_type === null || $c['type'] === $want_type));
-		$data['scope'] = implode(' · ', array_filter([$want_client, $want_type]));
-		if ($want_client !== '' && !$clients) {
-			$data['error'] = _s('No client named "%1$s" here. Check the name in ElasticPro → Clients, or empty the Client setting.', $want_client);
+		$want = array_map('mb_strtolower', $f['clients'] ?? []);
+		$types = $f['client_types'] ?? [];
+		$roleIds = $f['roles'] ?? [];
+		$data['scope'] = implode(' · ', array_filter([implode(', ', $f['clients'] ?? []), implode(', ', $types),
+			implode(', ', array_map(fn($id) => Roles::byId($roles)[$id]['label'] ?? $id, $roleIds))]));
+		if ($want && !array_filter($clients, fn($c) => in_array(mb_strtolower($c['name']), $want, true))) {
+			$data['error'] = count($want) === 1
+				? _s('No client named "%1$s" here. Check the name in ElasticPro → Clients, or change the Clients setting.', $f['clients'][0])
+				: _('None of the clients this widget names is here. Check the names in ElasticPro → Clients, or change the Clients setting.');
 			$this->setResponse(new CControllerResponseData($data));
 			return;
 		}
-
-		$byName = array_column($clients, null, 'name');
-		foreach (ClientData::servers(Roles::load(), $clients) as $client => $list) {
-			$c = $byName[$client] ?? null;
-			if ($c === null) {
-				continue;
-			}
-			['warn' => $warn, 'high' => $high] = Settings::usageFor($c['macros'], $this->fields_values['usage_warn'] ?? Settings::INHERIT,
-				$this->fields_values['usage_high'] ?? Settings::INHERIT, $cfg);
-			foreach ($list as $s) {
-				$s = ClientData::classify($s, $warn, $high);
-				$data['servers'][] = ['host' => $s['host'], 'hostid' => $s['hostid'], 'client' => $client, 'type' => $c['type'], 'role' => $s['role'],
-					'status' => $s['status'], 'cpu' => $s['cpu_used'], 'mem' => $s['mem_used'],
-					'classes' => $s['classes'], 'url' => (new \CUrl('zabbix.php'))->setArgument('action', 'latest.view')->setArgument('hostids', [$s['hostid']])->getUrl()];
+		$masters = [];
+		foreach ($clients as $mid => $c) {
+			if ((!$want || in_array(mb_strtolower($c['name']), $want, true)) && (!$types || in_array($c['type'], $types, true))) {
+				$masters[$c['name']] = ['mid' => (string) $mid] + $c;
 			}
 		}
+
+		// Every server of the clients listed, in the roles asked for — the figures are read below, once.
+		$rowsIn = [];
+		foreach (ClientData::servers($roles, $masters, false) as $client => $list2) {
+			$c = $masters[$client] ?? null;
+			foreach ($list2 as $s) {
+				if ($c === null || ($roleIds && !array_intersect($roleIds, $s['roles']))) {
+					continue;
+				}
+				$rowsIn[$s['hostid']] = [
+					'client' => ['name' => $s['host'], 'host' => $s['host'], 'hostid' => $s['hostid'], 'client' => $client, 'type' => $c['type'], 'role' => $s['role'],
+						'client_role' => $client.' · '.$s['role'], 'ip' => $s['ip'], 'status' => [ 'up' => _('up'), 'down' => _('down'), 'unknown' => _('no data')][$s['status']] ?? '',
+						'rank' => '', 'value' => '', 'macros' => $c['macros'], 'mid' => $c['mid']],
+					'servers' => [$s]
+				];
+			}
+		}
+
+		// The Value column's look, and the figure each metric makes of it.
+		$valueCol = null;
+		foreach ($list as $c) {
+			if ($c['builtin'] === 'top.value' && (int) $c['source'] === Columns::SOURCE_BUILTIN) {
+				$valueCol = $c;
+			}
+		}
+		$valueCol ??= ColumnSettings::builtinColumn('top.value', $catalogue['top.value']);
+		$special = ['top.rank', 'top.host', 'top.value'];
+		$extras = array_values(array_filter($visible, fn($c) => !in_array($c['builtin'], $special, true) || (int) $c['source'] !== Columns::SOURCE_BUILTIN));
+		$metricCols = [];
+		foreach ($offered as $id) {
+			$metricCols[$id] = array_replace($valueCol, Catalogue::metric($id, $f)['column'], ['uid' => 'm.'.$id, 'name' => Catalogue::metric($id, $f)['label'], 'hidden' => 0]);
+		}
+		$all = array_merge(array_values($metricCols), $extras);
+
+		// JVM heap: each server at its node on the cluster host; a node that names no server, as itself.
+		$notes = [];
+		if (isset($metricCols['jvm'])) {
+			$jvm = JvmNodes::find(array_keys($masters));
+			$placed = JvmNodes::place(array_map(fn($r) => ['client' => $r['client']['client'], 'host' => $r['client']['host']], $rowsIn), $jvm['hosts'], $jvm['items'],
+				$metricCols['jvm']['uid']);
+			foreach ($placed['at'] as $hostid => $at) {
+				$rowsIn[$hostid]['at'] = $at;
+			}
+			$leftOut = 0;
+			foreach ($placed['nodes'] as $n) {
+				$c = $masters[$n['client']] ?? null;
+				// Its role is not known, so a widget that picks roles cannot say it is one of them.
+				if ($c === null || $roleIds) {
+					$leftOut++;
+					continue;
+				}
+				$rowsIn['node:'.$n['hostid'].':'.$n['node']] = [
+					'client' => ['name' => $n['node'], 'host' => $n['node'], 'hostid' => $n['hostid'], 'client' => $n['client'], 'type' => $c['type'], 'role' => _('ES node'),
+						'client_role' => $n['client'].' · '._('ES node'), 'ip' => '', 'status' => '', 'rank' => '', 'value' => '', 'macros' => $c['macros'], 'mid' => $c['mid']],
+					'servers' => [],
+					'at' => [$metricCols['jvm']['uid'] => [[$n['hostid'], $n['key']]]]
+				];
+			}
+			if ($placed['reported'] === 0) {
+				$notes['jvm'] = _('No Elasticsearch node reports JVM heap for these clients. It is read from es.node.jvm.mem.heap_used_percent on the client\'s cluster host (or on a server that carries it): link Elasticsearch Cluster by HTTP, or the jump host template, to the cluster host.');
+			}
+			elseif ($leftOut > 0) {
+				$notes['jvm'] = _n('%1$s Elasticsearch node reports JVM heap but is left out: it names no server in the roles picked.',
+					'%1$s Elasticsearch nodes report JVM heap but are left out: they name no server in the roles picked.', $leftOut);
+			}
+		}
+
+		$report->read($rowsIn, $all, $catalogue, (int) ($f['trend_days'] ?? 7));
+		// An item's figure is judged at Settings' thresholds only when it is a percentage; otherwise at the Value column's own.
+		$units = $report->units();
+		foreach ($metricCols as $id => $mc) {
+			if (($id === 'item' || $id === 'jvm') && ($units[$mc['uid']] ?? '') !== '%') {
+				$metricCols[$id]['use_settings'] = 0;
+			}
+		}
+		$all = array_merge(array_values($metricCols), $extras);
+
+		$widgetBars = Bars::styleOf(Bars::isInherit($f['bars'] ?? Bars::INHERIT) ? Settings::bars($cfg) : $f['bars']);
+		$found = [];
+		foreach ($rowsIn as $hostid => $in) {
+			$found[$hostid] = $report->cells((string) $hostid, $in['client'], $all, $catalogue, $widgetBars);
+		}
+
+		foreach ($offered as $id) {
+			$uid = $metricCols[$id]['uid'];
+			$ranked = [];
+			foreach ($found as $hostid => $res) {
+				$v = $res['sort'][$uid] ?? null;
+				if ($v !== null) {
+					$ranked[] = ['hostid' => $hostid, 'value' => (float) $v];
+				}
+			}
+			usort($ranked, fn($a, $b) => $b['value'] <=> $a['value'] ?: strnatcasecmp($rowsIn[$a['hostid']]['client']['host'], $rowsIn[$b['hostid']]['client']['host']));
+			$ranked = array_slice($ranked, 0, $data['count']);
+			$top = $ranked ? max(array_column($ranked, 'value')) : null;
+			$pane = ['id' => $id, 'label' => Catalogue::metric($id, $f)['label'], 'rows' => [], 'note' => $notes[$id] ?? null];
+			foreach ($ranked as $i => $r) {
+				$in = $rowsIn[$r['hostid']];
+				$client = $in['client'];
+				$res = $found[$r['hostid']];
+				$byUid = [];
+				foreach ($all as $k => $col) {
+					$byUid[$col['uid']] = $res['cells'][$k];
+				}
+				$valueCell = $byUid[$uid];
+				$cells = [];
+				foreach ($visible as $col) {
+					$entry = (int) $col['source'] === Columns::SOURCE_BUILTIN ? ($catalogue[$col['builtin']] ?? null) : null;
+					$layout = ['layout' => ColumnCell::layout($col)];
+					if ($entry !== null && $col['builtin'] === 'top.rank') {
+						$cells[] = ColumnCell::cell($col, $entry, ['text' => (string) ($i + 1)], $cfg) + $layout;
+					}
+					elseif ($entry !== null && $col['builtin'] === 'top.host') {
+						$cells[] = ColumnCell::cell($col, $entry, ['text' => $client['host'],
+							'url' => ColumnMath::clickUrl((int) $col['click'], [], [$client['hostid']], $client['mid'])], $cfg) + $layout;
+					}
+					elseif ($entry !== null && $col['builtin'] === 'top.value') {
+						$cells[] = $valueCell + $layout;
+					}
+					else {
+						$cells[] = $byUid[$col['uid']];
+					}
+				}
+				$extraCells = [];
+				foreach ($extras as $col) {
+					if ($col['builtin'] !== 'top.clientrole' || (int) $col['source'] !== Columns::SOURCE_BUILTIN) {
+						$extraCells[] = ['name' => $col['name'], 'cell' => $byUid[$col['uid']]];
+					}
+				}
+				$pane['rows'][] = [
+					'id' => $id.'.'.$i, 'type' => $client['type'], 'attention' => false, 'host' => $client['host'], 'hostid' => $client['hostid'],
+					'url' => ColumnMath::clickUrl(Columns::CLICK_LATEST, [], [$client['hostid']]), 'client_role' => $client['client_role'],
+					'rank' => $i + 1, 'value' => $valueCell, 'extras' => $extraCells, 'cells' => $cells,
+					'share' => ColumnMath::barShare($r['value'], (string) ($units[$uid] ?? '%'), '', '', $top)
+				];
+			}
+			$data['panes'][$id] = $pane;
+		}
 		$this->setResponse(new CControllerResponseData($data));
+	}
+
+	/**
+	 * The columns in force: this widget's own, through the column rule leniently — what no longer
+	 * passes is left out and named.
+	 *
+	 * @return array{0: array, 1: string[]}  [columns, dropped]
+	 */
+	private function columns(array $f, array $catalogue): array {
+		$own = array_values(array_filter((array) ($f['columns'] ?? []), 'is_array'));
+		$list = ColumnSettings::resolve($own ?: Catalogue::defaultColumns($catalogue), $catalogue, null, true);
+		[$columns, , $dropped] = Columns::cleanList($list, $catalogue, [], false);
+		if (isset($this->form)) {
+			$field = $this->form->getFields()['columns'] ?? null;
+			if ($field !== null && method_exists($field, 'getDropped')) {
+				$dropped = array_merge($field->getDropped(), $dropped);
+			}
+		}
+
+		return [$columns, $dropped];
 	}
 }

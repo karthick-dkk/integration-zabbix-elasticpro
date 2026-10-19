@@ -2,12 +2,15 @@
 
 namespace Modules\EpOverview\Includes;
 
+use Modules\EpOverview\Lib\Columns;
 use Zabbix\Widgets\CWidgetField;
 
 /**
  * A number that may be left empty, and empty means something: "all clients", "ElasticPro
  * Settings". Zabbix's integer box turns an empty box into 0 and draws it as 0, which is how the
  * old Warn and High fields came to show 0 for "follow Settings". This keeps the empty box empty.
+ *
+ * Copied from ../../shared/php/includes by ../../sync-assets.mjs — edit it there.
  */
 class CWidgetFieldOptionalNumber extends CWidgetField {
 
@@ -45,7 +48,7 @@ class CWidgetFieldOptionalNumber extends CWidgetField {
 		$ok = $this->integer ? preg_match('/^-?\d+$/', $v) : is_numeric($v);
 
 		if ($ok && (float) $v >= $this->min && (float) $v <= $this->max) {
-			$this->value = $this->integer ? (string) (int) $v : Metrics::num((float) $v);
+			$this->value = $this->integer ? (string) (int) $v : Columns::num((float) $v);
 
 			return [];
 		}
@@ -59,7 +62,7 @@ class CWidgetFieldOptionalNumber extends CWidgetField {
 
 		return [_s('Invalid parameter "%1$s": %2$s.', $this->getErrorLabel(),
 			_s('must be empty or %1$s from %2$s to %3$s', $this->integer ? _('a whole number') : _('a number'),
-				Metrics::num($this->min), Metrics::num($this->max)
+				Columns::num($this->min), Columns::num($this->max)
 			)
 		)];
 	}

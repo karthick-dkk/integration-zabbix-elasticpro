@@ -27,7 +27,7 @@ window.widget_ep_overview_form = new class {
 		});
 		this._metrics.addEventListener('click', (e) => this._metricsAction(e));
 
-		for (const id of ['ep-ov-sections', 'ep-ov-roles']) {
+		for (const id of ['ep-ov-sections', 'ep-ov-roles', 'ep-ov-panels']) {
 			const body = document.querySelector(`#${id} tbody`);
 			if (body !== null && body.children.length > 1) {
 				new CSortable(body, {selector_handle: 'div.<?= ZBX_STYLE_DRAG_ICON ?>'});

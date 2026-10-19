@@ -27,6 +27,9 @@ class SettingsSave extends Base {
 			'bad_days' => 'string', 'warn_days' => 'string', 'flat_days' => 'string',
 			'day_text_days' => 'string', 'month_text_days' => 'string', 'month_days' => 'string',
 			'types' => 'string', 'type_default' => 'string',
+			// The Colours card: palette[light|dark][ok…link] and palette[series][0…7], each checked
+			// by Settings::cleanPalette() — six hex digits or the shipped colour.
+			'palette' => 'array',
 			// Which button was pressed. A submit carries its own caption as its value, so this
 			// is a string and only its presence is read.
 			'save' => 'string', 'reset' => 'string'
@@ -47,6 +50,7 @@ class SettingsSave extends Base {
 				}
 			}
 			else {
+				$palette = $this->hasInput('palette') ? (array) $this->getInput('palette') : Settings::all()['palette'];
 				Settings::save([
 					'usage' => ['warn' => $in('warn'), 'high' => $in('high')],
 					'display' => ['bars' => $in('bars'), 'decimals_bytes' => $in('decimals_bytes'),
@@ -58,9 +62,20 @@ class SettingsSave extends Base {
 					'refresh' => Settings::all()['refresh'],
 					'forecast' => ['bad_days' => $in('bad_days'), 'warn_days' => $in('warn_days'), 'flat_days' => $in('flat_days'),
 						'day_text_days' => $in('day_text_days'), 'month_text_days' => $in('month_text_days'), 'month_days' => $in('month_days')],
-					'types' => ['all' => preg_split('/\R/', $in('types')) ?: [], 'default' => $in('type_default')]
+					'types' => ['all' => preg_split('/\R/', $in('types')) ?: [], 'default' => $in('type_default')],
+					'palette' => $palette
 				]);
-				CMessageHelper::setSuccessTitle(_('Settings saved'));
+				// A colour that is not one is not saved, and the page says which — the rest still is.
+				$wrong = Settings::paletteErrors($palette, array_map(fn($l) => $l[0], SettingsEdit::paletteLabels()));
+				if ($wrong) {
+					CMessageHelper::setWarningTitle(_('Settings saved, but not every colour'));
+					foreach ($wrong as $message) {
+						CMessageHelper::addWarning($message);
+					}
+				}
+				else {
+					CMessageHelper::setSuccessTitle(_('Settings saved'));
+				}
 			}
 		}
 		catch (Exception $e) {

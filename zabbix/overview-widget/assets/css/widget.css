@@ -9,6 +9,9 @@
 .ep-panel .ep-ov-cv a { color: var(--ep-blue); text-decoration: none; }
 .ep-panel .ep-ov-cv a:hover { text-decoration: underline; }
 
+/* Metrics the widget names but cannot draw, said above the cards and the Summary view. */
+.ep-panel .ep-ov-dropped { list-style: none; margin: 0; padding: 6px 10px; border: 1px solid var(--ep-line); border-left: 3px solid var(--ep-warn); border-radius: 3px; background: var(--ep-bg-2); font-size: 12px; display: grid; gap: 2px; }
+
 /* Summary bar. */
 .ep-panel .ep-ov-cv .ep-ov-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; background: var(--ep-bg-2); border: 1px solid var(--ep-line-2); border-radius: 3px; padding: 6px 10px; }
 .ep-panel .ep-ov-cv .ep-ov-summary b { color: var(--ep-strong); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -172,6 +175,66 @@
 .ep-panel .ep-ov-sv .ep-ov-pie li i { width: 12px; height: 4px; border-radius: 2px; }
 .ep-panel .ep-ov-sv .ep-ov-pie li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-panel .ep-ov-sv .ep-ov-pie li em { font-style: normal; color: var(--ep-muted); text-align: right; }
+
+/* Summary view panels laid out by the widget's settings: a row of twelve, each panel full, half, a third or a quarter of it.
+   A narrow widget stacks them (the container is the layout itself, not the window). */
+.ep-panel .ep-ov-sv .ep-ov-lay { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; align-items: start; container: ep-ov-lay / inline-size; }
+.ep-panel .ep-ov-sv .ep-ov-w-full { grid-column: span 12; }
+.ep-panel .ep-ov-sv .ep-ov-w-half { grid-column: span 6; }
+.ep-panel .ep-ov-sv .ep-ov-w-third { grid-column: span 4; }
+.ep-panel .ep-ov-sv .ep-ov-w-quarter { grid-column: span 3; }
+@container ep-ov-lay (max-width: 780px) {
+	.ep-panel .ep-ov-sv .ep-ov-w-half, .ep-panel .ep-ov-sv .ep-ov-w-third { grid-column: span 12; }
+	.ep-panel .ep-ov-sv .ep-ov-w-quarter { grid-column: span 6; }
+}
+@container ep-ov-lay (max-width: 460px) {
+	.ep-panel .ep-ov-sv .ep-ov-w-quarter { grid-column: span 12; }
+}
+
+/* Summary cards: the status line, and a card's tiles when there are not three. */
+.ep-panel .ep-ov-sv .ep-ov-fill { flex: 1; }
+.ep-panel .ep-ov-sv .ep-ov-st { margin-left: auto; font-size: 12px; font-weight: 500; }
+.ep-panel .ep-ov-sv .ep-ov-st-ok { color: var(--ep-ok); }
+.ep-panel .ep-ov-sv .ep-ov-st-warn { color: var(--ep-warn); }
+.ep-panel .ep-ov-sv .ep-ov-st-high { color: var(--ep-high); }
+.ep-panel .ep-ov-sv .ep-ov-st-muted { color: var(--ep-muted); }
+
+/* Used of allocated: the solid bar. Servers by role: the bar, the pills and the legend with its columns. */
+.ep-panel .ep-ov-sv .ep-ov-solid { height: 10px; border-radius: 2px; background: var(--ep-track); position: relative; overflow: hidden; }
+.ep-panel .ep-ov-sv .ep-ov-solid b { position: absolute; inset: 0 auto 0 0; }
+.ep-panel .ep-ov-sv .ep-ov-pie h5 small { color: var(--ep-muted); font-weight: 400; margin-left: 4px; }
+.ep-panel .ep-ov-sv .ep-ov-rbar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; gap: 1px; margin-bottom: 6px; }
+.ep-panel .ep-ov-sv .ep-ov-rbar span { min-width: 3px; }
+.ep-panel .ep-ov-sv .ep-ov-rpills { display: flex; flex-wrap: wrap; gap: 4px 6px; font-size: 12px; }
+.ep-panel .ep-ov-sv .ep-ov-rp { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; background: var(--ep-sel-bg); color: var(--ep-strong); font-variant-numeric: tabular-nums; }
+.ep-panel .ep-ov-sv .ep-ov-rp i { width: 8px; height: 8px; border-radius: 50%; }
+.ep-panel .ep-ov-sv .ep-ov-rp em { font-style: normal; color: var(--ep-muted); }
+.ep-panel .ep-ov-sv .ep-ov-pie ul.ep-ov-lg li { display: flex; gap: 6px; align-items: center; }
+.ep-panel .ep-ov-sv .ep-ov-pie ul.ep-ov-lg li i { flex: none; }
+.ep-panel .ep-ov-sv .ep-ov-pie ul.ep-ov-lg li span { flex: 1; min-width: 0; }
+.ep-panel .ep-ov-sv .ep-ov-pie ul.ep-ov-lg li em { min-width: 34px; }
+
+/* The usage chart. */
+.ep-panel .ep-ov-sv .ep-ov-chart { display: grid; gap: 6px; border-color: var(--ep-sel-line); }
+.ep-panel .ep-ov-sv .ep-ov-chart-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ep-panel .ep-ov-sv .ep-ov-chart-h h4 { margin: 0; }
+.ep-panel .ep-ov-sv .ep-ov-seg { display: inline-flex; border: 1px solid var(--ep-line); border-radius: 3px; overflow: hidden; }
+.ep-panel .ep-ov-sv .ep-ov-seg button { background: var(--ep-input); color: var(--ep-fg); border: 0; border-left: 1px solid var(--ep-line); padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer; height: auto; line-height: 1.5; }
+.ep-panel .ep-ov-sv .ep-ov-seg button:first-child { border-left: 0; }
+.ep-panel .ep-ov-sv .ep-ov-seg button[aria-pressed="true"] { background: var(--ep-blue); color: #fff; }
+.ep-panel .ep-ov-sv .ep-ov-chart-h select { background: var(--ep-input); color: var(--ep-fg); border: 1px solid var(--ep-line); border-radius: 3px; padding: 2px 6px; font: inherit; font-size: 12px; max-width: 100%; }
+.ep-panel .ep-ov-sv .ep-ov-chart-svg { width: 100%; height: auto; display: block; }
+.ep-panel .ep-ov-sv .ep-ov-legend { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ep-panel .ep-ov-sv .ep-ov-legend th, .ep-panel .ep-ov-sv .ep-ov-legend td { padding: 3px 4px; text-align: right; }
+.ep-panel .ep-ov-sv .ep-ov-legend thead th { color: var(--ep-muted); font-weight: 500; }
+.ep-panel .ep-ov-sv .ep-ov-legend tbody tr { border-top: 1px solid var(--ep-line-2); }
+.ep-panel .ep-ov-sv .ep-ov-legend th:first-child { text-align: left; font-weight: 400; }
+.ep-panel .ep-ov-sv .ep-ov-legend .ep-ov-nodata { color: var(--ep-faint); font-style: italic; text-align: left; }
+.ep-panel .ep-ov-sv .ep-ov-legend .ep-ov-dim { opacity: .45; }
+.ep-panel .ep-ov-sv .ep-ov-sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.ep-panel .ep-ov-sv .ep-ov-iso { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: var(--ep-fg); cursor: pointer; text-align: left; height: auto; line-height: inherit; }
+.ep-panel .ep-ov-sv .ep-ov-iso[aria-pressed="true"] { font-weight: 600; text-decoration: underline; }
+.ep-panel .ep-ov-sv .ep-ov-chart > .ep-ov-note { line-height: 1.4; }
 
 /* The widget's settings form (Zabbix's own dialog, outside the panel), tabbed like Zabbix's Graph widget. */
 /* One width on both tabs: the dialog never resizes when the tab changes. */

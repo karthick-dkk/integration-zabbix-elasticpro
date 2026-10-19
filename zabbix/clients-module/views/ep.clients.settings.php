@@ -168,6 +168,83 @@ $cards[] = $card(_('Refresh'), _('What a newly placed widget starts at.'), $refr
 
 $form->addItem((new CDiv($cards))->addClass('ep-grid'));
 
+/* ---------------- colours ---------------- */
+// One palette every ElasticPro widget draws with, per Zabbix theme; a column or threshold may still
+// choose its own. Each colour is a text box (six hex digits, checked on save) with a swatch beside it.
+$Settings = \Modules\EpClients\Lib\Settings::class;
+$pal = $s['palette'];
+$pd = $d['palette'];
+$ratio = fn(float $r) => number_format(floor($r * 10) / 10, 1);
+/** What reads on a colour: white, or dark text when white falls below 4.5:1 — and the flag when it does. */
+$textOn = function (string $hex, string $key, string $theme) use ($Settings, $ratio) {
+	if ($key === 'link') {
+		$r = $Settings::contrast($hex, $Settings::PALETTE_BACKGROUND[$theme]);
+		return [_s('on the page %1$s:1', $ratio($r)), $r < $Settings::MIN_CONTRAST];
+	}
+	$t = $Settings::textOn($hex);
+	return [($t['color'] !== $Settings::DARK_TEXT ? _('white') : _('dark text')).' '.$ratio($t['ratio']).':1', $t['flagged']];
+};
+$swatch = function (string $name, string $value, string $label) use ($ro) {
+	return (new CSpan([
+		(new CTag('input', false))->setAttribute('type', 'color')->setAttribute('value', $value)->setAttribute('aria-hidden', 'true')
+			->setAttribute('tabindex', '-1')->setAttribute('data-ep-swatch', $name)->setAttribute('disabled', $ro ? 'disabled' : null),
+		(new CTextBox($name, $value, $ro, 7))->setAttribute('aria-label', $label)->setAttribute('data-ep-hex', '')->setAttribute('spellcheck', 'false')
+	]))->addClass('ep-pal-c');
+};
+$palRows = [];
+foreach ($data['palette_labels'] as $key => [$label, $note]) {
+	$cells = [(new CTag('th', true, [new CTag('b', true, $label), (new CDiv($note))->addClass('ep-pal-note')]))->setAttribute('scope', 'row')];
+	$checks = [];
+	foreach (['light' => _('Blue theme'), 'dark' => _('Dark theme')] as $theme => $themeLabel) {
+		$cells[] = new CTag('td', true, $swatch('palette['.$theme.']['.$key.']', $pal[$theme][$key], $label.', '.$themeLabel));
+		[$text, $flag] = $textOn($pal[$theme][$key], $key, $theme);
+		$checks[] = (new CDiv([(new CSpan($theme === 'light' ? _('Blue') : _('Dark')))->addClass('ep-pal-th'), ' ', $text, ' ', $flag ? '⚠' : '✓']))
+			->addClass($flag ? 'ep-pal-bad' : 'ep-pal-ok')->setAttribute('data-ep-check', $theme.':'.$key);
+	}
+	$cells[] = new CTag('td', true, $checks);
+	$palRows[] = (new CTag('tr', true, $cells))->setAttribute('data-ep-key', $key);
+}
+$series = [];
+foreach ($pal['series'] as $i => $c) {
+	$series[] = (new CTag('input', false))->setAttribute('type', 'color')->setAttribute('name', 'palette[series]['.$i.']')->setAttribute('value', $c)
+		->setAttribute('aria-label', _s('Series colour %1$s', $i + 1))->setAttribute('disabled', $ro ? 'disabled' : null);
+}
+$palRows[] = new CTag('tr', true, [
+	(new CTag('th', true, [new CTag('b', true, _('Chart series')), (new CDiv(_('one colour per client in charts and donuts by role')))->addClass('ep-pal-note')]))
+		->setAttribute('scope', 'row'),
+	(new CTag('td', true, (new CDiv($series))->addClass('ep-pal-series')))->setAttribute('colspan', '3')
+]);
+$palTable = (new CTag('table', true, [
+	new CTag('thead', true, new CTag('tr', true, [
+		(new CTag('th', true, _('Used for')))->setAttribute('scope', 'col'), (new CTag('th', true, _('Blue theme')))->setAttribute('scope', 'col'),
+		(new CTag('th', true, _('Dark theme')))->setAttribute('scope', 'col'), (new CTag('th', true, _('Text on it')))->setAttribute('scope', 'col')
+	])),
+	new CTag('tbody', true, $palRows)
+]))->addClass('ep-pal-table');
+$preview = (new CDiv([
+	new CTag('h5', true, _('Preview')),
+	(new CDiv(array_map(fn($row) => (new CDiv([new CSpan($row[0]), (new CSpan((new CSpan(''))->addClass('ep-pv-fill')
+		->setAttribute('style', 'width:'.$row[2].'%;background:var(--pv-'.$row[1].')')))->addClass('ep-pv-track'), new CSpan($row[3])]))
+		->addClass('ep-pv-bar'), [[_('OK'), 'ok', 56, '56%'], [_('Warn'), 'warn', 84, '84%'], [_('High'), 'high', 93, '93%'], [_('Unknown'), 'unknown', 0, '—']])))
+		->addClass('ep-pv-bars'),
+	(new CDiv([(new CSpan(_('Warn cell 84%')))->addClass('ep-pv-cell ep-pv-warn'), (new CSpan(_('High cell 93%')))->addClass('ep-pv-cell ep-pv-high'),
+		(new CSpan(_('not collected')))->addClass('ep-pv-nc')]))->addClass('ep-pv-cells'),
+	(new CDiv(_('The dark column applies when the Zabbix user\'s theme is Dark. A colour whose white text falls below 4.5:1 is flagged and gets dark text instead.')))
+		->addClass('ep-pal-note')
+]))->addClass('ep-pv')->setAttribute('data-ep-preview', '');
+$colourHead = (new CDiv([new CTag('h4', true, _('Colours')), new CTag('p', true, _('Used by every ElasticPro widget unless a column sets its own.'))]))
+	->addClass('ep-card-head');
+if (!$ro) {
+	$colourHead->addItem((new CSimpleButton(_('Reset to defaults')))->addClass(ZBX_STYLE_BTN_ALT)->addClass('ep-pal-reset')->setAttribute('data-ep-pal-reset', ''));
+}
+$form->addItem((new CDiv([
+	$colourHead,
+	(new CDiv([$palTable, $preview]))->addClass('ep-card-body ep-pal-body'),
+	(new CDiv(_s('Six hex digits each, like %1$s. Reset fills in the colours ElasticPro ships; Save keeps them.', $pd['light']['link'])))->addClass('ep-card-foot')
+]))->addClass('ep-card ep-card-wide')->setId('ep-palette')->setAttribute('data-defaults', json_encode($pd))
+	->setAttribute('data-min', (string) $Settings::MIN_CONTRAST)->setAttribute('data-dark-text', $Settings::DARK_TEXT)
+	->setAttribute('data-backgrounds', json_encode($Settings::PALETTE_BACKGROUND)));
+
 if (!$ro) {
 	$form->addItem((new CDiv([new CSubmit('save', _('Save')),
 		(new CSubmit('reset', _('Reset to shipped')))->addClass(ZBX_STYLE_BTN_ALT)
@@ -181,3 +258,4 @@ $build = (new CDiv(\Modules\EpClients\Lib\Build::line()))->addClass('ep-build');
 $page->addItem((new CDiv(array_merge($top, [$form, $build])))->addClass('ep-set'))->show();
 ?>
 <style><?php readfile(__DIR__.'/css/ep.hint.css'); readfile(__DIR__.'/css/ep.clients.settings.css'); ?></style>
+<script><?php readfile(__DIR__.'/js/ep.clients.settings.js'); ?></script>

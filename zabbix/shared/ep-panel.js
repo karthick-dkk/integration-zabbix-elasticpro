@@ -1,55 +1,52 @@
 /*
- * The panel controls for Client resources and Client capacity: search, sorting, column widths,
- * the ⋮ menu and Table settings. ep-columns.js keeps the Type filter, expanding and the Columns
- * dialog; this works alongside it and never changes a figure.
+ * The panel controls of the ElasticPro column tables (Client resources, Client capacity, Volume):
+ * search, sorting, column widths, the ⋮ menu, Needs attention, Compact and the Table / Pie chart
+ * switch. ep-columns.js keeps the Type filter, expanding and the Columns dialog; this works
+ * alongside it and never changes a figure.
  *
  * What a viewer does here outlives the widget's refresh. Zabbix replaces the widget's contents
- * every minute, so the search, the sort and the open clients are held on the widget object and
- * put back after each redraw; colours, row height, widths and the server columns are kept per
- * browser (localStorage), because they are one person's preference, not a dashboard setting.
+ * every minute, so the search, the sort, the open clients, Needs attention, Compact and the view
+ * switched to are held on the widget object and put back after each redraw. Those are one
+ * viewer's conveniences, and nothing more: how the report looks — colours (ElasticPro -> Settings'
+ * palette), row height, header, which columns show — is the widget's own setting. The browser keeps
+ * only the column widths a viewer dragged.
  *
  * Shared: sync-assets.mjs copies this into the widgets that use it. Edit it here.
  */
 window.EpPanel = {
-	DEFAULTS: { colors: { ok: '#73bf69', warn: '#ff9830', high: '#f2495c' }, density: 'compact', hiddenSrv: [], widths: {} },
-	SERVER_COLUMNS: [['role', 'Role'], ['host', 'Host'], ['ip', 'IP'], ['status', 'Status'], ['cores', 'CPU cores'], ['cpu', 'CPU used'],
-		['mem', 'Memory'], ['memu', 'Memory used'], ['disks', 'Disks']],
-
+	/** The column widths this viewer dragged, kept per browser; anything else in storage is ignored. */
 	prefs(kind) {
-		const p = JSON.parse(JSON.stringify(this.DEFAULTS));
+		const p = { widths: {} };
 		try {
 			const v = JSON.parse(localStorage.getItem('ep-panel:' + kind) || 'null');
-			if (v && typeof v === 'object') Object.assign(p, v, { colors: { ...p.colors, ...(v.colors || {}) } });
+			for (const [key, w] of Object.entries(v && typeof v === 'object' && v.widths && typeof v.widths === 'object' ? v.widths : {})) {
+				// What comes back from storage is checked before it is used: numbers, of a sane size.
+				if (Array.isArray(w) && w.every((n) => Number.isFinite(n) && n > 0 && n < 5000)) p.widths[key] = w.map((n) => Math.round(n));
+			}
 		}
-		catch (_) { /* a private window: defaults */ }
-		// What comes back from storage is checked before it is drawn: colours must be hex, widths
-		// numbers, the rest one of the offered values. Anything else falls back to the default.
-		for (const k of ['ok', 'warn', 'high']) {
-			if (!/^#[0-9a-f]{6}$/i.test(String(p.colors[k]))) p.colors[k] = this.DEFAULTS.colors[k];
-		}
-		if (!['compact', 'comfortable'].includes(p.density)) p.density = this.DEFAULTS.density;
-		const known = new Set(this.SERVER_COLUMNS.map(([k]) => k));
-		p.hiddenSrv = Array.isArray(p.hiddenSrv) ? p.hiddenSrv.filter((k) => known.has(k)) : [];
-		const widths = {};
-		for (const [key, w] of Object.entries(p.widths && typeof p.widths === 'object' ? p.widths : {})) {
-			if (Array.isArray(w) && w.every((n) => Number.isFinite(n) && n > 0 && n < 5000)) widths[key] = w.map((n) => Math.round(n));
-		}
-		p.widths = widths;
+		catch (_) { /* a private window: no widths */ }
 		return p;
 	},
 	savePrefs(kind, p) {
-		try { localStorage.setItem('ep-panel:' + kind, JSON.stringify(p)); } catch (_) { /* not kept, still applied */ }
+		try { localStorage.setItem('ep-panel:' + kind, JSON.stringify({ widths: p.widths })); } catch (_) { /* not kept, still applied */ }
 	},
 
-	init(widget, body, kind) {
+	/**
+	 * @param {object} opts  view: {view, switch, attention, compact} — where Needs attention and
+	 *                       Compact start. The widget's settings decide the look.
+	 */
+	init(widget, body, kind, opts = {}) {
 		const root = body.querySelector('.ep-panel');
 		if (!root) return;
-		const st = widget._epPanel || (widget._epPanel = { q: '', type: '', sort: null, open: [] });
+		const view = opts.view || {};
+		const st = widget._epPanel || (widget._epPanel = { q: '', type: '', sort: null, open: [], touched: false,
+			attention: !!view.attention, compact: null, view: null });
 		const prefs = this.prefs(kind);
-		const table = root.querySelector('table.ep-res-table, table.ep-cap-table');
+		const table = root.querySelector('table.ep-res-table');
 		const ctx = { widget, body, root, table, kind, st, prefs };
+		widget._epCtx = ctx;
 
-		this.applyPrefs(ctx);
+		this.viewControls(ctx, view);
 
 		// The Type filter and the search, back where the viewer left them.
 		const sel = root.querySelector('[data-ep-type-filter]');
@@ -61,14 +58,16 @@ window.EpPanel = {
 			q.addEventListener('input', () => { st.q = q.value; this.filter(ctx); });
 		}
 
-		// Open clients, back open; and remembered as they are opened and closed.
-		for (const id of st.open) {
-			const t = root.querySelector(`[data-ep-expand="${CSS.escape(id)}"]`);
-			if (t && window.EpColumns) window.EpColumns.toggle(body, id, t, true);
+		// Open clients, back open (and, once the viewer has opened or closed one, closed ones closed);
+		// remembered as they are opened and closed.
+		for (const t of root.querySelectorAll('[data-ep-expand]')) {
+			const open = st.open.includes(t.dataset.epExpand);
+			if ((open || st.touched) && window.EpColumns) window.EpColumns.toggle(body, t.dataset.epExpand, t, open);
 		}
 		root.addEventListener('click', (e) => {
 			if (e.target.closest('[data-ep-expand], [data-ep-expand-all]')) {
 				setTimeout(() => {
+					st.touched = true;
 					st.open = [...root.querySelectorAll('[data-ep-expand][aria-expanded="true"]')].map((t) => t.dataset.epExpand);
 					this.filter(ctx);
 				}, 0);
@@ -81,30 +80,91 @@ window.EpPanel = {
 			this.resizable(ctx);
 		}
 		this.menu(ctx);
-		this.settings(ctx);
 		this.filter(ctx);
 	},
 
-	/* ---- search and type, together ---- */
+	/* ---- search, type and Needs attention, together; table rows and pie cards alike ---- */
 	filter(ctx) {
 		const { root, st } = ctx;
 		const sel = root.querySelector('[data-ep-type-filter]');
 		const type = sel ? sel.value : '';
 		const q = st.q.trim().toLowerCase();
+		const att = !!st.attention && !!root.querySelector('[data-ep-attention]');
+		const hidden = (el, text) => (type !== '' && el.dataset.type !== type) || (q !== '' && !text.includes(q))
+			|| (att && el.dataset.attention !== '1');
 		let shown = 0;
-		for (const row of root.querySelectorAll('tbody tr[data-type]')) {
+		for (const row of root.querySelectorAll('.ep-res-table > tbody > tr[data-type]')) {
 			const subs = row.dataset.row ? [...root.querySelectorAll(`tr[data-parent="${CSS.escape(row.dataset.row)}"]`)] : [];
 			const text = (row.textContent + ' ' + subs.map((s) => s.textContent).join(' ')).toLowerCase();
-			const hide = (type !== '' && row.dataset.type !== type) || (q !== '' && !text.includes(q));
+			const hide = hidden(row, text);
 			row.hidden = hide;
 			if (!hide) shown++;
 			const open = row.querySelector('[data-ep-expand][aria-expanded="true"]');
 			for (const s of subs) s.hidden = hide || !open;
 		}
+		let cards = 0;
+		for (const card of root.querySelectorAll('.ep-pie-card[data-type]')) {
+			const hide = hidden(card, (card.textContent + ' ' + (card.dataset.search || '')).toLowerCase());
+			card.hidden = hide;
+			if (!hide) cards++;
+		}
+		if (root.dataset.epView === 'pie' || !root.querySelector('.ep-res-table')) shown = cards;
 		const count = root.querySelector('[data-ep-count]');
 		if (count && count.dataset.template) count.textContent = count.dataset.template.replace('%n', shown);
+		const button = root.querySelector('[data-ep-attention]');
+		if (button) button.setAttribute('aria-pressed', String(att));
+		// The totals are over every client the widget lists; under a filter they would not be the
+		// visible rows' sum, so the row steps aside until the filter is cleared.
+		for (const t of root.querySelectorAll('[data-ep-totals]')) t.hidden = type !== '' || q !== '' || att;
 		// A filter in force keeps the toolbar showing, so what is hidden is never a mystery.
-		root.classList.toggle('ep-pt-pinned', type !== '' || q !== '');
+		root.classList.toggle('ep-pt-pinned', type !== '' || q !== '' || att);
+	},
+
+	/* ---- Needs attention, Compact, Table / Pie chart: one viewer's switches, kept across redraws ---- */
+	viewControls(ctx, view) {
+		const { root, st } = ctx;
+		const att = root.querySelector('[data-ep-attention]');
+		if (att) att.addEventListener('click', () => { st.attention = !st.attention; this.filter(ctx); });
+		const compact = root.querySelector('[data-ep-compact]');
+		if (st.compact === null) st.compact = view.compact !== undefined ? !!view.compact : !root.classList.contains('ep-comfortable');
+		const applyCompact = () => {
+			root.classList.toggle('ep-comfortable', !st.compact);
+			if (compact) compact.setAttribute('aria-pressed', String(st.compact));
+		};
+		if (compact) {
+			applyCompact();
+			compact.addEventListener('click', () => { st.compact = !st.compact; applyCompact(); });
+		}
+		const to = [...root.querySelectorAll('[data-ep-view-to]')];
+		const show = (which) => {
+			const table = root.querySelector('.ep-view-table'), pie = root.querySelector('.ep-view-pie');
+			if (!table || !pie) return;
+			table.hidden = which !== 'table';
+			pie.hidden = which !== 'pie';
+			root.dataset.epView = which;
+			for (const b of to) b.setAttribute('aria-pressed', String(b.dataset.epViewTo === which));
+			for (const el of root.querySelectorAll('.ep-table-only')) el.hidden = which !== 'table';
+			if (window.EpColumns) window.EpColumns.fitServers(ctx.body);
+		};
+		if (to.length) {
+			if (st.view) show(st.view);
+			for (const b of to) b.addEventListener('click', () => { st.view = b.dataset.epViewTo; show(st.view); this.filter(ctx); });
+		}
+		// A card's Servers (N): the table, that client open, in view.
+		root.addEventListener('click', (e) => {
+			const go = e.target.closest('[data-ep-goto]');
+			if (!go) return;
+			st.view = 'table';
+			show('table');
+			const t = root.querySelector(`[data-ep-expand="${CSS.escape(go.dataset.epGoto)}"]`);
+			if (t && window.EpColumns) {
+				window.EpColumns.toggle(ctx.body, go.dataset.epGoto, t, true);
+				st.touched = true;
+				st.open = [...new Set([...st.open, go.dataset.epGoto])];
+				if (typeof t.scrollIntoView === 'function') t.scrollIntoView({ block: 'nearest' });
+			}
+			this.filter(ctx);
+		});
 	},
 
 	/* ---- sorting ---- */
@@ -116,14 +176,20 @@ window.EpPanel = {
 	/** A cell's value for sorting: a number where the text is one (with its size unit), else the text. Unknown sorts last. */
 	sortValue(td) {
 		if (!td) return null;
+		// The figure the server sorted by, where it gave one: empty is unknown.
+		if (td.dataset && td.dataset.sort !== undefined) return td.dataset.sort === '' ? null : parseFloat(td.dataset.sort);
 		const t = td.textContent.replace(/▼|\s+/g, ' ').trim();
 		if (t === '' || t === '—' || /^not (set|growing)$/i.test(t) || /^no data$/i.test(t)) return null;
-		const m = t.match(/^(-?[\d.,]+)\s*(%|[KMGTP]i?B|B|days?|d)?/i);
+		if (/^under a day$/i.test(t)) return 0;
+		const m = t.match(/^([+-]?[\d.,]+)\s*([kMGT](?![a-z])|%|[KMGTP]i?B|B|days?|d|months?)?/i);
 		if (!m) return t.toLowerCase();
 		let n = parseFloat(m[1].replace(/,/g, ''));
-		const u = (m[2] || '').toUpperCase().replace('IB', 'B');
+		const raw = m[2] || '';
+		const u = raw.toUpperCase().replace('IB', 'B');
 		const pow = { B: 0, KB: 1, MB: 2, GB: 3, TB: 4, PB: 5 }[u];
 		if (pow !== undefined) n *= Math.pow(1024, pow);
+		else if (/^months?$/i.test(raw)) n *= 30;
+		else if (/^[kMGT]$/.test(raw)) n *= { k: 1e3, M: 1e6, G: 1e9, T: 1e12 }[raw];
 		return n;
 	},
 
@@ -194,8 +260,20 @@ window.EpPanel = {
 		table.classList.add('ep-fixed');
 		table.style.width = w.reduce((a, b) => a + b, 0) + 'px';
 	},
+	/**
+	 * With group headers the column names are a second header row, stuck under the first: its offset is
+	 * the first row's own height (--ep-head1), measured, so it neither covers the first data row nor
+	 * leaves a gap — a fixed 24px did one or the other, by theme.
+	 */
+	headOffset(table) {
+		const rows = table && table.tHead ? table.tHead.rows : [];
+		if (rows.length < 2) return;
+		const h = rows[0].getBoundingClientRect().height;
+		if (h > 0) table.style.setProperty('--ep-head1', `${Math.round(h * 100) / 100}px`);
+	},
 	resizable(ctx) {
 		const { table, root, prefs, kind } = ctx;
+		this.headOffset(table);
 		const lab = this.labelRow(table);
 		if (!lab) return;
 		this.applyWidths(ctx);
@@ -257,83 +335,9 @@ window.EpPanel = {
 		if (cols && cols.hidden && ![...pop.querySelectorAll('button')].some((b) => !b.hidden)) btn.hidden = true;
 	},
 
-	/** The toolbar stays shown while its menu or Table settings is open. */
+	/** The toolbar stays shown while its menu is open. */
 	openState(ctx) {
-		const pop = ctx.root.querySelector('.ep-menu-pop'), set = ctx.root.querySelector('.ep-set');
-		ctx.root.classList.toggle('ep-pt-open', !!(pop && !pop.hidden) || !!(set && !set.hidden));
+		const pop = ctx.root.querySelector('.ep-menu-pop');
+		ctx.root.classList.toggle('ep-pt-open', !!(pop && !pop.hidden));
 	},
-
-	/* ---- Table settings ---- */
-	applyPrefs(ctx) {
-		const { root, prefs } = ctx;
-		root.style.setProperty('--ep-ok', prefs.colors.ok);
-		root.style.setProperty('--ep-warn', prefs.colors.warn);
-		root.style.setProperty('--ep-high', prefs.colors.high);
-		root.classList.toggle('ep-comfortable', prefs.density === 'comfortable');
-		for (const [k] of this.SERVER_COLUMNS) root.classList.toggle('ep-hide-' + k, prefs.hiddenSrv.includes(k));
-	},
-
-	settings(ctx) {
-		const { root, prefs, kind } = ctx;
-		const btn = root.querySelector('[data-ep-settings]');
-		if (!btn) return;
-		const hasServers = !!root.querySelector('.ep-servers, [data-ep-expand]');
-		const box = document.createElement('div');
-		box.className = 'ep-set';
-		box.hidden = true;
-		box.setAttribute('role', 'dialog');
-		box.setAttribute('aria-label', 'Table settings');
-		const radios = (name, opts, cur) => opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}"${v === cur ? ' checked' : ''}> ${l}</label>`).join('');
-		const draw = () => {
-			box.innerHTML = `<div class="ep-set-h"><span>Table settings</span><button type="button" class="ep-pbtn" data-x aria-label="Close">✕</button></div>`
-				+ `<fieldset><legend>Colours</legend><div class="ep-set-row">`
-				+ [['ok', 'Normal'], ['warn', 'Warn'], ['high', 'High']].map(([k, l]) => `<label><input type="color" data-color="${k}" value="${prefs.colors[k]}"> ${l}</label>`).join('')
-				+ `</div></fieldset>`
-				+ `<fieldset><legend>Row height</legend>${radios('ep-dens-' + kind, [['compact', 'Compact'], ['comfortable', 'Comfortable']], prefs.density)}</fieldset>`
-				+ (hasServers
-					? `<fieldset><legend>Server columns</legend>${this.SERVER_COLUMNS.map(([k, l]) => `<label><input type="checkbox" data-sc="${k}"${prefs.hiddenSrv.includes(k) ? '' : ' checked'}> ${l}</label>`).join('')}</fieldset>`
-					: '')
-				+ `<p>Columns: drag a header's right edge to resize, double-click it to fit. The report's own columns, names and order are in ⋮ → Columns.</p>`
-				+ `<p>Thresholds and the bar style are the widget's Warn at, High at and Display settings, so everyone sees the same colours for the same figures. These here are yours alone, kept in this browser.</p>`
-				+ `<button type="button" class="ep-pbtn" data-reset>Reset to defaults</button>`;
-		};
-		draw();
-		root.appendChild(box);
-		const open = (on) => { box.hidden = !on; btn.setAttribute('aria-expanded', String(on)); this.openState(ctx); if (on) { draw(); const f = box.querySelector('input'); if (f) f.focus(); } };
-		btn.addEventListener('click', (e) => {
-			e.stopPropagation();
-			// It is an item in the ⋮ menu: choosing it closes the menu.
-			const pop = root.querySelector('.ep-menu-pop');
-			if (pop) { pop.hidden = true; const m = root.querySelector('[data-ep-menu]'); if (m) m.setAttribute('aria-expanded', 'false'); }
-			open(box.hidden);
-		});
-		box.addEventListener('click', (e) => {
-			e.stopPropagation();
-			if (e.target.closest('[data-x]')) open(false);
-			if (e.target.closest('[data-reset]')) {
-				Object.assign(prefs, JSON.parse(JSON.stringify(this.DEFAULTS)));
-				this.savePrefs(kind, prefs);
-				this.applyPrefs(ctx);
-				if (ctx.table) this.applyWidths(ctx);
-				draw();
-			}
-		});
-		box.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false); });
-		box.addEventListener('input', (e) => {
-			const c = e.target.dataset.color;
-			if (c) { prefs.colors[c] = e.target.value; this.applyPrefs(ctx); }
-		});
-		box.addEventListener('change', (e) => {
-			const t = e.target;
-			if (t.dataset.color) prefs.colors[t.dataset.color] = t.value;
-			else if (t.name === 'ep-dens-' + kind) prefs.density = t.value;
-			else if (t.dataset.sc) {
-				const s = new Set(prefs.hiddenSrv);
-				t.checked ? s.delete(t.dataset.sc) : s.add(t.dataset.sc);
-				prefs.hiddenSrv = [...s];
-			}
-			this.applyPrefs(ctx);
-			this.savePrefs(kind, prefs);
-		});
-	}
 };

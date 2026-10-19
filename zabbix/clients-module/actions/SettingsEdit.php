@@ -33,12 +33,28 @@ class SettingsEdit extends Base {
 			'units' => array_keys(Settings::SIZE_UNITS),
 			'template' => $this->templateUsage(),
 			'template_name' => Roles::templateName('master'),
+			'palette_labels' => self::paletteLabels(),
 			'can_write' => $this->canWrite(),
 			'store_ok' => Store::writable(),
 			'store_dir' => Store::dir()
 		]);
 		$response->setTitle(_('ElasticPro settings'));
 		$this->setResponse($response);
+	}
+
+	/** What each palette colour is called and used for, in the order the Colours card lists them. */
+	public static function paletteLabels(): array {
+		return [
+			'ok' => [_('OK'), _('bars and values under Warn')],
+			'warn' => [_('Warn'), _('over the Warn threshold')],
+			'high' => [_('High'), _('over the High threshold')],
+			'unknown' => [_('Unknown'), _('not collected, no data, allocated not set')],
+			'short' => [_('Short'), _('allocated below requested (hatched)')],
+			'free' => [_('Free'), _('allocated but unused; bar track')],
+			'down' => [_('Down'), _('servers down')],
+			'stale' => [_('Stale'), _('value older than its stale time')],
+			'link' => [_('Link'), _('client names and click-throughs')]
+		];
 	}
 
 	/**

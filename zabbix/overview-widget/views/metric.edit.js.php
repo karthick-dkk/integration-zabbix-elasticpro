@@ -39,11 +39,18 @@ window.ep_overview_metric_form = new class {
 				}
 			}
 		});
+		// Zabbix 7.0's CColor: a hidden input in div.color-picker; the picker's dialog opens in this
+		// popup's body, as the core widgets' forms do (there is no .input-color-picker in 7.0).
 		const colorpickers = () => {
 			this._$thresholds.find('tr.form_row input[name$="[color]"]').each((i, input) => {
 				if (!input.dataset.epInit) {
 					input.dataset.epInit = '1';
-					jQuery(input).colorpicker({appendTo: jQuery(input).closest('.input-color-picker')});
+					const body = jQuery(input).closest('.overlay-dialogue-body');
+					jQuery(input).colorpicker({
+						appendTo: body.length ? body : 'body',
+						use_default: true,
+						onUpdate: function () { this.dispatchEvent(new Event('input', {bubbles: true})); }
+					});
 				}
 			});
 		};

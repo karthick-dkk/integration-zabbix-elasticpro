@@ -10,7 +10,9 @@
 $view = new CWidgetView($data);
 
 if ($data['error'] !== null) {
-	$view->addItem((new CDiv((new CDiv($data['error']))->addClass('ep-empty')))->addClass('ep-panel')->setAttribute('data-ep-panel', 'overview'))->show();
+	$view->addItem((new CDiv((new CDiv($data['error']))->addClass('ep-empty')))->addClass('ep-panel')->setAttribute('data-ep-panel', 'overview')
+		// ElasticPro -> Settings' palette, for the theme this user chose.
+		->setAttribute('style', \Modules\EpOverview\Lib\Settings::paletteStyle()))->show();
 	return;
 }
 $n = count($data['overview']['clients']);
@@ -28,6 +30,8 @@ $toolbar = (new CDiv([
 ]))->addClass('ep-pt');
 
 $view
-	->addItem((new CDiv([$toolbar, (new CDiv(''))->addClass('ep-ov ep-pscroll')->addClass(($data['overview']['view'] ?? 'cards') === 'summary' ? 'ep-ov-sv' : 'ep-ov-cv')]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'overview'))
+	->addItem((new CDiv([$toolbar, (new CDiv(''))->addClass('ep-ov ep-pscroll')->addClass(($data['overview']['view'] ?? 'cards') === 'summary' ? 'ep-ov-sv' : 'ep-ov-cv')]))->addClass('ep-panel')->setAttribute('data-ep-panel', 'overview')
+		// ElasticPro -> Settings' palette, for the theme this user chose.
+		->setAttribute('style', \Modules\EpOverview\Lib\Settings::paletteStyle()))
 	->setVar('ep_overview', $data['overview'])
 	->show();

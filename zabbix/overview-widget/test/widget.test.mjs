@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const HERE = path.resolve(import.meta.dirname, '..');
 const ROOT = path.resolve(HERE, '..');
@@ -33,7 +34,12 @@ test('one definition: clients, servers, thresholds, forecast and the metric rule
     'Settings::usageFor(', 'Forecast::fullIn(', 'Overview::level(', 'Overview::combine(', 'Overview::trend(', 'Overview::arrange(', 'Overview::countProblems(']) {
     assert.ok(php.includes(call), call);
   }
-  assert.ok(read('includes/Overview.php').includes('ClientData::usageClass('), 'Settings levels are ClientData\'s');
+  // The card's arithmetic is the shared column engine's (lib/ColumnMath.php), which every
+  // customisable widget draws with; Settings levels are still ClientData's underneath.
+  assert.ok(read('includes/Overview.php').includes('ColumnMath::level('), 'levels are the shared column engine\'s');
+  assert.ok(read('lib/ColumnMath.php').includes('ClientData::usageClass('), 'Settings levels are ClientData\'s');
+  assert.ok(read('includes/Metrics.php').includes('Columns::cleanThresholds(') && read('includes/Metrics.php').includes('Columns::keyError('),
+    'a metric\'s thresholds and key follow the rule every column follows');
   assert.ok(read('includes/Overview.php').includes('Forecast::fullIn('), 'forecast bands are Forecast\'s');
   // The editor and the field apply the same rule.
   assert.ok(read('actions/MetricEdit.php').includes('Metrics::clean('));
@@ -50,7 +56,11 @@ test('the form has both tabs and every setting of the design, and still reads th
     'forecast_warn', 'forecast_high', 'contract_badge', 'contract_warn', 'contract_high', 'roles_style', 'role_order', 'roles_hidden', 'roles_servers',
     'down_red', 'down_after', 'severities', 'problems_ack', 'problems_suppressed', 'hide_zero', 'stale_after', 'warn_agent', 'warn_nodata',
     'warn_maintenance', 'link_client', 'link_severity', 'link_target', 'config_version', 'view', 'summary_family', 'summary_panels',
-    'summary_warn', 'summary_high']) {
+    'summary_warn', 'summary_high', 'summary_version', 'summary_order', 'summary_w_summary', 'summary_w_chart', 'summary_w_used', 'summary_w_roles',
+    'summary_tiles', 'summary_bars', 'summary_status', 'summary_columns', 'chart_metric', 'chart_switch', 'chart_period_source', 'chart_period_n',
+    'chart_period_unit', 'chart_quick', 'chart_clients', 'chart_top_n', 'chart_top_by', 'chart_isolate', 'chart_style', 'chart_point', 'chart_height',
+    'chart_yaxis', 'chart_lines', 'chart_legend', 'chart_sort', 'chart_color', 'chart_view_metric', 'chart_view_period', 'ua_groups', 'ua_sort', 'ua_bar',
+    'sr_style', 'sr_count', 'sr_percent']) {
     assert.ok(form.includes(`'${field}'`), field);
   }
   for (const old of ['client', 'client_type', 'show_summary', 'show_used', 'show_roles', 'family', 'usage_warn', 'usage_high']) {
@@ -63,13 +73,28 @@ test('the form has both tabs and every setting of the design, and still reads th
   // jQuery UI tabs are started on the id CTabView was constructed with: setId() alone leaves bare links.
   assert.match(edit, /new CTabView\(\['id' => 'ep_ov_tabs'\]\)/);
   assert.ok(!/->setId\('ep_ov_tabs'\)/.test(edit), 'no setId on the tab view');
-  assert.ok(edit.includes("_('Summary view')") && edit.includes('ep-ov-cards-only'), 'each view\'s settings are grouped');
+  assert.ok(edit.includes("_('Summary cards')") && edit.includes("_('Usage chart')") && edit.includes('ep-ov-cards-only'), 'each view\'s settings are grouped');
+  assert.ok(edit.includes("addVar('summary_version'"), 'a saved form is marked as having the Summary view\'s settings');
+  assert.ok(read('views/widget.edit.js.php').includes("'ep-ov-panels'"), 'the panels are dragged into order');
   // Warn and High: empty means Settings, never a 0 in the box.
   assert.ok(!/CWidgetFieldIntegerBox\('(usage_warn|usage_high)'/.test(form), 'no integer box for thresholds');
   assert.ok(read('views/metric.edit.php').includes("_s('Settings: %1\$s'"), 'the editor shows the Settings value as the placeholder');
   assert.ok(fs.readFileSync(path.join(ROOT, 'master/import.py'), 'utf8').includes('"ep_overview"'), 'import.py makes its dashboard');
   const res = fs.readFileSync(path.join(ROOT, 'resources-widget/views/widget.view.php'), 'utf8');
-  assert.ok(!res.includes('ep_overview') && !res.includes("'data-ep-view'"), 'Client resources has no overview of its own');
+  // Client resources has its own Table / Pie chart switch since 2.1.1 — a view of its own figures,
+  // not the Client overview drawn inside it.
+  assert.ok(!res.includes('ep_overview') && !res.includes('ep-ov-'), 'Client resources has no overview of its own');
+});
+
+test('the usage chart reads and combines with the shared column engine and draws in the palette', () => {
+  const chart = read('includes/Chart.php');
+  assert.ok(chart.includes('ColumnMath::trend(ColumnMath::hostSeries('), 'a client\'s line is the engine\'s combine, the one the cards use');
+  assert.ok(!/function (trend|hostSeries|combine|bucket)\(/.test(chart), 'no second copy of the arithmetic');
+  const php = read('actions/WidgetView.php');
+  assert.ok(php.includes('$this->reader->series($want, $historyUnder, $bucket, $stats)') && php.includes('$this->targets($m, $catalogue, $mid'), 'read through ColumnReader');
+  assert.ok(read('lib/ColumnMath.php').includes('function bucketStats(') && read('lib/ColumnReader.php').includes('bool $stats = false'), 'the engine has what the chart needs');
+  const js = read('assets/js/ep-overview-summary.js');
+  assert.ok(js.includes('var(--ep-s${'), 'series colours are the palette\'s variables');
 });
 
 test('the Summary view is the 2.0 widget restored, with its own scoped styles', () => {
@@ -115,7 +140,7 @@ test('no field in the edit dialog is wider than the dialog', () => {
 });
 
 test('links go to real Zabbix 7.0 pages', () => {
-  const php = read('actions/WidgetView.php') + read('includes/Overview.php');
+  const php = read('actions/WidgetView.php') + read('includes/Overview.php') + read('lib/ColumnMath.php');
   for (const action of ["'problem.view'", "'host.dashboard.view'", "'latest.view'", "'ep.clients.edit'", "'elasticpro.overview'", "'showgraph'", "'batchgraph'"]) {
     assert.ok(php.includes(action), action);
   }
@@ -130,4 +155,53 @@ test('WidgetView and the metric rules against a fake Zabbix (PHP)', (t) => {
     : local;
   if (r.error || noDocker(r)) { t.skip('no php and no docker here — run test/view.test.php where PHP is'); return; }
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+});
+
+test('Summary view: the Data tab keeps the Metrics list the usage chart offers; only what the Summary does not use is hidden (DOM)', (t) => {
+  let lib = null;
+  for (const base of [path.resolve(HERE, '..'), path.resolve(HERE, '../../..')]) {
+    try { lib = createRequire(path.join(base, 'package.json'))('jsdom'); break; } catch { /* next */ }
+  }
+  if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const edit = read('views/widget.edit.php');
+  const metricsRow = edit.slice(edit.indexOf("$row($dataGrid, new CLabel(_('Metrics'))"), edit.indexOf('// Order clients by'));
+  assert.ok(metricsRow.length > 0 && !metricsRow.includes('ep-ov-cards-only'), 'the Metrics row is in both views');
+  assert.match(metricsRow, /ep-ov-summary-only/, '…saying, in the Summary view, that the usage chart offers them');
+  assert.match(metricsRow, /usage chart offers these metrics in its metric menu/);
+  for (const cardsOnly of ["new CLabel(_('Trend window'))", "new CLabel(_('Order clients by')", '$only->getLabel()']) {
+    const at = edit.indexOf(cardsOnly);
+    assert.ok(at > 0 && edit.slice(at, edit.indexOf(';\n', at)).includes("'ep-ov-cards-only'"), `${cardsOnly}: Cards only (the Summary view does not use it)`);
+  }
+  // And the form script shows and hides them so.
+  let src = read('views/widget.edit.js.php');
+  src = src.slice(src.indexOf('?>') + 2).replace(/<\?= WidgetForm::VIEW_SUMMARY \?>/g, '1').replace(/<\?= WidgetForm::TREND_DAYS \?>/g, '1')
+    .replace(/<\?= ZBX_STYLE_DRAG_ICON \?>/g, 'drag-icon')
+    .replace(/<\?= json_encode\(_\('((?:[^'\\]|\\.)*)'\)\) \?>/g, (_, x) => JSON.stringify(x));
+  assert.ok(!src.includes('<?'), 'every PHP tag replaced');
+  const dom = new lib.JSDOM(`<body><form id="widget-dialogue-form">
+    <input type="radio" name="view" value="0" checked><input type="radio" name="view" value="1">
+    <label class="ep-ov-cards-only" id="trend">Trend window</label>
+    <table id="ep-ov-metrics"><tbody><tr><td>m</td></tr></tbody></table><div class="ep-ov-hint ep-ov-summary-only" id="hint">offered</div>
+    <label class="ep-ov-cards-only" id="order">Order clients by</label>
+  </form></body>`, { runScripts: 'outside-only' });
+  const w = dom.window;
+  w.CSortable = class {};
+  w.eval(src);
+  w.widget_ep_overview_form.init({ templateid: null, trend_days: 7, stale_after: 0, max: 30 });
+  const shown = (id) => w.document.getElementById(id).style.display !== 'none';
+  assert.ok(shown('ep-ov-metrics') && !shown('hint') && shown('trend') && shown('order'), 'Cards: everything, no Summary note');
+  const summary = w.document.querySelector('[name="view"][value="1"]');
+  summary.checked = true;
+  summary.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.ok(shown('ep-ov-metrics') && shown('hint'), 'Summary: the Metrics list stays, with its note');
+  assert.ok(!shown('trend') && !shown('order'), 'Summary: the Cards-only settings go');
+});
+
+test('the metric editor\'s threshold colours get Zabbix 7.0\'s colour picker in the popup, not a selector 7.0 never renders', () => {
+  const js = read('views/metric.edit.js.php');
+  const init = js.slice(js.indexOf('const colorpickers'), js.indexOf('colorpickers();'));
+  assert.match(init, /closest\('\.overlay-dialogue-body'\)/);
+  assert.match(init, /use_default: true/);
+  assert.ok(!/appendTo: jQuery\(input\)\.closest\('\.input-color-picker'\)/.test(init), 'no .input-color-picker: 7.0\'s CColor is div.color-picker');
+  assert.ok(read('views/metric.edit.php').includes("new CColor('thresholds[#{rowNum}][color]'"), 'the rows are CColor boxes');
 });

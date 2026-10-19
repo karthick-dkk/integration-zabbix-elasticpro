@@ -4,9 +4,13 @@
  * expanding a client into its servers.
  *
  * `meta` comes from the widget's controller: {report, action, token, canEdit, columns:
- * [{id, label, default, hidden, section}], families?: [{id, label, split}]}. Saving posts the
- * settings to the widget module's own action and redraws the widget; the settings are one for
- * everyone and apply to the table and to the export.
+ * [{id, label, default, hidden, section}], families?: [{id, label, split}], own?: {columns,
+ * server_columns}}. Saving posts the settings to the widget module's own action and redraws the
+ * widget; the settings are one for everyone and apply to the table and to the export.
+ *
+ * In Client resources these are the report defaults — what every widget showing "Columns from:
+ * Report defaults" draws — and `own` is the widget's own list when it has one, which a Super
+ * admin can make the report defaults from here.
  *
  * Shared: sync-assets.mjs copies this into every widget's assets/js. Edit it here.
  */
@@ -89,8 +93,14 @@ window.EpColumns = {
 		const draw = () => {
 			box.innerHTML = '';
 			const h = document.createElement('h3');
-			h.textContent = 'Columns — ' + meta.title;
+			h.textContent = 'Columns — ' + meta.title + (meta.own !== undefined ? ' (report defaults)' : '');
 			box.appendChild(h);
+			if (meta.own !== undefined) {
+				const note = document.createElement('div');
+				note.className = 'ep-modal-note';
+				note.textContent = 'Every widget whose Columns from is Report defaults shows these. Bars, colours, thresholds and new columns are set in a widget\'s own Columns tab.';
+				box.appendChild(note);
+			}
 			if (meta.families && meta.families.length) {
 				const fam = document.createElement('div');
 				fam.className = 'ep-modal-families';
@@ -177,7 +187,16 @@ window.EpColumns = {
 			});
 			const msg = document.createElement('span');
 			msg.className = 'ep-modal-msg';
-			bar.append(reset, msg, cancel, save);
+			bar.append(reset);
+			if (meta.own) {
+				// This widget's own columns, bars and colours included, as everyone's defaults.
+				bar.append(this.button('Use this widget\'s columns', 'btn-alt', () => {
+					if (window.confirm('Make this widget\'s columns the report defaults? Every widget that follows them changes.')) {
+						this.post(widget, meta, {columns: JSON.stringify(meta.own)}, shade);
+					}
+				}));
+			}
+			bar.append(msg, cancel, save);
 			box.appendChild(bar);
 		};
 		draw();
