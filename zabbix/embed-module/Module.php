@@ -32,7 +32,7 @@ class Module extends CoreModule {
 		'indices'    => 'Indices',
 		'shards'     => 'Nodes & shards',
 		'logs'       => 'Live logs & log delay',
-		'snapshots'  => 'Snapshots & SLM',
+		'snapshots'  => 'Snapshots',
 		'volume'     => 'Volume report',
 		'console'    => 'REST console',
 		'automation' => 'Automation',
