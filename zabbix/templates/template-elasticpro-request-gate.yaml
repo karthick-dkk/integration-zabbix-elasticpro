@@ -1,0 +1,880 @@
+# Zabbix 7.0 template: ElasticPro's own request gate, pushed by the core.
+#
+# The ElasticPro core (0.3.24 or later) pushes one JSON value a minute to the trapper item
+# elasticpro.gate.raw by the Zabbix API's history.push, when ZABBIX_METRICS_HOST in its
+# config.txt names the host this template is linked to. Every other item is a dependent
+# item of that one. No agent, no polling: Zabbix waits for the core.
+#
+# After import: create (or pick) a host, link this template, set ZABBIX_METRICS_HOST to the
+# host's technical name, and give the ElasticPro API token's user read-write permission on
+# that host's host group. See README.md next to this file.
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: a4d66365396d4f7fb44b205013911a63
+      name: 'Templates/Applications'
+  templates:
+    - uuid: 8d3f63029b544b7b8026e50443f9ca2f
+      template: 'ElasticPro request gate by Zabbix trapper'
+      name: 'ElasticPro request gate by Zabbix trapper'
+      description: |
+        What ElasticPro's Request Centre shows, in Zabbix: requests in flight and queued per class,
+        how long people wait for a slot (p95), requests turned away and why, answers shared, cached
+        or over the response cap, requests per minute, the poller's mode and pause, and the memory
+        budgets in use.
+
+        The ElasticPro core pushes the figures itself (history.push over its Zabbix API
+        connection) every 60 s when ZABBIX_METRICS_HOST names this host. Aggregates only: no
+        cluster name, address or URL is ever sent. Zabbix 7.0 or later.
+      vendor:
+        name: ElasticPro
+        version: 7.0-1
+      groups:
+        - name: 'Templates/Applications'
+      items:
+        - uuid: 1584aef51d8844108f927fe698964c50
+          name: 'Request gate: raw figures'
+          type: TRAP
+          key: elasticpro.gate.raw
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: |
+            The JSON document the ElasticPro core pushes every 60 s (history.push). Every other item
+            is a dependent item of this one. Kept for an hour, for looking at the raw value.
+          tags:
+            - tag: component
+              value: raw
+          triggers:
+            - uuid: a85c53c871664e369370b85cb90df8fc
+              expression: 'nodata(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.raw,{$ELASTICPRO.GATE.NODATA})=1'
+              name: 'ElasticPro: request figures stopped arriving'
+              priority: AVERAGE
+              description: |
+                The ElasticPro core pushes its request figures here every 60 s and none has arrived for {$ELASTICPRO.GATE.NODATA}.
+                Either the core is down or restarting, or the push is failing. The Request Centre in ElasticPro shows the push's state on its Zabbix line, and the core log says why ("zabbix push failed").
+                Usual causes: ZABBIX_METRICS_HOST in config.txt does not name this host exactly; the API token's user lacks read-write permission on this host; the Zabbix API is not paired (Config > Zabbix); the host or the item is disabled.
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: 279279e97d404f77a749b55f27284620
+          name: 'Request gate: Version'
+          type: DEPENDENT
+          key: 'elasticpro.gate.version'
+          delay: '0'
+          value_type: CHAR
+          trends: '0'
+          description: 'The ElasticPro core''s version.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.version'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: application
+          triggers:
+            - uuid: 0bf943da4d644b1cacac4b0fd5b85353
+              expression: 'change(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.version)=1'
+              name: 'ElasticPro: version has changed'
+              opdata: 'Now: {ITEM.LASTVALUE1}'
+              priority: INFO
+              manual_close: 'YES'
+              description: |
+                The ElasticPro core reports a different version than before: an upgrade or a rollback. Close the problem by hand once it is expected.
+              tags:
+                - tag: scope
+                  value: notice
+        - uuid: 00c2df9e9803464aab1d6d6325b82166
+          name: 'Request gate: In flight: total'
+          type: DEPENDENT
+          key: 'elasticpro.gate.inflight[total]'
+          delay: '0'
+          description: 'Requests to Elasticsearch holding a slot at the moment of the push (all classes).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.inflight.total'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 6f6318c41c7b4612920e4d5854ebc79a
+          name: 'Request gate: In flight: interactive'
+          type: DEPENDENT
+          key: 'elasticpro.gate.inflight[interactive]'
+          delay: '0'
+          description: 'Requests to Elasticsearch holding a slot at the moment of the push (a person''s requests).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.inflight.interactive'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: dec0895d348444ebac21ac48a5b4fedf
+          name: 'Request gate: In flight: prompted'
+          type: DEPENDENT
+          key: 'elasticpro.gate.inflight[prompted]'
+          delay: '0'
+          description: 'Requests to Elasticsearch holding a slot at the moment of the push (the poller fetching what a page waits on).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.inflight.prompted'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 5a94e737edb849a3850745f02fb60235
+          name: 'Request gate: In flight: background'
+          type: DEPENDENT
+          key: 'elasticpro.gate.inflight[background]'
+          delay: '0'
+          description: 'Requests to Elasticsearch holding a slot at the moment of the push (the poller''s own schedule).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.inflight.background'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 159cf4976210469fa36d8d8b3ee8bf89
+          name: 'Request gate: Queued: total'
+          type: DEPENDENT
+          key: 'elasticpro.gate.queued[total]'
+          delay: '0'
+          description: 'Requests waiting for a slot at the moment of the push (all classes).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.queued.total'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+          triggers:
+            - uuid: 09c9f5ad42154bf783d22e3478cd7dab
+              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.queued[total],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.QUEUED.CRIT}'
+              name: 'ElasticPro: requests have been queueing for {$ELASTICPRO.GATE.WINDOW}'
+              opdata: 'Queued: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+              description: |
+                At every push for {$ELASTICPRO.GATE.WINDOW}, at least {$ELASTICPRO.GATE.QUEUED.CRIT} requests to Elasticsearch were waiting at ElasticPro's request gate for a free slot.
+                The gate's limits (ES_CONCURRENCY, ES_PER_CLUSTER) are too low for the load, or clusters answer slowly and hold their slots. Open the Request Centre: the Per cluster table shows where the queue is.
+              tags:
+                - tag: scope
+                  value: performance
+            - uuid: 3a3bfac27a804b0eafbf7fe3ba3dbeb4
+              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.queued[total],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.QUEUED.WARN}'
+              name: 'ElasticPro: requests are queueing'
+              opdata: 'Queued: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              description: |
+                At every push for {$ELASTICPRO.GATE.WINDOW}, at least {$ELASTICPRO.GATE.QUEUED.WARN} requests were waiting for a slot. Not yet refusing; see the Request Centre.
+              dependencies:
+                - name: 'ElasticPro: requests have been queueing for {$ELASTICPRO.GATE.WINDOW}'
+                  expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.queued[total],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.QUEUED.CRIT}'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: cd642ca59e344aa391767ccabaa9d769
+          name: 'Request gate: Queued: interactive'
+          type: DEPENDENT
+          key: 'elasticpro.gate.queued[interactive]'
+          delay: '0'
+          description: 'Requests waiting for a slot at the moment of the push (a person''s requests).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.queued.interactive'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: a3884ee4e6e241d5af59275db706800e
+          name: 'Request gate: Queued: prompted'
+          type: DEPENDENT
+          key: 'elasticpro.gate.queued[prompted]'
+          delay: '0'
+          description: 'Requests waiting for a slot at the moment of the push (the poller fetching what a page waits on).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.queued.prompted'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 92e28406ca2c4359888fc57406a3c5b0
+          name: 'Request gate: Queued: background'
+          type: DEPENDENT
+          key: 'elasticpro.gate.queued[background]'
+          delay: '0'
+          description: 'Requests waiting for a slot at the moment of the push (the poller''s own schedule).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.queued.background'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: deea52c60e2e4e128375196fd16c22c0
+          name: 'Request gate: Queued: oldest wait'
+          type: DEPENDENT
+          key: 'elasticpro.gate.queued.oldest'
+          delay: '0'
+          value_type: FLOAT
+          units: 's'
+          description: 'How long the request that has waited longest had waited, at the moment of the push. 0 with nothing queued.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.queued.oldest_wait_ms'
+            - type: MULTIPLIER
+              parameters:
+                - '0.001'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 810abcf6f6084ff7851c06eb0391ca42
+          name: 'Request gate: Wait p95: interactive'
+          type: DEPENDENT
+          key: 'elasticpro.gate.wait.p95[interactive]'
+          delay: '0'
+          value_type: FLOAT
+          units: 's'
+          description: '95th percentile of how long a person''s requests waited for a slot over the last minute. No value in a minute without such requests: unknown is not zero.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.wait_p95_ms.interactive'
+              error_handler: DISCARD_VALUE
+            - type: MULTIPLIER
+              parameters:
+                - '0.001'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+          triggers:
+            - uuid: 2252ee96cefb41d795f2a6ac93706f06
+              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.CRIT} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES}'
+              name: 'ElasticPro: people wait too long for a request slot'
+              opdata: 'Wait p95: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+              description: |
+                The 95th percentile of how long a person's request waited for a slot stayed above {$ELASTICPRO.GATE.WAIT.P95.CRIT} s for {$ELASTICPRO.GATE.WINDOW} (at least {$ELASTICPRO.GATE.WAIT.SAMPLES} minutes with requests). Close to ES_QUEUE_WAIT_MS, past which requests are refused.
+                Minutes in which nobody asked for anything send no p95 and do not count.
+              tags:
+                - tag: scope
+                  value: performance
+            - uuid: af372c8462c64d08bc1929b54624b31e
+              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.WARN} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES}'
+              name: 'ElasticPro: people wait for a request slot'
+              opdata: 'Wait p95: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              description: |
+                The 95th percentile wait of a person's request stayed above {$ELASTICPRO.GATE.WAIT.P95.WARN} s for {$ELASTICPRO.GATE.WINDOW}.
+              dependencies:
+                - name: 'ElasticPro: people wait too long for a request slot'
+                  expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.CRIT} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES}'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: b0879201b90a468697f74a8a0c7d225c
+          name: 'Request gate: Wait p95: prompted'
+          type: DEPENDENT
+          key: 'elasticpro.gate.wait.p95[prompted]'
+          delay: '0'
+          value_type: FLOAT
+          units: 's'
+          description: '95th percentile of how long the poller fetching what a page waits on waited for a slot over the last minute. No value in a minute without such requests: unknown is not zero.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.wait_p95_ms.prompted'
+              error_handler: DISCARD_VALUE
+            - type: MULTIPLIER
+              parameters:
+                - '0.001'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 1f6131d7319b49f3bb7afd791f0ce188
+          name: 'Request gate: Wait p95: background'
+          type: DEPENDENT
+          key: 'elasticpro.gate.wait.p95[background]'
+          delay: '0'
+          value_type: FLOAT
+          units: 's'
+          description: '95th percentile of how long the poller''s own schedule waited for a slot over the last minute. No value in a minute without such requests: unknown is not zero.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.wait_p95_ms.background'
+              error_handler: DISCARD_VALUE
+            - type: MULTIPLIER
+              parameters:
+                - '0.001'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 7bfcfd1b07314c67b3e88535d60bd6fd
+          name: 'Request gate: Granted in the last minute'
+          type: DEPENDENT
+          key: 'elasticpro.gate.granted[total]'
+          delay: '0'
+          description: 'Requests given a slot in the last minute, immediate ones included: how many waits the p95 figures are drawn from.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.granted.total'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: b388081588e149539cacb3eca8a2832a
+          name: 'Request gate: Turned away in the last minute'
+          type: DEPENDENT
+          key: 'elasticpro.gate.refused[total]'
+          delay: '0'
+          description: 'Requests the gate refused in the last minute, every reason together (the Request Centre''s "Turned away").'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.refused.total'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+          triggers:
+            - uuid: eea71bd8fede48dba92232c5a8593422
+              expression: 'sum(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.refused[total],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.REFUSED.CRIT}'
+              name: 'ElasticPro: many requests turned away'
+              opdata: 'Turned away in the window: {ITEM.VALUE1}'
+              priority: AVERAGE
+              description: |
+                ElasticPro's request gate refused at least {$ELASTICPRO.GATE.REFUSED.CRIT} requests in {$ELASTICPRO.GATE.WINDOW} ("overloaded": the queue was full; "queue_timeout": a person's request waited longer than ES_QUEUE_WAIT_MS). People see "busy, try again" instead of their page.
+                Raise the gate's limits if the clusters can take it, or find what floods the queue in the Request Centre.
+              tags:
+                - tag: scope
+                  value: performance
+            - uuid: c617cb25b56945e0a0437f65e6fc0ebd
+              expression: 'sum(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.refused[total],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.REFUSED.WARN}'
+              name: 'ElasticPro: requests turned away'
+              opdata: 'Turned away in the window: {ITEM.VALUE1}'
+              priority: WARNING
+              description: |
+                The request gate refused at least {$ELASTICPRO.GATE.REFUSED.WARN} requests in {$ELASTICPRO.GATE.WINDOW}.
+              dependencies:
+                - name: 'ElasticPro: many requests turned away'
+                  expression: 'sum(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.refused[total],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.REFUSED.CRIT}'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 368e09b9f2df4c3ea892fd071985660c
+          name: 'Request gate: Turned away: queue full'
+          type: DEPENDENT
+          key: 'elasticpro.gate.refused[overloaded]'
+          delay: '0'
+          description: 'Refused in the last minute because the queue was full (ES_QUEUE_MAX, ES_QUEUE_PER_USER): "overloaded".'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.refused.overloaded'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 22560257841b4889ac1c766f2d4dcc50
+          name: 'Request gate: Turned away: waited too long'
+          type: DEPENDENT
+          key: 'elasticpro.gate.refused[queue_timeout]'
+          delay: '0'
+          description: 'Refused in the last minute because a person''s request waited longer than ES_QUEUE_WAIT_MS: "queue_timeout".'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.refused.queue_timeout'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: b3070c7596a6473dbaa33a9ddaac4aa2
+          name: 'Request gate: Answers over the response cap'
+          type: DEPENDENT
+          key: 'elasticpro.gate.too_large'
+          delay: '0'
+          description: 'Answers in the last minute that were larger than the response cap and were not read ("response_too_large"). The request was sent, so it is not counted as turned away.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.too_large'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+          triggers:
+            - uuid: e0ccffe9022f4a5e8398d4ccaacbde62
+              expression: 'sum(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.too_large,1h)>={$ELASTICPRO.GATE.TOO_LARGE.WARN}'
+              name: 'ElasticPro: answers over the response cap'
+              opdata: 'In the last hour: {ITEM.VALUE1}'
+              priority: INFO
+              description: |
+                At least {$ELASTICPRO.GATE.TOO_LARGE.WARN} answers in the last hour were larger than ES_MAX_RESPONSE_MB / ES_MAX_FLEET_RESPONSE_MB (or the in-flight memory budget) and were not read. Pages asked for too much at once; raise the cap only if the container's memory allows.
+              tags:
+                - tag: scope
+                  value: capacity
+        - uuid: 6909e985d73642bf856ac95652a3eab9
+          name: 'Request gate: Shared answers'
+          type: DEPENDENT
+          key: 'elasticpro.gate.shared'
+          delay: '0'
+          description: 'Requests in the last minute answered by joining an identical request already on its way.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.shared'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 8d2a608c4ea3432184262949660a540f
+          name: 'Request gate: Cached answers'
+          type: DEPENDENT
+          key: 'elasticpro.gate.cached'
+          delay: '0'
+          description: 'Requests in the last minute answered from the short read cache.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.cached'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 6d22929a33504364a8cb14b3d635da66
+          name: 'Request gate: Requests sent per minute'
+          type: DEPENDENT
+          key: 'elasticpro.gate.requests.rate'
+          delay: '0'
+          units: '!req/min'
+          description: 'Requests ElasticPro sent to Elasticsearch clusters in the last minute, every cluster together.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.requests_per_min'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: abc714ad9c60459a80a52319dfbbaa97
+          name: 'Request gate: Limit: requests at once'
+          type: DEPENDENT
+          key: 'elasticpro.gate.limit[global]'
+          delay: '0'
+          description: 'ES_CONCURRENCY: requests open at once, every cluster together.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.limits.global'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: config
+        - uuid: 79346cf64b504285942e1b90d9e4a44d
+          name: 'Request gate: Limit: queue size'
+          type: DEPENDENT
+          key: 'elasticpro.gate.limit[queue_max]'
+          delay: '0'
+          description: 'ES_QUEUE_MAX: requests that may wait at once before more are refused.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.limits.queue_max'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: config
+        - uuid: a2d715b4b6684f059397e9eec5605f6e
+          name: 'Request gate: Limit: longest wait'
+          type: DEPENDENT
+          key: 'elasticpro.gate.limit[queue_wait]'
+          delay: '0'
+          value_type: FLOAT
+          units: 's'
+          description: 'ES_QUEUE_WAIT_MS: how long a person''s request may wait for a slot.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.limits.queue_wait_ms'
+            - type: MULTIPLIER
+              parameters:
+                - '0.001'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: config
+        - uuid: 5f38a5dc404941d4b61927ba54b4bf04
+          name: 'Request gate: Poller mode'
+          type: DEPENDENT
+          key: 'elasticpro.gate.policy.mode'
+          delay: '0'
+          valuemap:
+            name: 'ElasticPro poller mode'
+          description: 'The fleet poller''s policy mode, as set in the Request Centre or policy.json.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.policy.mode'
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var m = {'auto': 0, 'background': 1, 'hybrid': 2, 'on-demand': 3};
+                  return (value in m) ? m[value] : 255;
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: policy
+        - uuid: beb077abe5e846c9a2c54d9f492548b1
+          name: 'Request gate: Requests paused'
+          type: DEPENDENT
+          key: 'elasticpro.gate.paused'
+          delay: '0'
+          valuemap:
+            name: 'ElasticPro pause state'
+          description: '1 while every request to Elasticsearch is paused (the Request Centre''s Stop).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.policy.paused_all'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: policy
+          triggers:
+            - uuid: 85deea91e4da4141b9d256807393ade6
+              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.paused,{$ELASTICPRO.GATE.PAUSED.MAX})=1'
+              name: 'ElasticPro: every request to Elasticsearch is paused'
+              priority: WARNING
+              description: |
+                Somebody pressed Stop in the Request Centre more than {$ELASTICPRO.GATE.PAUSED.MAX} ago and it is still on: no page and no poller asks any cluster anything, so ElasticPro shows only what it had cached. Resume in the Request Centre when the reason has passed.
+              tags:
+                - tag: scope
+                  value: notice
+        - uuid: 8fc7b516cb844806a7011f9570b6ba30
+          name: 'Request gate: Clusters paused one by one'
+          type: DEPENDENT
+          key: 'elasticpro.gate.paused.clusters'
+          delay: '0'
+          description: 'How many clusters are paused individually. A count: which ones is in the Request Centre.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.policy.paused_clusters'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: policy
+        - uuid: e8413cee553a4cf597708904c96d5442
+          name: 'Request gate: Clusters known'
+          type: DEPENDENT
+          key: 'elasticpro.gate.clusters'
+          delay: '0'
+          description: 'How many clusters the core knows (Zabbix hosts and the config file). A count: no names are sent.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.clusters'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: application
+        - uuid: c716969bb60c41a4ae8ac43783da5c78
+          name: 'Request gate: Memory: fleet cache used'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[cache.used]'
+          delay: '0'
+          units: 'B'
+          description: 'Bytes the fleet cache holds, every body together, counted as the cache counts them against its budget.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.cache_used_bytes'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: cd6225187396420b9de988179b7593c7
+          name: 'Request gate: Memory: fleet cache budget'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[cache.budget]'
+          delay: '0'
+          units: 'B'
+          description: 'The fleet cache''s budget: a quarter of CORE_MEM_LIMIT, or CACHE_MB.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.cache_budget_bytes'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 34aac9c754ce43ba870150f361c27c18
+          name: 'Request gate: Memory: answers being read'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[inflight.used]'
+          delay: '0'
+          units: 'B'
+          description: 'Bytes of answers being received or parsed right now, every request together.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.inflight_used_bytes'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: d23530e5a5614a9b8b2e39c297dbda10
+          name: 'Request gate: Memory: answers being read, budget'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[inflight.budget]'
+          delay: '0'
+          units: 'B'
+          description: 'The most ElasticPro may hold in answers being read at once: a quarter of CORE_MEM_LIMIT.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.inflight_budget_bytes'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 954d8cad5b86433ca6b832358dd0825e
+          name: 'Request gate: Memory: read cache used'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[readcache.used]'
+          delay: '0'
+          units: 'B'
+          description: 'Bytes in the short read cache.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.read_cache_used_bytes'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 2adac1e2f027485fab51133c995b1ee7
+          name: 'Request gate: Memory: read cache budget'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[readcache.budget]'
+          delay: '0'
+          units: 'B'
+          description: 'The read cache''s budget (ES_READ_CACHE_MB, at most a sixteenth of CORE_MEM_LIMIT).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.read_cache_budget_bytes'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: dca531b48b4d4392a0c1997d2daebadc
+          name: 'Request gate: Memory: container limit'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[limit]'
+          delay: '0'
+          units: 'B'
+          description: 'The container''s memory limit as the core reads it from its cgroup. No value when there is none.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.limit_bytes'
+              error_handler: DISCARD_VALUE
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: 740fa0595c8c4adbaa5f003dff1ec661
+          name: 'Request gate: Memory: fleet cache used, %'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[cache.pused]'
+          delay: '0'
+          value_type: FLOAT
+          units: '%'
+          description: 'The fleet cache''s share of its budget. Near 100% is normal on a large fleet (it evicts on-demand bodies first); background bodies being dropped is logged by the core.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.cache_pused'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+        - uuid: a58b01ebcd804e6d809533e872821fc1
+          name: 'Request gate: Memory: answers being read, %'
+          type: DEPENDENT
+          key: 'elasticpro.gate.memory[inflight.pused]'
+          delay: '0'
+          value_type: FLOAT
+          units: '%'
+          description: 'The share of the in-flight answer budget in use at the moment of the push.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.memory.inflight_pused'
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: memory
+          triggers:
+            - uuid: e09e8cc71c244586a4e4a642c735f269
+              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.memory[inflight.pused],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.INFLIGHT.PUSED.WARN}'
+              name: 'ElasticPro: in-flight answer memory nearly used up'
+              opdata: 'In use: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              description: |
+                For {$ELASTICPRO.GATE.WINDOW}, more than {$ELASTICPRO.GATE.INFLIGHT.PUSED.WARN}% of the memory ElasticPro may spend on answers being read at once was in use at every push. New large answers wait for room or are refused as too large. Raise CORE_MEM_LIMIT, or narrow the requests.
+              tags:
+                - tag: scope
+                  value: capacity
+      tags:
+        - tag: class
+          value: software
+        - tag: target
+          value: elasticpro
+      macros:
+        - macro: '{$ELASTICPRO.GATE.NODATA}'
+          value: '5m'
+          description: 'Alert when no figures have arrived for this long. The core pushes every 60 s and backs off to 10 min while pushes fail.'
+        - macro: '{$ELASTICPRO.GATE.WINDOW}'
+          value: '10m'
+          description: 'How long a condition must hold (queueing, waits, memory) or how far back refusals are added up.'
+        - macro: '{$ELASTICPRO.GATE.QUEUED.WARN}'
+          value: '1'
+          description: 'Warning: at least this many requests queued at every push in the window.'
+        - macro: '{$ELASTICPRO.GATE.QUEUED.CRIT}'
+          value: '20'
+          description: 'Average: at least this many requests queued at every push in the window.'
+        - macro: '{$ELASTICPRO.GATE.REFUSED.WARN}'
+          value: '5'
+          description: 'Warning: at least this many requests turned away in the window.'
+        - macro: '{$ELASTICPRO.GATE.REFUSED.CRIT}'
+          value: '50'
+          description: 'Average: at least this many requests turned away in the window.'
+        - macro: '{$ELASTICPRO.GATE.WAIT.P95.WARN}'
+          value: '5'
+          description: 'Warning: a person''s wait p95 above this many seconds for the whole window.'
+        - macro: '{$ELASTICPRO.GATE.WAIT.P95.CRIT}'
+          value: '15'
+          description: 'Average: a person''s wait p95 above this many seconds for the whole window (ES_QUEUE_WAIT_MS is 20 s by default).'
+        - macro: '{$ELASTICPRO.GATE.WAIT.SAMPLES}'
+          value: '3'
+          description: 'The wait triggers need at least this many minutes with requests in the window, so one slow minute alone does not fire them.'
+        - macro: '{$ELASTICPRO.GATE.PAUSED.MAX}'
+          value: '30m'
+          description: 'Alert when every request has been paused for longer than this.'
+        - macro: '{$ELASTICPRO.GATE.TOO_LARGE.WARN}'
+          value: '10'
+          description: 'Info: at least this many answers over the response cap in an hour.'
+        - macro: '{$ELASTICPRO.GATE.INFLIGHT.PUSED.WARN}'
+          value: '90'
+          description: 'Warning: in-flight answer memory above this percentage for the whole window.'
+      valuemaps:
+        - uuid: 329f7f00047241f7804528d96f102746
+          name: 'ElasticPro pause state'
+          mappings:
+            - value: '0'
+              newvalue: 'Running'
+            - value: '1'
+              newvalue: 'Paused'
+        - uuid: c21b02bc9b7c4789b489aa0c73400a13
+          name: 'ElasticPro poller mode'
+          mappings:
+            - value: '0'
+              newvalue: 'auto'
+            - value: '1'
+              newvalue: 'background'
+            - value: '2'
+              newvalue: 'hybrid'
+            - value: '3'
+              newvalue: 'on-demand'
+            - value: '255'
+              newvalue: 'unknown'
