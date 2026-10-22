@@ -89,6 +89,7 @@ class ClientEdit extends Base {
 			'errors' => $errors,
 			'cloned_from' => $clonedFrom,
 			'can_write' => $c->canWrite(),
+			'write_note' => $c->writeNote(),
 			'done' => $done
 		]);
 		$response->setTitle($mode === 'add' ? _('Add client') : _s('Client %1$s', $form['name']));

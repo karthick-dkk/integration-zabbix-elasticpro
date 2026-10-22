@@ -70,7 +70,7 @@ namespace {
 	}
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions', 'EpRole'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	$dir = sys_get_temp_dir().'/ep-views-'.getmypid();
@@ -137,6 +137,13 @@ namespace Modules\EpClients\Test {
 	$dump('list-ro', $ro);
 	preg_match_all('~<tr data-tabs=.*?</tr>~s', body($ro), $rrows);
 	check('read only: one labelled "View" pencil per row, no dialogs', str_contains($acts($rrows[0][0]), 'aria-label="View acme"') && !str_contains(body($ro), 'id="ep-maint"'));
+	$ro = render('ep.clients.list', ['write_note' => ['Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.', null]] + $listData(false));
+	check('read only: the list says who may edit and this person\'s ElasticPro role',
+		str_contains(body($ro), '<div class="ep-note">Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator. You see the clients whose hosts you may read.</div>'), body($ro));
+	$ro = render('ep.clients.list', ['write_note' => ['ElasticPro could not be asked who may edit; only Super admins can edit until it answers.', 'ElasticPro did not answer at http://ep-core:8765: timeout']] + $listData(false));
+	check('ElasticPro not answering: said, with why', str_contains(body($ro), 'ElasticPro could not be asked who may edit; only Super admins can edit until it answers.')
+		&& str_contains(body($ro), '<div class="ep-note">Why: ElasticPro did not answer at http://ep-core:8765: timeout.</div>'), body($ro));
+	check('no note when the page is writable', !str_contains(body($list), 'Editing needs'));
 
 	/* ---------------- the client page ---------------- */
 	$spec = new \Modules\EpClients\Lib\ClientSpec(\Modules\EpClients\Lib\Roles::defaults());
@@ -187,7 +194,9 @@ namespace Modules\EpClients\Test {
 	check('changed outside: Put back is offered, with the list\'s confirmation', str_contains($changed, 'name="op" value="putback"') && str_contains($changed, 'changed outside this page, as the page last saw them'));
 	$removed = render('ep.clients.edit', $edit(['removed' => [['name' => 'acme-ES-1', 'ip' => '10.0.0.1']]]));
 	check('removed from Zabbix: Re-create and Accept removal are offered', str_contains($removed, 'name="op" value="recreate"') && str_contains($removed, 'name="op" value="accept"'));
-	$view = render('ep.clients.edit', $edit(['can_write' => false]));
+	$view = render('ep.clients.edit', $edit(['can_write' => false, 'write_note' => ['Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.', null]]));
+	check('read only: the client page says who may edit and this person\'s ElasticPro role',
+		str_contains(body($view), '<div class="ep-notes"><div class="ep-note">Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.</div></div>'));
 	$dump('edit-ro', $view);
 	$vb = body($view);
 	check('read only: the status and the dashboard, nothing that changes anything', str_contains($vb, 'ep-st-on') && str_contains($vb, 'host.dashboard.view')

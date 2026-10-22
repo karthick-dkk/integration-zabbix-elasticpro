@@ -15,6 +15,9 @@ namespace {
 	// died with "Cannot redeclare _()" on exactly the machine the modules run on. gettext's
 	// _() returns its argument when no domain is bound, which is what the stub did anyway.
 	if (!function_exists('_')) { function _($s) { return $s; } }
+	if (!function_exists('_s')) {
+		function _s($s, ...$a) { foreach ($a as $i => $v) { $s = str_replace(['%'.($i + 1).'$s', '%'.($i + 1).'$d'], (string) $v, $s); } return $s; }
+	}
 
 	/** Enough of Zabbix's CMenu for the find-or-create decision: order matters, so it is a list. */
 	class CMenu {
@@ -50,9 +53,9 @@ namespace {
 		public function getLabel(): string { return $this->label; }
 	}
 
-	class CController { public function getAction(): string { return 'ep.clients.list'; } }
+	class CController { public static $action = 'ep.clients.list'; public function getAction(): string { return self::$action; } }
 	class CViewHelper { public static function loadSidebarMode() { return 0; } }
-	class CWebUser { public static $type = USER_TYPE_SUPER_ADMIN; public static function getType() { return self::$type; } }
+	class CWebUser { public static $type = USER_TYPE_SUPER_ADMIN; public static $data = ['username' => 'alice']; public static function getType() { return self::$type; } }
 	class APP {
 		public static $menu;
 		public static function Component(): self { return new self(); }
@@ -64,6 +67,24 @@ namespace Zabbix\Core { abstract class CModule { public function __construct() {
 namespace Modules\EpClients\Test {
 	require __DIR__.'/../Module.php';
 	use Modules\EpClients\Module;
+	use Modules\EpClients\Lib\EpRole;
+
+	/**
+	 * ElasticPro, as the sidebar hears it: $reply is what the core answers (null: not paired), and
+	 * every question is counted in $asked. $session is the Zabbix session the answer is kept in.
+	 */
+	$asked = 0; $session = null; $reply = null;
+	function elasticpro(): void {
+		EpRole::setCurrent(new EpRole([
+			'settings' => function () { global $reply; return $reply === null ? ['error' => 'not paired'] : ['core_url' => 'http://core', 'secret' => str_repeat('s', 32)]; },
+			'transport' => function () { global $reply, $asked; $asked++; return $reply; },
+			'sign' => fn($secret, $body) => hash_hmac('sha256', $body, $secret),
+			'clock' => fn() => 1790000000,
+			'load' => function () { global $session; return $session; },
+			'save' => function (array $kept) { global $session; $session = $kept; }
+		]));
+	}
+	elasticpro();
 
 	$failed = 0; $passed = 0;
 	function check(string $what, bool $ok, $detail = null): void {
@@ -147,6 +168,50 @@ namespace Modules\EpClients\Test {
 		array_map(fn($i) => $i->label, $menu->find('ElasticPro')->getSubMenu()->items));
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_USER);
 	check('a User is offered nothing, and no empty section is left behind', $menu->find('ElasticPro') === null);
+
+	check('not paired: no question was sent', $asked === 0);
+
+	/* ---------------- ElasticPro's role decides who sees the pages that change things ---------------- */
+	$labels = fn(\CMenu $m) => $m->find('ElasticPro') === null ? null : array_map(fn($i) => $i->label, $m->find('ElasticPro')->getSubMenu()->items);
+	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'admin', 'disabled' => false, 'locked' => false], 'error' => ''];
+	$session = null; elasticpro();
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
+	check('a Zabbix Admin whom ElasticPro calls an admin is offered all four, as the pages let them in',
+		$labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], $labels($menu));
+	$session = null; elasticpro();
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_USER);
+	check('so is a Zabbix User whom ElasticPro calls an admin', $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], $labels($menu));
+	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'operator'], 'error' => ''];
+	$session = null; elasticpro();
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
+	check('a Zabbix Admin whom ElasticPro calls an operator: the two that only show', $labels($menu) === ['Cluster Management', 'Settings'], $labels($menu));
+	$session = null; elasticpro();
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_USER);
+	check('a Zabbix User whom ElasticPro calls an operator: nothing', $labels($menu) === null);
+	$reply = ['status' => 0, 'data' => null, 'error' => 'Connection refused'];
+	$session = null; elasticpro();
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
+	check('ElasticPro not answering: a Zabbix Admin gets the read-only two, as before', $labels($menu) === ['Cluster Management', 'Settings'], $labels($menu));
+
+	// On other Zabbix pages the last answer is used, however old; ElasticPro is asked only when
+	// there is none. On this module's pages it is fresh, as the page itself decides.
+	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'admin'], 'error' => ''];
+	$session = ['user' => 'alice', 'type' => USER_TYPE_ZABBIX_ADMIN, 'answer' => ['asked' => true, 'role' => 'operator', 'at' => 1]];
+	$asked = 0; elasticpro();
+	\CController::$action = 'dashboard.view';
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
+	check('another Zabbix page: the kept answer, not a question', $asked === 0 && $labels($menu) === ['Cluster Management', 'Settings'], [$asked, $labels($menu)]);
+	$session = null; $asked = 0; elasticpro();
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
+	check('another Zabbix page with nothing kept: asked once', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], [$asked, $labels($menu)]);
+	$session = ['user' => 'alice', 'type' => USER_TYPE_ZABBIX_ADMIN, 'answer' => ['asked' => true, 'role' => 'operator', 'at' => 1]];
+	$asked = 0; elasticpro();
+	\CController::$action = 'ep.clients.list';
+	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
+	check('one of this module\'s pages: an old answer is asked again', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], [$asked, $labels($menu)]);
+	$asked = 0; elasticpro();
+	run(sidebar(), USER_TYPE_SUPER_ADMIN);
+	check('a Super admin is never asked about', $asked === 0);
 
 	/* ---------------- a sidebar without Monitoring ---------------- */
 	$bare = new \CMenu();

@@ -2,7 +2,7 @@
 
 namespace Modules\EpClients\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'ClusterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClientSpec', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'ClientState', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'TemplateInstaller', 'Importer', 'AlertRouting'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'ClusterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClientSpec', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'ClientState', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'TemplateInstaller', 'Importer', 'AlertRouting', 'EpRole', 'WriteCheck'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 
@@ -13,14 +13,24 @@ use CControllerResponseRedirect;
 use CMessageHelper;
 use CUrl;
 use CWebUser;
-use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, History, Importer, Lifecycle, Reconciler, Registry, Roles, Settings, Store};
+use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, EpRole, History, Importer, Lifecycle, Reconciler, Registry, Roles, Settings, Store, WriteCheck};
 
-/** What every Clients page shares: Super admins only; roles, rules and Zabbix state; backups. */
+/**
+ * What every Clients page shares: who may change things; roles, rules and Zabbix state; backups.
+ *
+ * Who may change things is EpRole's decision, in one place: a Zabbix Super admin, or a Zabbix
+ * Admin or User whom ElasticPro calls an admin. Pages that only show (READ_ONLY_OK) stay open to
+ * every Zabbix Admin, read-only. Before a change by anyone but a Super admin, refuseUnlessAllowed()
+ * asks Zabbix whether their own rights cover every step of it (WriteCheck), and refuses before
+ * anything changes when they do not.
+ */
 abstract class Base extends CController {
 
 	private $roles_cache;
 	/** @var string|null the backup taken before this request's change */
 	private $lastBackup = null;
+	/** @var array|null EpRole::decide() for this request */
+	private $decision = null;
 
 	/** Pages that only show (the list, a client's page) are open to Zabbix Admins too, read-only. */
 	protected const READ_ONLY_OK = false;
@@ -29,9 +39,62 @@ abstract class Base extends CController {
 		return $this->canWrite() || (static::READ_ONLY_OK && $this->getUserType() == USER_TYPE_ZABBIX_ADMIN);
 	}
 
-	/** Only Super admins change clients. */
+	/** Who may edit — EpRole::decide(), asked once per request with a fresh answer. */
+	public function writeDecision(): array {
+		return $this->decision ?? ($this->decision = EpRole::current()->decision($this->user(), (int) $this->getUserType()));
+	}
+
+	/** A Zabbix Super admin, or someone ElasticPro calls an admin. */
 	public function canWrite(): bool {
-		return $this->getUserType() == USER_TYPE_SUPER_ADMIN;
+		return $this->writeDecision()['write'];
+	}
+
+	/** Why this page is read-only, for the view: [sentence, reason or null], or [null, null] when it is not. */
+	public function writeNote(): array {
+		$d = $this->writeDecision();
+		return [$d['write'] ? null : $d['note'], $d['write'] ? null : $d['hint']];
+	}
+
+	/**
+	 * The refusal of a change this user's Zabbix rights do not cover, as one message in a list
+	 * (empty: go ahead). A Super admin is never asked about, so their saves cost no extra calls.
+	 */
+	protected function writeRefusals(array $needs): array {
+		if ($this->getUserType() == USER_TYPE_SUPER_ADMIN) {
+			return [];
+		}
+		$refused = WriteCheck::refusals($needs, WriteCheck::rights($needs), false);
+		return $refused ? [WriteCheck::message($refused)] : [];
+	}
+
+	/** writeRefusals(), thrown: call it before backup() and before anything is written. */
+	protected function refuseUnlessAllowed(array $needs): void {
+		$refused = $this->writeRefusals($needs);
+		if ($refused) {
+			throw new Exception($refused[0]);
+		}
+	}
+
+	/** What saving this client needs of the user's Zabbix rights. */
+	protected function needsForSave(array $client, ?Reconciler $rec = null, ?ClientSpec $spec = null): array {
+		$rec = $rec ?? $this->rec();
+		return WriteCheck::forSave($rec, $spec ?? $this->spec(), $client, $rec->current($client['name']));
+	}
+
+	/** What applying these import rows needs, all of them together: one refusal before any row is applied. */
+	protected function needsForRows(array $rows): array {
+		$needs = WriteCheck::none();
+		if ($this->getUserType() == USER_TYPE_SUPER_ADMIN) {
+			return $needs;
+		}
+		$spec = $this->spec();
+		foreach ($rows as $row) {
+			['client' => $client, 'errors' => $errors] = $spec->fromForm($row['form']);
+			if (!$errors) {
+				$needs = WriteCheck::merge($needs, $this->needsForSave($client));
+			}
+		}
+		return $needs;
 	}
 
 	/** hostid => visible name, for the recorded hosts Zabbix still has. */

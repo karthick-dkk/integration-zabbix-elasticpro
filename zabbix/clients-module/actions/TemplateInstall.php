@@ -3,7 +3,7 @@
 namespace Modules\EpClients\Actions;
 
 use Exception;
-use Modules\EpClients\Lib\{Roles, Store, TemplateInstaller};
+use Modules\EpClients\Lib\{Roles, Store, TemplateInstaller, WriteCheck};
 
 /** Write the master and cluster devices templates for the current roles. */
 class TemplateInstall extends Base {
@@ -14,6 +14,7 @@ class TemplateInstall extends Base {
 
 	protected function doAction(): void {
 		try {
+			$this->refuseUnlessAllowed(['template_groups' => array_fill_keys(TemplateInstaller::templateGroups($this->roles()), true)] + WriteCheck::none());
 			TemplateInstaller::install($this->roles());
 			// Roles an older version saved are kept upgraded from now on.
 			if ((int) (Store::read(Roles::FILE)['version'] ?? 0) < (int) ($this->roles()['version'] ?? 1) && Store::writable()) {

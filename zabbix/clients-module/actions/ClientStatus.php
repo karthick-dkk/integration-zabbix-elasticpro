@@ -4,6 +4,7 @@ namespace Modules\EpClients\Actions;
 
 use CMessageHelper;
 use Exception;
+use Modules\EpClients\Lib\{Lifecycle, WriteCheck};
 
 /**
  * Change clients' status — one, or several ticked on the list: disable, enable, decommission,
@@ -34,6 +35,14 @@ class ClientStatus extends Base {
 		$words = ['disable' => _('Disable'), 'enable' => _('Enable'), 'decommission' => _('Decommission'), 'restore' => _('Restore'),
 			'maintenance' => _('Maintenance'), 'end_maintenance' => _('End maintenance')];
 		try {
+			// Every client asked about first, so a refusal changes none of them.
+			$needs = WriteCheck::none();
+			if ($this->getUserType() != USER_TYPE_SUPER_ADMIN) {
+				foreach ($clients as $client) {
+					$needs = WriteCheck::merge($needs, $this->needsForStatus($client, $op));
+				}
+			}
+			$this->refuseUnlessAllowed($needs);
 			$this->backup($words[$op].' '.implode(', ', $clients));
 		}
 		catch (Exception $e) {
@@ -77,5 +86,28 @@ class ClientStatus extends Base {
 		CMessageHelper::clear();
 		array_map([CMessageHelper::class, 'addMessage'], array_values($errors));
 		$this->toList($failed ? _s('%1$s: done with problems', $words[$op]) : _s('%1$s: done', $words[$op]), $lines, $failed);
+	}
+
+	/** The status each change leaves behind; maintenance leaves it as it is. */
+	private const AFTER = ['disable' => 'disabled', 'enable' => 'active', 'decommission' => 'decommissioned', 'restore' => 'disabled'];
+
+	/**
+	 * What one status change needs of the user's Zabbix rights: write on the hosts it changes, on
+	 * the client's host group for a maintenance, and the alert routing noteChange() syncs after it
+	 * on the master host's status as the change leaves it.
+	 */
+	private function needsForStatus(string $client, string $op): array {
+		$rec = $this->rec();
+		$now = $rec->current($client);
+		if ($now['master'] === null) {
+			return WriteCheck::none();   // Lifecycle refuses it on its own, changing nothing
+		}
+		$before = $rec->macros((string) $now['master']['hostid']);
+		$after = isset(self::AFTER[$op]) ? array_merge($before, [Lifecycle::MACRO => self::AFTER[$op]]) : $before;
+		$needs = WriteCheck::forHosts($client, (new Lifecycle($rec))->touched($now), $now['groupid'], $before, $after);
+		if (in_array($op, ['maintenance', 'end_maintenance'], true) && $now['groupid'] !== null) {
+			$needs['groups'] = [$client => true];
+		}
+		return $needs;
 	}
 }

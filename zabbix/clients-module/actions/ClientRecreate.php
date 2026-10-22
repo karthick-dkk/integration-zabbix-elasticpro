@@ -4,7 +4,7 @@ namespace Modules\EpClients\Actions;
 
 use API;
 use Exception;
-use Modules\EpClients\Lib\{ClientSpec, ClientState, Registry};
+use Modules\EpClients\Lib\{ClientSpec, ClientState, Registry, WriteCheck};
 
 /**
  * Hosts deleted in Zabbix behind the page's back: re-create them as they were (roles, groups,
@@ -30,8 +30,15 @@ class ClientRecreate extends Base {
 		$diff = Registry::compare($client, $now, $this->existingHosts());
 		$gone = $diff['removed'];
 		try {
+			// noteChange() follows each of the three and syncs the alert routing on the macros as they are.
+			$macros = $now['master'] !== null ? $rec->macros((string) $now['master']['hostid']) : [];
 			if ($this->getInput('op') === 'putback') {
 				$gid = $rec->groupId($client, false);
+				$needs = WriteCheck::forHosts($client, array_map(fn($h) => (string) $h['name'], $diff['changed']), $gid, $macros, $macros);
+				if ($gid !== null && array_filter($diff['changed'], fn($h) => $h['why'] === 'moved')) {
+					$needs['groups'] = [$client => true];
+				}
+				$this->refuseUnlessAllowed($needs);
 				$lines = [];
 				foreach ($diff['changed'] as $id => $h) {
 					if ($h['why'] === 'moved' && $gid !== null) {
@@ -48,6 +55,9 @@ class ClientRecreate extends Base {
 				return;
 			}
 			if ($this->getInput('op') === 'accept') {
+				if ($now['master'] !== null) {
+					$this->refuseUnlessAllowed(WriteCheck::forHosts($client, [], $now['groupid'], $macros, $macros));
+				}
 				if ($now['master'] === null) {
 					Registry::forget($client);
 					$this->toList(_s('"%1$s" forgotten', $client), [_('Its master host is gone from Zabbix; the client is no longer listed.')]);
@@ -75,6 +85,7 @@ class ClientRecreate extends Base {
 			if ($errors) {
 				throw new Exception(implode(' ', $errors));
 			}
+			$this->refuseUnlessAllowed($this->needsForSave($c, $rec));
 			$this->backup('Re-create '.$client);
 			$rec->apply($c);
 			$this->noteChange($client, 're-created');

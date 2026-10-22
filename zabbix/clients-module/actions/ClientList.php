@@ -119,7 +119,7 @@ class ClientList extends Base {
 			}
 			$status = Lifecycle::statusOf($m);
 			$bucket = $m['{$ULM.S3.BUCKET}'] ?? '';
-			// The register knows hosts beyond what a read-only viewer may see: only for Super admins.
+			// The register knows hosts beyond what a read-only viewer may see: only for those who may edit.
 			$diff = $this->canWrite() ? Registry::compare($name, $now, $exists) : ['removed' => [], 'changed' => []];
 			$fullIn = $figures[$c['masterid']][Forecast::KEY] ?? null;
 			$over = [];
@@ -176,6 +176,7 @@ class ClientList extends Base {
 			'store_ok' => $writable,
 			'forecast' => Settings::forecast($cfg),
 			'can_write' => $this->canWrite(),
+			'write_note' => $this->writeNote(),
 			'store_dir' => Store::dir(),
 			'backups' => count(Store::listing('backups'))
 		]);

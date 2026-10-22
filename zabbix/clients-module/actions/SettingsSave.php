@@ -9,7 +9,8 @@ use Exception;
 use Modules\EpClients\Lib\Settings;
 
 /**
- * Saves ElasticPro -> Settings. Super admins only, and Zabbix's own CSRF check is left in place:
+ * Saves ElasticPro -> Settings. For whoever may edit (Base::canWrite) — a file in the data folder,
+ * nothing in Zabbix, so no Zabbix rights are asked — and Zabbix's own CSRF check is left in place:
  * the page posts a plain form with its token, so there is nothing here to disable.
  *
  * Every field arrives as a string and is handed to Settings::clean() rather than being validated
