@@ -42,13 +42,14 @@ After import:
 
 1. Create a host (for example `ElasticPro`, in a host group of its own). It needs no interface,
    and the item's *Allowed hosts* stays empty. Link the template.
-2. Give ElasticPro a token that may push to that host. The role must allow `history.push`, and the
-   user needs read-write on the host's group. The pairing identity (*ElasticPro sync*) allows
-   read methods only, so either add `history.push` to its role (it is a Super admin role, so it
-   could then push to any trapper item), or make a User-role user that may only push, with
-   read-write on that one group, and give its token to the core as
-   `ELASTICPRO_ZABBIX_METRICS_TOKEN_FILE`. The ElasticPro repository's `deploy/README.md` ("The
-   request figures in Zabbix") has the steps.
+2. Let ElasticPro's paired token push. The pairing role *ElasticPro sync* allows `history.push`
+   from this release on. An install paired before re-pairs once (ElasticPro: Config → Zabbix →
+   Pair with Zabbix), which updates the role, or adds `history.push` to the role by hand. The role
+   is of the Super admin type, so the paired token can then write to **any** trapper item in Zabbix,
+   though it still cannot change configuration. To avoid that, remove `history.push` from the role
+   and give the core a push-only token with read-write on this host's group only, as
+   `ELASTICPRO_ZABBIX_METRICS_TOKEN_FILE` (ElasticPro's `deploy/README.md`, "The request figures in
+   Zabbix").
 3. Set `ZABBIX_METRICS_HOST=<host's technical name>` in ElasticPro's `config.txt` and run
    `deploy/deploy.sh --apply-config`.
 4. Adjust the `{$ELASTICPRO.GATE.*}` macros on the host if the defaults do not suit.

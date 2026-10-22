@@ -18,7 +18,9 @@ use CSettingsHelper;
  * checked and in the audit log —
  *
  *  1. creates or reuses the sync role and user named in sync-role.json (the one list the
- *     setup script uses too): API access, read methods only, no frontend;
+ *     setup script uses too): API access, the read methods plus history.push (the core's
+ *     own request figures), no frontend. An existing role whose method list differs from
+ *     the file is updated (ensureRole), so re-pairing brings an older install up to date;
  *  2. creates a NEW API token for that user;
  *  3. POSTs {nonce, zabbixUrl, apiUrl, apiToken, zabbixVersion, ts} to <ep>/zabbix/pair,
  *     signed exactly like the sign-in (SsoClient::postSigned — one implementation);
