@@ -62,16 +62,14 @@ zabbix_export:
           type: DEPENDENT
           key: 'elasticpro.gate.version'
           delay: '0'
+          history: 7d
           value_type: CHAR
           trends: '0'
-          description: 'The ElasticPro core''s version.'
+          description: 'The ElasticPro core''s version. Stored at every push (no discard of unchanged values): the version-change trigger''s change() needs the last two values, and a daily heartbeat left it unknown for up to a day after linking.'
           preprocessing:
             - type: JSONPATH
               parameters:
                 - '$.version'
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 1d
           master_item:
             key: elasticpro.gate.raw
           tags:
@@ -275,31 +273,6 @@ zabbix_export:
           tags:
             - tag: component
               value: requests
-          triggers:
-            - uuid: 2252ee96cefb41d795f2a6ac93706f06
-              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.CRIT} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES}'
-              name: 'ElasticPro: people wait too long for a request slot'
-              opdata: 'Wait p95: {ITEM.LASTVALUE1}'
-              priority: AVERAGE
-              description: |
-                The 95th percentile of how long a person's request waited for a slot stayed above {$ELASTICPRO.GATE.WAIT.P95.CRIT} s for {$ELASTICPRO.GATE.WINDOW} (at least {$ELASTICPRO.GATE.WAIT.SAMPLES} minutes with requests). Close to ES_QUEUE_WAIT_MS, past which requests are refused.
-                Minutes in which nobody asked for anything send no p95 and do not count.
-              tags:
-                - tag: scope
-                  value: performance
-            - uuid: af372c8462c64d08bc1929b54624b31e
-              expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.WARN} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES}'
-              name: 'ElasticPro: people wait for a request slot'
-              opdata: 'Wait p95: {ITEM.LASTVALUE1}'
-              priority: WARNING
-              description: |
-                The 95th percentile wait of a person's request stayed above {$ELASTICPRO.GATE.WAIT.P95.WARN} s for {$ELASTICPRO.GATE.WINDOW}.
-              dependencies:
-                - name: 'ElasticPro: people wait too long for a request slot'
-                  expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.CRIT} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES}'
-              tags:
-                - tag: scope
-                  value: performance
         - uuid: b0879201b90a468697f74a8a0c7d225c
           name: 'Request gate: Wait p95: prompted'
           type: DEPENDENT
@@ -352,6 +325,21 @@ zabbix_export:
             - type: JSONPATH
               parameters:
                 - '$.granted.total'
+          master_item:
+            key: elasticpro.gate.raw
+          tags:
+            - tag: component
+              value: requests
+        - uuid: f77dd47bdb174d0a8c72029621ab0023
+          name: 'Request gate: Granted in the last minute: interactive'
+          type: DEPENDENT
+          key: 'elasticpro.gate.granted[interactive]'
+          delay: '0'
+          description: 'A person''s requests given a slot in the last minute. 0 means nobody asked, so there is no wait to measure: the wait triggers need it above 0, and it arrives every minute, so they are re-evaluated (and recover) even when the p95 item gets no value.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.granted.interactive'
           master_item:
             key: elasticpro.gate.raw
           tags:
@@ -878,3 +866,28 @@ zabbix_export:
               newvalue: 'on-demand'
             - value: '255'
               newvalue: 'unknown'
+  triggers:
+    - uuid: 2252ee96cefb41d795f2a6ac93706f06
+      expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.CRIT} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES} and last(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.granted[interactive])>0'
+      name: 'ElasticPro: people wait too long for a request slot'
+      opdata: 'Wait p95: {ITEM.LASTVALUE1}'
+      priority: AVERAGE
+      description: |
+        The 95th percentile of how long a person's request waited for a slot stayed above {$ELASTICPRO.GATE.WAIT.P95.CRIT} s for {$ELASTICPRO.GATE.WINDOW} (at least {$ELASTICPRO.GATE.WAIT.SAMPLES} minutes with requests), and people are still asking. Close to ES_QUEUE_WAIT_MS, past which requests are refused.
+        Minutes in which nobody asked for anything send no p95 and do not count; when nobody has asked in the last minute the problem resolves, because a wait cannot be measured without requests.
+      tags:
+        - tag: scope
+          value: performance
+    - uuid: af372c8462c64d08bc1929b54624b31e
+      expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.WARN} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES} and last(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.granted[interactive])>0'
+      name: 'ElasticPro: people wait for a request slot'
+      opdata: 'Wait p95: {ITEM.LASTVALUE1}'
+      priority: WARNING
+      description: |
+        The 95th percentile wait of a person's request stayed above {$ELASTICPRO.GATE.WAIT.P95.WARN} s for {$ELASTICPRO.GATE.WINDOW}, and people are still asking.
+      dependencies:
+        - name: 'ElasticPro: people wait too long for a request slot'
+          expression: 'min(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>{$ELASTICPRO.GATE.WAIT.P95.CRIT} and count(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.wait.p95[interactive],{$ELASTICPRO.GATE.WINDOW})>={$ELASTICPRO.GATE.WAIT.SAMPLES} and last(/ElasticPro request gate by Zabbix trapper/elasticpro.gate.granted[interactive])>0'
+      tags:
+        - tag: scope
+          value: performance

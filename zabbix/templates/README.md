@@ -32,7 +32,7 @@ Triggers:
 | request figures stopped arriving (`nodata`, `{$ELASTICPRO.GATE.NODATA}`) | Average |
 | requests queueing at every push for the window | Warning, or Average past the crit macro (the warning depends on it) |
 | requests turned away in the window | Warning / Average, the same way |
-| a person's wait p95 above the threshold for the window (at least `{$ELASTICPRO.GATE.WAIT.SAMPLES}` minutes with requests) | Warning / Average |
+| a person's wait p95 above the threshold for the window (at least `{$ELASTICPRO.GATE.WAIT.SAMPLES}` minutes with requests, and people asking in the last minute, so it recovers when they stop) | Warning / Average |
 | every request paused longer than `{$ELASTICPRO.GATE.PAUSED.MAX}` | Warning |
 | in-flight answer memory above `{$ELASTICPRO.GATE.INFLIGHT.PUSED.WARN}`% for the window | Warning |
 | answers over the response cap in the last hour | Info |
