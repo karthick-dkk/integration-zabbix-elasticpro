@@ -3,7 +3,7 @@
 	"id": "ep_clients",
 	"name": "ElasticPro clients",
 	"namespace": "EpClients",
-	"version": "2.1.1",
+	"version": "2.1.2",
 	"author": "ElasticPro",
 	"description": "ElasticPro \u2192 Clients: add, edit, import (Excel workbook, or CSV) and remove clients and their hosts, named <client>-<Role>-<n>; families and roles (ES, Parser, Forwarder, Engine \u2026); a backup before every change, newest three kept. Hosts made by hand are reused as they are; only hosts this page made are ever deleted.",
 	"actions": {

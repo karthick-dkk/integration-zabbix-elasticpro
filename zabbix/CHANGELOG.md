@@ -4,6 +4,10 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.2
+
+The Snapshots page is labelled "Snapshots" in the ElasticPro menu and page list, matching ElasticPro 0.3.22. Label only: the page id, actions and widget types are unchanged.
+
 ## 2.1.1
 
 Full customization for the ElasticPro widgets — Client resources, Client capacity, Volume, Top hosts
