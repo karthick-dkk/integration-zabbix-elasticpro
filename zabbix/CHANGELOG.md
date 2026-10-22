@@ -4,6 +4,19 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## Unreleased
+
+- **One copy of the ElasticPro menu module.** `embed-module/` is now the only source of the
+  module Zabbix installs as `elasticpro`; ElasticPro stops shipping its own copy and takes this
+  folder at the commit it pins, like the other six. A normal install no longer shows "mixed" module
+  versions in ElasticPro → Settings.
+- **Error codes on the ElasticPro page** (ported from ElasticPro's old copy): not paired yet shows
+  EP-701, a refused sign-in EP-702 (the core's own code follows the reason), and losing the session
+  three times in a minute EP-703, whose message now names the server-log reasons by their codes
+  (EP-306 `not_configured`, EP-510 `bad_signature`, EP-511 `stale`). ElasticPro's
+  `docs/ERROR-CODES.md` lists them. Tests: `embed-module/test/`; the autoloader check now covers
+  the embed module too. Needs a version bump before release (the view is a shipped file).
+
 ## 2.1.2
 
 The Snapshots page is labelled "Snapshots" in the ElasticPro menu and page list, matching ElasticPro 0.3.22. Label only: the page id, actions and widget types are unchanged.

@@ -2,10 +2,12 @@
 
 The Zabbix frontend side of ElasticPro: the Cluster Management page, the client master template it
 writes, the report widgets, the embed module, and a copy of the four templates ElasticPro itself
-feeds (automation, alerts, client plan, log delay). Those templates and the embed module are
-generated and edited with the core, in `deploy/zabbix/` of the ElasticPro repository
-(https://github.com/karthick-dkk/elasticpro); the copies here are stamped with the version they
-came from, so a Zabbix can be set up from this project alone.
+feeds (automation, alerts, client plan, log delay). Those templates are generated and edited with
+the core, in `deploy/zabbix/` of the ElasticPro repository (https://github.com/karthick-dkk/elasticpro);
+the copies here are stamped with the version they came from, so a Zabbix can be set up from this
+project alone. The embed module is edited here and nowhere else: ElasticPro's release archive takes
+all seven modules, `embed-module/` included, from this project at the commit pinned in its
+`deploy/zabbix/MODULES_REF`.
 
 | Folder | What | Import |
 |---|---|---|
