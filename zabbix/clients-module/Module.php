@@ -35,24 +35,25 @@ class Module extends CoreModule {
 
 	/**
 	 * The section's entries: label, the action it opens, the other actions that draw a page under
-	 * it, and whether it is only for those who may edit.
+	 * it, and who sees it: 'show' (every Zabbix Admin), 'edit' (those who may edit) or 'super'.
 	 *
 	 * The aliases keep the right entry marked and the section open while one of those pages is on
-	 * screen; no action belongs to two entries. Roles and Backups change things and their actions
-	 * refuse anyone who may not edit, so they are offered to exactly those who may — a Super admin,
-	 * or a Zabbix Admin or User whom ElasticPro calls an admin (EpRole, the same decision the pages
-	 * make) — and nobody is offered a link that would only deny them. Settings reads as the
-	 * reports' legend and is shown to Admins as the client list is.
+	 * screen; no action belongs to two entries. Roles changes things and its actions refuse anyone
+	 * who may not edit, so it is offered to exactly those who may — a Super admin, or a Zabbix Admin
+	 * or User whom ElasticPro calls an admin (EpRole, the same decision the pages make). Backups
+	 * stays with Super admins whatever ElasticPro says (Base::superOnly): a backup holds every
+	 * client and host group. Nobody is offered a link that would only deny them. Settings reads as
+	 * the reports' legend and is shown to Admins as the client list is.
 	 *
 	 * A function rather than a constant so each label is a literal inside _(), where the
 	 * translations can be collected from.
 	 */
 	private static function entries(): array {
 		return [
-			[_('Cluster Management'), 'ep.clients.list', ['ep.clients.edit', 'ep.clients.save', 'ep.clients.import'], false],
-			[_('Roles'), 'ep.clients.roles', ['ep.clients.role.save', 'ep.clients.template.install'], true],
-			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save'], false],
-			[_('Backups'), 'ep.clients.backups', ['ep.clients.backup.restore', 'ep.clients.backup.download'], true]
+			[_('Cluster Management'), 'ep.clients.list', ['ep.clients.edit', 'ep.clients.save', 'ep.clients.import'], 'show'],
+			[_('Roles'), 'ep.clients.roles', ['ep.clients.role.save', 'ep.clients.template.install'], 'edit'],
+			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save'], 'show'],
+			[_('Backups'), 'ep.clients.backups', ['ep.clients.backup.restore', 'ep.clients.backup.download'], 'super']
 		];
 	}
 
@@ -87,8 +88,8 @@ class Module extends CoreModule {
 		// getSubMenu() makes the submenu when the section has not got one, and marks the section
 		// as having one — so a section this module just made renders as a section.
 		$sub = $home->getSubMenu();
-		foreach (self::entries() as [$label, $action_name, $aliases, $edit_only]) {
-			if (($edit_only && !$may_edit) || $sub->find($label) !== null) {
+		foreach (self::entries() as [$label, $action_name, $aliases, $who]) {
+			if (($who === 'edit' && !$may_edit) || ($who === 'super' && $type != USER_TYPE_SUPER_ADMIN) || $sub->find($label) !== null) {
 				continue;
 			}
 			$sub->add((new CMenuItem($label))->setAction($action_name)->setAliases($aliases));

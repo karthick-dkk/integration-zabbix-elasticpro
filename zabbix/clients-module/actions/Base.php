@@ -44,6 +44,14 @@ abstract class Base extends CController {
 		return $this->decision ?? ($this->decision = EpRole::current()->decision($this->user(), (int) $this->getUserType()));
 	}
 
+	/**
+	 * Zabbix Super admins alone, whatever ElasticPro's role: the backups and the page's register of
+	 * hosts hold every client, host group and host, more than anyone else may read in Zabbix.
+	 */
+	protected function superOnly(): bool {
+		return $this->getUserType() == USER_TYPE_SUPER_ADMIN;
+	}
+
 	/** A Zabbix Super admin, or someone ElasticPro calls an admin. */
 	public function canWrite(): bool {
 		return $this->writeDecision()['write'];

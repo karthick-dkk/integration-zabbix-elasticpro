@@ -34,32 +34,50 @@ namespace Modules\EpClients\Test {
 	}
 
 	const SECRET = '0123456789abcdef0123456789abcdef-test';
-	const CORE = 'http://ep-core:8765/';
+	const CORE = 'https://ep-core:8765/';
+
+	/** The nonces the stand-in hands EpRole: counted, so a test can make one repeat. */
+	$nonceSeq = 0;
+	function nextNonce(): string { global $nonceSeq; return sprintf('%032x', ++$nonceSeq); }
 
 	/**
 	 * An EpRole with a stand-in core answering $reply (status, data), a clock at $now[0] and a
-	 * session in $session. Every request it sends is appended to $sent.
+	 * session in $session. Every request it sends is appended to $sent. The stand-in answers the
+	 * way the core does: the body echoes the request's nonce and ts, and is signed in
+	 * X-ElasticPro-Signature over ts, nonce and the exact body. $reply['tamper'] spoils that:
+	 * sig => 'bad' | 'missing', nonce / ts => what to echo instead.
 	 */
-	function role(array $reply, array &$sent, array &$now, ?array &$session, ?array $settings = null): EpRole {
+	function role(array $reply, array &$sent, array &$now, ?array &$session, ?array $settings = null, ?callable $nonce = null): EpRole {
 		return new EpRole([
 			'settings' => fn() => $settings ?? ['core_url' => CORE, 'secret' => SECRET, 'verify_tls' => true],
 			'transport' => function (string $url, array $headers, bool $tls) use ($reply, &$sent) {
 				$sent[] = ['url' => $url, 'headers' => $headers, 'tls' => $tls];
-				return $reply + ['status' => 200, 'data' => null, 'error' => ''];
+				parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+				$claim = json_decode((string) ($q['claim'] ?? ''), true);
+				$t = $reply['tamper'] ?? [];
+				$data = $reply['data'] ?? null;
+				if (is_array($data) && ($reply['status'] ?? 200) === 200) {
+					$data += ['nonce' => $t['nonce'] ?? $claim['nonce'], 'ts' => $t['ts'] ?? $claim['ts']];
+				}
+				$raw = $data === null ? '' : json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+				$sig = hash_hmac('sha256', $claim['ts']."\n".$claim['nonce']."\n".$raw, SECRET);
+				$sig = ($t['sig'] ?? null) === 'bad' ? hash_hmac('sha256', $raw, SECRET) : (($t['sig'] ?? null) === 'missing' ? '' : $sig);
+				return ['status' => $reply['status'] ?? 200, 'raw' => $raw, 'signature' => $sig, 'error' => $reply['error'] ?? ''];
 			},
 			'clock' => function () use (&$now) { return $now[0]; },
+			'nonce' => $nonce ?? __NAMESPACE__.'\nextNonce',
 			'load' => function () use (&$session) { return $session; },
 			'save' => function (array $kept) use (&$session) { $session = $kept; }
 		]);
 	}
-	function ok(array $data): array {
-		return ['status' => 200, 'data' => $data + ['ok' => true, 'account' => 'alice@zabbix', 'role' => null, 'pinned' => false,
+	function ok(array $data, array $tamper = []): array {
+		return ['status' => 200, 'tamper' => $tamper, 'data' => $data + ['ok' => true, 'account' => 'alice@zabbix', 'role' => null, 'pinned' => false,
 			'source' => 'zabbix', 'disabled' => false, 'locked' => false]];
 	}
 
 	/* ------------------------------- the decision table ------------------------------- */
 
-	$asked = fn(array $a) => $a + ['asked' => true, 'role' => null, 'pinned' => false, 'source' => 'zabbix', 'disabled' => false, 'locked' => false, 'error' => null, 'at' => 0];
+	$asked = fn(array $a) => $a + ['asked' => true, 'role' => null, 'pinned' => false, 'source' => 'zabbix', 'disabled' => false, 'locked' => false, 'trusted' => true, 'error' => null, 'at' => 0];
 	$d = EpRole::decide(USER_TYPE_SUPER_ADMIN, null);
 	check('a Super admin edits, without asking ElasticPro', $d['write'] && $d['why'] === 'super');
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin']));
@@ -82,6 +100,12 @@ namespace Modules\EpClients\Test {
 	check('ElasticPro not answering: Super admins only, said plainly', !$d['write'] && $d['why'] === 'unasked'
 		&& $d['note'] === 'ElasticPro could not be asked who may edit; only Super admins can edit until it answers.', $d);
 	check('with the reason beside it', $d['hint'] === 'ElasticPro did not answer at http://ep-core:8765: timeout', $d['hint']);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'trusted' => false, 'error' => EpRole::INSECURE]));
+	check('an admin over a connection elevation does not trust: Super admins only, with the reason', !$d['write'] && $d['why'] === 'untrusted'
+		&& $d['note'] === 'ElasticPro\'s answer cannot be trusted over this connection; only Super admins can edit until it can.'
+		&& $d['hint'] === 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification (or loopback)', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin']) + []);
+	check('trusted is what lets it through', $d['write']);
 	$d = EpRole::decide(4, null);
 	check('a guest never edits', !$d['write'] && $d['why'] === 'no_type');
 	check('the read-only lines are the note, then the reason', EpRole::noteLines(['A.', 'b']) === ['A.', 'Why: b.']
@@ -94,8 +118,8 @@ namespace Modules\EpClients\Test {
 	$r = role(ok(['role' => 'admin']), $sent, $now, $session);
 	$a = $r->answer('alice', USER_TYPE_ZABBIX_ADMIN);
 	check('one request', count($sent) === 1);
-	$json = '{"zabbix_user":"alice","zabbix_user_type":2,"ts":1790000000}';
-	check('to /sso/zabbix/role on the core, the claim in the query', $sent[0]['url'] === 'http://ep-core:8765/sso/zabbix/role?claim='.rawurlencode($json), $sent[0]['url']);
+	$json = '{"zabbix_user":"alice","zabbix_user_type":2,"ts":1790000000,"nonce":"'.sprintf('%032x', $nonceSeq).'"}';
+	check('to /sso/zabbix/role on the core, the claim in the query', $sent[0]['url'] === 'https://ep-core:8765/sso/zabbix/role?claim='.rawurlencode($json), $sent[0]['url']);
 	parse_str((string) parse_url($sent[0]['url'], PHP_URL_QUERY), $q);
 	check('the claim decodes to exactly the signed JSON', ($q['claim'] ?? null) === $json, $q);
 	$sig = null;
@@ -105,8 +129,11 @@ namespace Modules\EpClients\Test {
 	check('signed: HMAC-SHA256 of the exact JSON bytes under the pairing secret', $sig === hash_hmac('sha256', $json, SECRET), $sig);
 	check('with the ElasticPro module\'s own SsoClient::sign()', $sig === SsoClient::sign(SECRET, $json));
 	check('the secret is in no header and not in the URL', strpos(implode("\n", $sent[0]['headers']).$sent[0]['url'], SECRET) === false);
-	check('the answer is read', $a['asked'] && $a['role'] === 'admin' && $a['source'] === 'zabbix');
-	check('a name with spaces and non-ASCII letters is carried as it is signed', EpRole::claim('Zoë Admin', 2, 5) === '{"zabbix_user":"Zoë Admin","zabbix_user_type":2,"ts":5}');
+	check('the answer is read, signed and trusted', $a['asked'] && $a['role'] === 'admin' && $a['source'] === 'zabbix' && $a['trusted'], $a);
+	check('a name with spaces and non-ASCII letters is carried as it is signed',
+		EpRole::claim('Zoë Admin', 2, 5, 'abc') === '{"zabbix_user":"Zoë Admin","zabbix_user_type":2,"ts":5,"nonce":"abc"}');
+	check('a fresh nonce per question: 32 hex characters by default', preg_match('/"nonce":"[0-9a-f]{32}"/', (new EpRole([]))::claim('a', 2, 1, bin2hex(random_bytes(16)))) === 1);
+	check('the consumed nonce is kept in the session', in_array(sprintf('%032x', $nonceSeq), $session['nonces'] ?? [], true), $session);
 	check('TLS is verified as the pairing says', $sent[0]['tls'] === true);
 
 	/* ------------------------------- the session cache ------------------------------- */
@@ -138,7 +165,8 @@ namespace Modules\EpClients\Test {
 	/* --------------------------------- when it fails --------------------------------- */
 
 	$fails = [
-		'unreachable' => [['status' => 0, 'data' => null, 'error' => 'Connection refused'], '/did not answer at http:\/\/ep-core:8765: Connection refused/'],
+		'unreachable' => [['status' => 0, 'data' => null, 'error' => 'Connection refused'], '/did not answer at https:\/\/ep-core:8765: Connection refused/'],
+		'request replayed (core 401)' => [['status' => 401, 'data' => ['ok' => false, 'kind' => 'replayed', 'message' => 'that request was already used']], '/HTTP 401\): that request was already used/'],
 		'bad signature' => [['status' => 401, 'data' => ['ok' => false, 'kind' => 'bad_signature', 'message' => 'the signature does not match']], '/refused the question \(HTTP 401\): the signature does not match/'],
 		'stale' => [['status' => 401, 'data' => ['ok' => false, 'kind' => 'stale', 'message' => 'too old']], '/HTTP 401/'],
 		'not the hosted build' => [['status' => 404, 'data' => null], '/answered HTTP 404/'],
@@ -153,6 +181,61 @@ namespace Modules\EpClients\Test {
 		check($what.': the reason is given', preg_match($why, (string) $d['hint']) === 1, $d['hint']);
 		check($what.': and never the secret', strpos(json_encode($d), SECRET) === false);
 	}
+	/* ------------------------ is the answer ElasticPro's, and new? ------------------------ */
+
+	$signed = [
+		'bad signature' => [ok(['role' => 'admin'], ['sig' => 'bad']), EpRole::NOT_SIGNED],
+		'missing signature' => [ok(['role' => 'admin'], ['sig' => 'missing']), EpRole::NOT_SIGNED],
+		'echoes another question\'s nonce' => [ok(['role' => 'admin'], ['nonce' => str_repeat('e', 32)]), EpRole::REPLAYED],
+		'echoes another ts' => [ok(['role' => 'admin'], ['ts' => 1]), EpRole::REPLAYED]
+	];
+	foreach ($signed as $what => [$reply, $why]) {
+		$sent = []; $session = null;
+		$d = role($reply, $sent, $now, $session)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+		check($what.': not acted on — Super admins only', !$d['write'] && $d['why'] === 'unasked', $d);
+		check($what.': the page says '.$why, $d['hint'] === $why && $d['note'] === EpRole::UNASKED, $d);
+	}
+	$sent = []; $session = null;
+	$d = role(ok(['role' => 'admin']), $sent, $now, $session)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+	check('good signature, echoed nonce and ts, https with verification: an admin edits', $d['write'] && $d['why'] === 'elasticpro_admin', $d);
+	// The same nonce twice, each answer properly signed for it: the second is a replay.
+	$same = fn() => str_repeat('a', 32);
+	$session = null; $sent = [];
+	role(ok(['role' => 'admin']), $sent, $now, $session, null, $same)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+	$now[0] += EpRole::TTL + 1;
+	$d = role(ok(['role' => 'admin']), $sent, $now, $session, null, $same)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+	check('a nonce this session has consumed: a replayed answer, not acted on', count($sent) === 2 && !$d['write'] && $d['hint'] === EpRole::REPLAYED, $d);
+	$session['nonces'] = array_map(fn($i) => sprintf('%032x', 100000 + $i), range(1, 200));
+	$now[0] += EpRole::TTL + 1;
+	role(ok(['role' => 'admin']), $sent, $now, $session)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+	check('the session keeps a bounded list of consumed nonces', count($session['nonces']) === EpRole::NONCES_KEPT, count($session['nonces']));
+
+	/* ------------------------- over what the answer travelled ------------------------- */
+
+	$over = [
+		'http to another host' => [['core_url' => 'http://ep-core:8765', 'verify_tls' => true], false],
+		'https with verification off' => [['core_url' => 'https://ep-core:8765', 'verify_tls' => false], false],
+		'http to 127.0.0.1' => [['core_url' => 'http://127.0.0.1:8765', 'verify_tls' => false], true],
+		'http to 127.3.4.5' => [['core_url' => 'http://127.3.4.5:8765', 'verify_tls' => true], true],
+		'http to localhost' => [['core_url' => 'http://localhost:8765', 'verify_tls' => false], true],
+		'http to [::1]' => [['core_url' => 'http://[::1]:8765', 'verify_tls' => false], true],
+		'https with verification' => [['core_url' => 'https://ep-core:8765', 'verify_tls' => true], true],
+		'http to 127.0.0.1.evil.example' => [['core_url' => 'http://127.0.0.1.evil.example', 'verify_tls' => true], false]
+	];
+	foreach ($over as $what => [$s, $trusted]) {
+		$sent = []; $session = null;
+		$d = role(ok(['role' => 'admin']), $sent, $now, $session, $s + ['secret' => SECRET])->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+		check($what.': the lookup itself still goes', count($sent) === 1);
+		check($what.($trusted ? ': elevation allowed' : ': elevation refused, with the reason'), $trusted
+			? $d['write']
+			: (!$d['write'] && $d['why'] === 'untrusted' && $d['hint'] === EpRole::INSECURE), $d);
+	}
+	$sent = []; $session = null;
+	$d = role(ok(['role' => 'operator']), $sent, $now, $session, ['core_url' => 'http://ep-core:8765', 'verify_tls' => true, 'secret' => SECRET])
+		->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+	check('over plain http an operator still reads, and is told their role', !$d['write'] && $d['role'] === 'operator'
+		&& strpos((string) $d['note'], 'Your ElasticPro role: operator.') !== false, $d);
+
 	$sent = []; $session = null;
 	$r = role(ok([]), $sent, $now, $session, ['error' => 'Zabbix is not paired with ElasticPro (Administration → ElasticPro)']);
 	$d = $r->decision('alice', USER_TYPE_ZABBIX_ADMIN);
@@ -218,6 +301,14 @@ namespace Modules\EpClients\Test {
 		$backup = strpos($src, '$this->backup(');
 		check("$a asks the pre-check".($backup !== false ? ' before its backup' : ''), $at !== false && ($backup === false || $at < $backup), [$at, $backup]);
 	}
+	foreach (['ClientList', 'ClientEdit'] as $a) {
+		$src = file_get_contents(__DIR__.'/../actions/'.$a.'.php');
+		check("$a compares with the register for Super admins only", (bool) preg_match('/superOnly\(\) \? Registry::compare\(/', $src)
+			&& !preg_match('/canWrite\(\) \? Registry::compare\(/', $src));
+	}
+	$list = file_get_contents(__DIR__.'/../actions/ClientList.php');
+	check('ClientList records and lists the register for Super admins only', str_contains($list, '$writable && $this->superOnly()')
+		&& str_contains($list, 'foreach ($this->superOnly() ? $registry : []'));
 	$wc = file_get_contents(__DIR__.'/../lib/WriteCheck.php');
 	check('each Super-admin-only refusal carries the decision marker', substr_count($wc, 'gstack-shortcut(dec-cf6faa2e-29c4-451b-a5f0-9db125b96d1f)') === 3);
 

@@ -14,6 +14,11 @@ use Modules\EpClients\Lib\{ClientSpec, ClientState, Registry, WriteCheck};
  */
 class ClientRecreate extends Base {
 
+	/** Super admins only, whatever ElasticPro's role (Base::superOnly). */
+	protected function checkPermissions(): bool {
+		return $this->superOnly();
+	}
+
 	protected function checkInput(): bool {
 		return $this->validateInput(['client' => 'required|string', 'op' => 'required|in recreate,accept,putback']);
 	}

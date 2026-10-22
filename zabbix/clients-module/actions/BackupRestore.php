@@ -30,6 +30,11 @@ use Modules\EpClients\Lib\{Backups, ClientSpec, ClientState, Reconciler, Roles, 
  */
 class BackupRestore extends Base {
 
+	/** Super admins only, whatever ElasticPro's role (Base::superOnly). */
+	protected function checkPermissions(): bool {
+		return $this->superOnly();
+	}
+
 	protected function checkInput(): bool {
 		return $this->validateInput(['id' => 'required|string', 'confirm_delete' => 'string']);
 	}

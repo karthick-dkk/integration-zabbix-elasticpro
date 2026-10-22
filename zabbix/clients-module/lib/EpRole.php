@@ -22,10 +22,18 @@ use Modules\ElasticPro\Lib\SsoClient;
  *   GET {core_url}/sso/zabbix/role?claim=<JSON, URL-encoded>
  *   X-Zabbix-Module-Signature: <hex HMAC-SHA256 of the exact JSON bytes>
  *
- * where the JSON is {"zabbix_user", "zabbix_user_type", "ts"}. The core checks the signature and
- * the clock (±60 s) and answers {role, pinned, source, disabled, locked} for <user>@zabbix, or
+ * where the JSON is {"zabbix_user", "zabbix_user_type", "ts", "nonce"} (nonce: 32 hex characters,
+ * fresh for every question). The core checks the signature, the clock (±60 s) and that the nonce
+ * is new, and answers {role, pinned, source, disabled, locked, nonce, ts} for <user>@zabbix, or
  * role null when it has never seen that person sign in — then the Zabbix mapping applies (a
  * Zabbix Admin is an operator there), which is never an admin. Nothing is created by asking.
+ *
+ * The answer is believed only when ElasticPro signed it: the core sends
+ *   X-ElasticPro-Signature: <hex HMAC-SHA256 of ts + "\n" + nonce + "\n" + the exact body bytes>
+ * with this question's ts and nonce, under the same secret, and the body echoes both. A missing or
+ * wrong signature, an echo of another question, or a nonce this session has already consumed is
+ * no answer at all. And an "admin" is acted on only over a connection that cannot be read or
+ * altered on the way: https with certificate verification, or a loopback core.
  *
  * The pairing and the signing are the ElasticPro module's (modules/elasticpro, id "elasticpro"):
  * its Settings::resolve() and SsoClient::sign(), loaded from that module's folder, so there is one
@@ -46,6 +54,8 @@ final class EpRole {
 
 	/** What the page says when the core could not be asked. */
 	public const UNASKED = 'ElasticPro could not be asked who may edit; only Super admins can edit until it answers.';
+	/** What the page says when ElasticPro answered "admin" over a connection elevation does not trust. */
+	public const UNTRUSTED = 'ElasticPro\'s answer cannot be trusted over this connection; only Super admins can edit until it can.';
 
 	/** @var callable(): array  {core_url, secret, verify_tls} or {error} */
 	private $settings;
@@ -55,6 +65,8 @@ final class EpRole {
 	private $sign;
 	/** @var callable(): int */
 	private $clock;
+	/** @var callable(): string a fresh nonce for each question */
+	private $nonce;
 	/** @var callable(): ?array */
 	private $load;
 	/** @var callable(array): void */
@@ -67,13 +79,14 @@ final class EpRole {
 
 	/**
 	 * Every dependency can be replaced, so the tests can answer for the core, the clock and the
-	 * session. Keys: settings, transport, sign, clock, load, save.
+	 * session. Keys: settings, transport, sign, clock, nonce, load, save.
 	 */
 	public function __construct(array $deps = []) {
 		$this->settings = $deps['settings'] ?? [self::class, 'embedSettings'];
 		$this->transport = $deps['transport'] ?? [self::class, 'curlGet'];
 		$this->sign = $deps['sign'] ?? [SsoClient::class, 'sign'];
 		$this->clock = $deps['clock'] ?? 'time';
+		$this->nonce = $deps['nonce'] ?? fn() => bin2hex(random_bytes(16));
 		$this->load = $deps['load'] ?? [self::class, 'sessionLoad'];
 		$this->save = $deps['save'] ?? [self::class, 'sessionSave'];
 	}
@@ -93,9 +106,17 @@ final class EpRole {
 		return [1 => 'user', 2 => 'operator', 3 => 'admin'][$type] ?? null;
 	}
 
+	/** How many consumed nonces a session remembers; each is checked once, so a few suffice. */
+	public const NONCES_KEPT = 64;
+
+	/** The reasons a lookup is not acted on, as the page shows them. */
+	public const NOT_SIGNED = 'the answer was not signed by ElasticPro';
+	public const REPLAYED = 'replayed answer';
+	public const INSECURE = 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification (or loopback)';
+
 	/** The exact bytes that are signed and sent. */
-	public static function claim(string $user, int $type, int $ts): string {
-		return (string) json_encode(['zabbix_user' => $user, 'zabbix_user_type' => $type, 'ts' => $ts],
+	public static function claim(string $user, int $type, int $ts, string $nonce): string {
+		return (string) json_encode(['zabbix_user' => $user, 'zabbix_user_type' => $type, 'ts' => $ts, 'nonce' => $nonce],
 			JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 	}
 
@@ -105,8 +126,8 @@ final class EpRole {
 	 *
 	 * @return array{url: string, json: string, headers: string[]}
 	 */
-	public static function request(string $core_url, string $secret, string $user, int $type, int $ts, callable $sign): array {
-		$json = self::claim($user, $type, $ts);
+	public static function request(string $core_url, string $secret, string $user, int $type, int $ts, string $nonce, callable $sign): array {
+		$json = self::claim($user, $type, $ts, $nonce);
 		return [
 			'url' => rtrim($core_url, '/').self::PATH.'?claim='.rawurlencode($json),
 			'json' => $json,
@@ -114,11 +135,30 @@ final class EpRole {
 		];
 	}
 
+	/** What ElasticPro's answer to the question ($ts, $nonce) must be signed with: over ts, nonce and the exact body. */
+	public static function answerSignature(string $secret, int $ts, string $nonce, string $raw, callable $sign): string {
+		return $sign($secret, $ts."\n".$nonce."\n".$raw);
+	}
+
+	/**
+	 * Whether an "admin" from this core may be acted on: https with certificate verification, or a
+	 * core on this machine (127.0.0.0/8, ::1, localhost), where nothing travels a network.
+	 */
+	public static function transportTrusted(string $core_url, bool $verify_tls): bool {
+		$scheme = strtolower((string) parse_url($core_url, PHP_URL_SCHEME));
+		$host = strtolower(trim((string) parse_url($core_url, PHP_URL_HOST), '[]'));
+		if ($host === 'localhost' || $host === '::1' || preg_match('/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/', $host)) {
+			return true;
+		}
+		return $scheme === 'https' && $verify_tls;
+	}
+
 	/**
 	 * What ElasticPro says about this Zabbix user, from the session when the answer is young
 	 * enough (any age when $fresh is false), otherwise asked now and kept.
 	 *
-	 * @return array{asked: bool, role: ?string, pinned: bool, source: ?string, disabled: bool, locked: bool, error: ?string, at: int}
+	 * @return array{asked: bool, role: ?string, pinned: bool, source: ?string, disabled: bool, locked: bool,
+	 *               trusted: bool, error: ?string, at: int}
 	 */
 	public function answer(string $user, int $type, bool $fresh = true): array {
 		$key = $user."\n".$type;
@@ -127,37 +167,60 @@ final class EpRole {
 		}
 		$now = (int) ($this->clock)();
 		$kept = ($this->load)();
-		if (is_array($kept) && ($kept['user'] ?? null) === $user && (int) ($kept['type'] ?? -1) === $type
+		$kept = is_array($kept) ? $kept : [];
+		if (($kept['user'] ?? null) === $user && (int) ($kept['type'] ?? -1) === $type
 				&& is_array($kept['answer'] ?? null) && (!$fresh || $now - (int) ($kept['answer']['at'] ?? 0) < self::TTL)) {
 			return $this->memo[$key] = $kept['answer'];
 		}
-		$answer = $this->ask($user, $type, $now);
-		($this->save)(['user' => $user, 'type' => $type, 'answer' => $answer]);
+		// The consumed nonces outlive a change of user: they are this session's, not one answer's.
+		$nonces = is_array($kept['nonces'] ?? null) ? $kept['nonces'] : [];
+		$answer = $this->ask($user, $type, $now, $nonces);
+		($this->save)(['user' => $user, 'type' => $type, 'answer' => $answer,
+			'nonces' => array_slice($nonces, -self::NONCES_KEPT)]);
 		return $this->memo[$key] = $answer;
 	}
 
-	/** Ask the core now. Every failure is an answer with asked false and the reason. */
-	private function ask(string $user, int $type, int $now): array {
+	/**
+	 * Ask the core now. Every failure is an answer with asked false and the reason; an answer
+	 * over a connection elevation may not trust is asked true, trusted false.
+	 *
+	 * @param string[] $nonces  the nonces this session has consumed; the one used here is added
+	 */
+	private function ask(string $user, int $type, int $now, array &$nonces): array {
 		$out = ['asked' => false, 'role' => null, 'pinned' => false, 'source' => null, 'disabled' => false,
-			'locked' => false, 'error' => null, 'at' => $now];
+			'locked' => false, 'trusted' => false, 'error' => null, 'at' => $now];
 		$s = ($this->settings)();
 		if (isset($s['error'])) {
 			$out['error'] = (string) $s['error'];
 			return $out;
 		}
-		$req = self::request((string) $s['core_url'], (string) $s['secret'], $user, $type, $now, $this->sign);
+		$secret = (string) $s['secret'];
+		$nonce = (string) ($this->nonce)();
+		$req = self::request((string) $s['core_url'], $secret, $user, $type, $now, $nonce, $this->sign);
 		$r = ($this->transport)($req['url'], $req['headers'], (bool) ($s['verify_tls'] ?? true));
-		$data = is_array($r['data'] ?? null) ? $r['data'] : null;
 		if ((int) ($r['status'] ?? 0) === 0) {
 			$out['error'] = 'ElasticPro did not answer at '.rtrim((string) $s['core_url'], '/').': '.((string) ($r['error'] ?? '') ?: 'no answer');
 			return $out;
 		}
+		$raw = (string) ($r['raw'] ?? '');
+		$data = json_decode($raw, true);
+		$data = is_array($data) ? $data : null;
 		if ((int) $r['status'] !== 200 || $data === null || ($data['ok'] ?? false) !== true) {
 			$out['error'] = $data !== null && isset($data['message'])
 				? 'ElasticPro refused the question (HTTP '.(int) $r['status'].'): '.(string) $data['message']
 				: 'ElasticPro answered HTTP '.(int) $r['status'];
 			return $out;
 		}
+		$got = strtolower(trim((string) ($r['signature'] ?? '')));
+		if ($got === '' || !hash_equals(self::answerSignature($secret, $now, $nonce, $raw, $this->sign), $got)) {
+			$out['error'] = self::NOT_SIGNED;
+			return $out;
+		}
+		if (($data['nonce'] ?? null) !== $nonce || ($data['ts'] ?? null) !== $now || in_array($nonce, $nonces, true)) {
+			$out['error'] = self::REPLAYED;
+			return $out;
+		}
+		$nonces[] = $nonce;
 		$role = $data['role'] ?? null;
 		$out['asked'] = true;
 		$out['role'] = is_string($role) && in_array($role, ['admin', 'operator', 'user', 'guest'], true) ? $role : null;
@@ -165,6 +228,10 @@ final class EpRole {
 		$out['source'] = is_string($data['source'] ?? null) ? $data['source'] : null;
 		$out['disabled'] = ($data['disabled'] ?? false) === true;
 		$out['locked'] = ($data['locked'] ?? false) === true;
+		$out['trusted'] = self::transportTrusted((string) $s['core_url'], (bool) ($s['verify_tls'] ?? true));
+		if (!$out['trusted']) {
+			$out['error'] = self::INSECURE;
+		}
 		return $out;
 	}
 
@@ -174,7 +241,7 @@ final class EpRole {
 	 *
 	 * @param array|null $answer  answer() for this user; ignored for a Super admin.
 	 * @return array{write: bool, why: string, role: ?string, note: ?string, hint: ?string}
-	 *   why: super | elasticpro_admin | elasticpro_role | unasked | no_type
+	 *   why: super | elasticpro_admin | elasticpro_role | untrusted | unasked | no_type
 	 */
 	public static function decide(int $type, ?array $answer): array {
 		if ($type == USER_TYPE_SUPER_ADMIN) {
@@ -192,7 +259,12 @@ final class EpRole {
 		$mapped = $role === null;
 		$role = $role ?? self::zabbixRole($type);
 		$blocked = ($answer['disabled'] ?? false) || ($answer['locked'] ?? false);
-		if ($role === 'admin' && !$blocked) {
+		if ($role === 'admin' && !$blocked && !$mapped) {
+			if (!($answer['trusted'] ?? false)) {
+				// An admin over a connection that could have been altered on the way is not acted on.
+				return ['write' => false, 'why' => 'untrusted', 'role' => 'admin', 'note' => _(self::UNTRUSTED),
+					'hint' => (string) ($answer['error'] ?? self::INSECURE)];
+			}
 			return ['write' => true, 'why' => 'elasticpro_admin', 'role' => 'admin', 'note' => null, 'hint' => null];
 		}
 		$said = $mapped
@@ -267,11 +339,17 @@ final class EpRole {
 		return class_exists(SsoClient::class, false) && class_exists(EmbedSettings::class, false);
 	}
 
-	/** A signed GET. Short timeouts: a page waits on this. */
+	/**
+	 * A signed GET. Short timeouts: a page waits on this. Hands back the exact body bytes and the
+	 * X-ElasticPro-Signature header, which the answer is checked against.
+	 *
+	 * @return array{status: int, raw: string, signature: string, error: string}
+	 */
 	public static function curlGet(string $url, array $headers, bool $verify_tls): array {
 		if (!function_exists('curl_init') || ($ch = curl_init($url)) === false) {
-			return ['status' => 0, 'data' => null, 'error' => 'curl is not available'];
+			return ['status' => 0, 'raw' => '', 'signature' => '', 'error' => 'curl is not available'];
 		}
+		$signature = '';
 		curl_setopt_array($ch, [
 			CURLOPT_HTTPGET => true,
 			CURLOPT_HTTPHEADER => $headers,
@@ -280,16 +358,21 @@ final class EpRole {
 			CURLOPT_CONNECTTIMEOUT => 2,
 			CURLOPT_TIMEOUT => 3,
 			CURLOPT_SSL_VERIFYPEER => $verify_tls,
-			CURLOPT_SSL_VERIFYHOST => $verify_tls ? 2 : 0
+			CURLOPT_SSL_VERIFYHOST => $verify_tls ? 2 : 0,
+			CURLOPT_HEADERFUNCTION => function ($ch, string $line) use (&$signature): int {
+				if (stripos($line, 'X-ElasticPro-Signature:') === 0) {
+					$signature = trim(substr($line, strlen('X-ElasticPro-Signature:')));
+				}
+				return strlen($line);
+			}
 		]);
 		$raw = curl_exec($ch);
 		$status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 		$error = curl_error($ch);
 		if ($raw === false) {
-			return ['status' => 0, 'data' => null, 'error' => $error !== '' ? $error : 'no answer'];
+			return ['status' => 0, 'raw' => '', 'signature' => '', 'error' => $error !== '' ? $error : 'no answer'];
 		}
-		$data = json_decode((string) $raw, true);
-		return ['status' => $status, 'data' => is_array($data) ? $data : null, 'error' => ''];
+		return ['status' => $status, 'raw' => (string) $raw, 'signature' => $signature, 'error' => ''];
 	}
 
 	public static function sessionLoad(): ?array {

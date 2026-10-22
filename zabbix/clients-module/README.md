@@ -129,30 +129,51 @@ still owns the hosts and host groups):
 | Zabbix user type | ElasticPro says | Cluster Management |
 |---|---|---|
 | Super admin | (not asked) | edits |
-| Admin or User | `admin`, not blocked or locked | edits — within their Zabbix rights (below) |
+| Admin or User | `admin`, not blocked or locked, signed answer over https with verification (or loopback) | edits — within their Zabbix rights (below); never Backups or Re-create |
 | Admin | `operator`, `user`, `guest`, blocked or locked | reads |
 | Admin | never seen them sign in (`role: null`) | reads — the Zabbix mapping makes a Zabbix Admin an operator |
 | Admin | could not be asked | reads, and the page says *"ElasticPro could not be asked who may edit; only Super admins can edit until it answers."* with the reason |
 | User | anything but `admin` | nothing (as before) |
 
 The question goes to the ElasticPro core with the **ElasticPro** module's pairing (`modules/elasticpro`,
-id `elasticpro`): `GET {core_url}/sso/zabbix/role?claim=<JSON>`, the JSON being
-`{"zabbix_user","zabbix_user_type","ts"}`, signed in `X-Zabbix-Module-Signature` with HMAC-SHA256 of
-the exact JSON bytes under the pairing secret — the scheme and the code (`SsoClient::sign()`) of the
-sign-in. The core checks the signature and the clock (±60 s) and answers for `<user>@zabbix`; nothing
-is created by asking. With that module not enabled, Zabbix not paired, or the core not answering,
-only Super admins edit. An ElasticPro admin sets someone's role on ElasticPro's Accounts page; for a
+id `elasticpro`), signed with the scheme and the code (`SsoClient::sign()`) of the sign-in:
+
+- **Request.** `GET {core_url}/sso/zabbix/role?claim=<rawurlencode(JSON)>`, the JSON being exactly
+  `{"zabbix_user":…,"zabbix_user_type":…,"ts":…,"nonce":"<32 hex>"}` (a fresh nonce per question),
+  with `X-Zabbix-Module-Signature: hex HMAC-SHA256(JSON, secret)`. The core checks the signature, the
+  clock (±60 s) and the nonce (16–128 characters, never used before — a reused one is 401 `replayed`)
+  and answers for `<user>@zabbix`; nothing is created by asking.
+- **Answer.** The core signs what it sends: `X-ElasticPro-Signature: hex HMAC-SHA256(ts + "\n" + nonce
+  + "\n" + body, secret)`, with this question's ts and nonce and the exact body bytes, and the 200 body
+  echoes `"nonce"` and `"ts"`.
+- **What is believed.** An answer counts only with status 200, the signature present and matching,
+  the echoed nonce and ts equal to the ones sent, and a nonce this Zabbix session has not consumed
+  before (the session keeps the last 64). Otherwise the page says *"the answer was not signed by
+  ElasticPro"* or *"replayed answer"*.
+- **Over what.** An `admin` is acted on only when `core_url` is https with TLS verification on, or a
+  loopback core (127.0.0.0/8, ::1, localhost). Otherwise the lookup still runs — an operator is still
+  told their role — but nobody is elevated, and the page says *"core_url is plain HTTP / TLS
+  verification is off; elevation needs https with verification (or loopback)"*.
+
+With that module not enabled, Zabbix not paired, the core not answering, or any check above failing,
+only Super admins edit, and the page says so with the reason. An ElasticPro admin sets someone's role on ElasticPro's Accounts page; for a
 Zabbix sign-in that pins it, so Zabbix sign-ins no longer change it.
 
 The answer is kept in the Zabbix session for 60 s. This module's pages ask again once it is older;
 the sidebar on other Zabbix pages uses the last answer and asks only when there is none, so
-ordinary browsing costs one question per session. Roles and Backups appear in the sidebar for
-exactly those who may edit.
+ordinary browsing costs one question per session. Roles appears in the sidebar for exactly those
+who may edit.
+
+**Backups and the register stay Super admin, whatever ElasticPro's role.** A backup holds every
+client and host group, and the page's register of hosts (what was removed or changed outside, and
+Re-create / Put back / Accept removal) knows hosts beyond what anyone else may read in Zabbix. So
+Backups (list, download, restore) and Re-create refuse anyone but a Super admin, and only a Super
+admin's list and client pages compare with the register or record a client in it.
 
 **Zabbix rights still apply.** Someone who is not a Super admin writes to Zabbix as themself, and
 Zabbix keeps some steps for Super admins whatever their groups say. So before any change — save,
-import, re-create, put back, status, delete, remove from ElasticPro, restore, roles, writing the
-master template — the page works out what the change needs and asks Zabbix about this user's rights
+import, status, delete, remove from ElasticPro, roles, writing the master template (and, for the
+record, re-create and restore, which only Super admins reach) — the page works out what the change needs and asks Zabbix about this user's rights
 (`hostgroup.get`/`host.get`/`templategroup.get` with `editable`). If any step is out of reach it
 refuses **before anything is written**, naming the step:
 
@@ -282,8 +303,8 @@ purchased and when the count halves in a day. Field, window and index are its ma
 The page appears in the sidebar under **ElasticPro** — the module makes that section itself when
 no other ElasticPro module has, and joins the existing one when something has, so it needs nothing
 but itself. Beside it sit **Roles**, **Settings** and **Backups**. Zabbix Admins see Cluster
-Management and Settings, read-only, unless ElasticPro calls them an admin; Roles and Backups are for
-those who may edit ([Who may edit](#who-may-edit)). For an ElasticPro admin to edit, the
+Management and Settings, read-only, unless ElasticPro calls them an admin; Roles is for those who
+may edit, Backups for Super admins alone ([Who may edit](#who-may-edit)). For an ElasticPro admin to edit, the
 **ElasticPro** module (`embed-module`, installed as `modules/elasticpro`) must be enabled and paired.
 
 ## Settings

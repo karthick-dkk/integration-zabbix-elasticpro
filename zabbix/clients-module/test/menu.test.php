@@ -53,7 +53,7 @@ namespace {
 		public function getLabel(): string { return $this->label; }
 	}
 
-	class CController { public static $action = 'ep.clients.list'; public function getAction(): string { return self::$action; } }
+	class CController { public static $action = 'ep.clients.list'; public function getAction(): string { return self::$action; } protected function getUserType() { return \CWebUser::$type; } }
 	class CViewHelper { public static function loadSidebarMode() { return 0; } }
 	class CWebUser { public static $type = USER_TYPE_SUPER_ADMIN; public static $data = ['username' => 'alice']; public static function getType() { return self::$type; } }
 	class APP {
@@ -76,8 +76,17 @@ namespace Modules\EpClients\Test {
 	$asked = 0; $session = null; $reply = null;
 	function elasticpro(): void {
 		EpRole::setCurrent(new EpRole([
-			'settings' => function () { global $reply; return $reply === null ? ['error' => 'not paired'] : ['core_url' => 'http://core', 'secret' => str_repeat('s', 32)]; },
-			'transport' => function () { global $reply, $asked; $asked++; return $reply; },
+			'settings' => function () { global $reply; return $reply === null ? ['error' => 'not paired'] : ['core_url' => 'https://core', 'secret' => str_repeat('s', 32), 'verify_tls' => true]; },
+			// Answers as the core does: the request's nonce and ts echoed, the body signed over them.
+			'transport' => function (string $url) {
+				global $reply, $asked;
+				$asked++;
+				parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+				$c = json_decode($q['claim'], true);
+				$raw = $reply['data'] === null ? '' : json_encode($reply['data'] + ['nonce' => $c['nonce'], 'ts' => $c['ts']]);
+				return ['status' => $reply['status'], 'raw' => $raw, 'error' => $reply['error'],
+					'signature' => hash_hmac('sha256', $c['ts']."\n".$c['nonce']."\n".$raw, str_repeat('s', 32))];
+			},
 			'sign' => fn($secret, $body) => hash_hmac('sha256', $body, $secret),
 			'clock' => fn() => 1790000000,
 			'load' => function () { global $session; return $session; },
@@ -176,11 +185,11 @@ namespace Modules\EpClients\Test {
 	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'admin', 'disabled' => false, 'locked' => false], 'error' => ''];
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
-	check('a Zabbix Admin whom ElasticPro calls an admin is offered all four, as the pages let them in',
-		$labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], $labels($menu));
+	check('a Zabbix Admin whom ElasticPro calls an admin is offered Roles, but not Backups — those stay Super admin',
+		$labels($menu) === ['Cluster Management', 'Roles', 'Settings'], $labels($menu));
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_USER);
-	check('so is a Zabbix User whom ElasticPro calls an admin', $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], $labels($menu));
+	check('so is a Zabbix User whom ElasticPro calls an admin', $labels($menu) === ['Cluster Management', 'Roles', 'Settings'], $labels($menu));
 	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'operator'], 'error' => ''];
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
@@ -203,15 +212,40 @@ namespace Modules\EpClients\Test {
 	check('another Zabbix page: the kept answer, not a question', $asked === 0 && $labels($menu) === ['Cluster Management', 'Settings'], [$asked, $labels($menu)]);
 	$session = null; $asked = 0; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
-	check('another Zabbix page with nothing kept: asked once', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], [$asked, $labels($menu)]);
+	check('another Zabbix page with nothing kept: asked once', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings'], [$asked, $labels($menu)]);
 	$session = ['user' => 'alice', 'type' => USER_TYPE_ZABBIX_ADMIN, 'answer' => ['asked' => true, 'role' => 'operator', 'at' => 1]];
 	$asked = 0; elasticpro();
 	\CController::$action = 'ep.clients.list';
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
-	check('one of this module\'s pages: an old answer is asked again', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], [$asked, $labels($menu)]);
+	check('one of this module\'s pages: an old answer is asked again', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings'], [$asked, $labels($menu)]);
 	$asked = 0; elasticpro();
 	run(sidebar(), USER_TYPE_SUPER_ADMIN);
 	check('a Super admin is never asked about', $asked === 0);
+
+	/* ---------------- Backups and the register: Super admins only, whatever ElasticPro says ---------------- */
+	// The pages themselves, not only the sidebar: Zabbix answers 403 when checkPermissions() is false.
+	foreach (['Base', 'BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate', 'RoleList', 'RoleSave', 'TemplateInstall'] as $a) {
+		require_once __DIR__.'/../actions/'.$a.'.php';
+	}
+	$allowed = function (string $class): bool {
+		$page = (new \ReflectionClass($class))->newInstanceWithoutConstructor();
+		return (fn() => $this->checkPermissions())->call($page);
+	};
+	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'admin'], 'error' => ''];
+	$session = null; elasticpro();
+	\CWebUser::$type = USER_TYPE_ZABBIX_ADMIN;
+	foreach (['BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate'] as $a) {
+		check("a Zabbix Admin whom ElasticPro calls an admin is refused $a", !$allowed('Modules\\EpClients\\Actions\\'.$a));
+	}
+	foreach (['RoleList', 'RoleSave', 'TemplateInstall'] as $a) {
+		check("but may open $a, as the sidebar offers Roles", $allowed('Modules\\EpClients\\Actions\\'.$a));
+	}
+	\CWebUser::$type = USER_TYPE_SUPER_ADMIN;
+	foreach (['BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate', 'RoleList'] as $a) {
+		check("a Super admin may open $a", $allowed('Modules\\EpClients\\Actions\\'.$a));
+	}
+	$menu = run(sidebar(), USER_TYPE_SUPER_ADMIN);
+	check('a Super admin still sees Backups', $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], $labels($menu));
 
 	/* ---------------- a sidebar without Monitoring ---------------- */
 	$bare = new \CMenu();

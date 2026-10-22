@@ -16,14 +16,24 @@ Cluster Management follows ElasticPro's role (to be folded into the next version
   `X-Zabbix-Module-Signature`, ±60 s). The answer is kept 60 s in the Zabbix session. When the
   ElasticPro module is not enabled or paired, or the core does not answer, only Super admins edit and
   the page says "ElasticPro could not be asked who may edit; only Super admins can edit until it
-  answers", with the reason. Roles and Backups appear in the sidebar for exactly those who may edit.
+  answers", with the reason. Roles appears in the sidebar for exactly those who may edit.
   Needs the ElasticPro core release that serves `/sso/zabbix/role`.
+- **Only a signed, fresh answer elevates.** Each question carries a fresh nonce; the core signs its
+  answer (`X-ElasticPro-Signature`, HMAC over ts, nonce and the exact body) and echoes the nonce and
+  ts. An unsigned or wrongly signed answer, an echo of another question, or a nonce the session has
+  consumed is not acted on ("the answer was not signed by ElasticPro", "replayed answer"). An admin
+  is acted on only over https with verification, or a loopback core; otherwise the page says
+  "core_url is plain HTTP / TLS verification is off; elevation needs https with verification (or
+  loopback)".
+- **Backups and the register stay with Super admins**, whatever ElasticPro's role: Backups (list,
+  download, restore) and Re-create refuse everyone else, and only a Super admin's pages compare with
+  the register of hosts or record a client in it.
 - **Zabbix rights are checked before a change, not discovered half way.** Someone who is not a Super
   admin gets a refusal naming the step, before anything is written, when the change needs a step
   Zabbix keeps for Super admins (creating a host group or template group; the cluster DL alert
   routing or weekly report) or write permission they lack on a host group, a host or the
-  `Templates/Applications` template group. Every write action asks: save, import, re-create, put
-  back, status changes, delete, remove from ElasticPro, restore, roles and the master template.
+  `Templates/Applications` template group. Every write action someone else can reach asks: save,
+  import, status changes, delete, remove from ElasticPro, roles and the master template.
 
 ## 2.1.2
 
