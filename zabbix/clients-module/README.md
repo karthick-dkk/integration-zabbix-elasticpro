@@ -129,7 +129,7 @@ still owns the hosts and host groups):
 | Zabbix user type | ElasticPro says | Cluster Management |
 |---|---|---|
 | Super admin | (not asked) | edits |
-| Admin or User | `admin`, not blocked or locked, signed answer over https with verification (or loopback) | edits — within their Zabbix rights (below); never Backups or Re-create |
+| Admin or User | `admin`, not blocked or locked, signed answer over https with verification, a loopback core or a `trusted_plain_hosts` host | edits — within their Zabbix rights (below); never Backups or Re-create |
 | Admin | `operator`, `user`, `guest`, blocked or locked | reads |
 | Admin | never seen them sign in (`role: null`) | reads — the Zabbix mapping makes a Zabbix Admin an operator |
 | Admin | could not be asked | reads, and the page says *"ElasticPro could not be asked who may edit; only Super admins can edit until it answers."* with the reason |

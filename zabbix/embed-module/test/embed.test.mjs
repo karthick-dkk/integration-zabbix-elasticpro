@@ -56,12 +56,16 @@ test('the menu names the Snapshots page "Snapshots", as ElasticPro does', () => 
   assert.doesNotMatch(php, /Snapshots & SLM/);
 });
 
-test('sync-role.json: the one API identity, read methods only', () => {
+test('sync-role.json: the one API identity, read methods plus history.push and nothing else', () => {
   const spec = JSON.parse(read('sync-role.json'));
   for (const k of ['roleName', 'roleType', 'userName', 'noFrontendGroup', 'scriptTokenName', 'pairedTokenPrefix', 'methods']) {
     assert.ok(k in spec, `${k} is missing`);
   }
   assert.ok(spec.methods.length > 0);
-  for (const m of spec.methods) assert.match(m, /^[a-z]+\.get$/, `${m} is not a read method`);
+  // history.push lets the core feed the request gate template; no method that changes configuration.
+  for (const m of spec.methods) {
+    assert.ok(/^[a-z]+\.get$/.test(m) || m === 'history.push', `${m} is neither a read method nor history.push`);
+  }
+  assert.ok(spec.methods.includes('history.push'), 'history.push is missing (the request gate push needs it)');
   assert.equal(new Set(spec.methods).size, spec.methods.length);
 });
