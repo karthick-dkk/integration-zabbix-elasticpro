@@ -53,3 +53,27 @@ After import:
 3. Set `ZABBIX_METRICS_HOST=<host's technical name>` in ElasticPro's `config.txt` and run
    `deploy/deploy.sh --apply-config`.
 4. Adjust the `{$ELASTICPRO.GATE.*}` macros on the host if the defaults do not suit.
+
+## Moving existing hosts onto these templates
+
+Hosts that run older Elasticsearch, Linux or earlier ElasticPro templates are moved with
+`../tools/migrate-templates.py`, which keeps every stored value (it renames keys and lets the
+link adopt the existing items rather than starting new ones). Step by step, prerequisites,
+verification and rollback: [`../docs/MIGRATION.md`](../docs/MIGRATION.md).
+
+## Testing
+
+- `python3 ../tools/test/validate_template.py <file>` — static checks (references, uuids,
+  credentials, macros). CI runs it on every template in this folder and on the templates the
+  Clients page generates (`../tools/test/gen_templates.php`).
+- `../tools/test/template_live_test.py` — imports a `ztest-` copy of each template into a test
+  Zabbix (`ZABBIX_URL`, `ZABBIX_TOKEN`), proves the import is idempotent, sets every macro on a
+  test host and feeds payloads (trapper values; `mock_scrape_server.py` for the automation
+  template's HTTP item), including the edge cases: empty secret, wrong URL, thresholds at the
+  boundary, stale data. `--dry-run` needs no Zabbix; `--fast` skips the staleness waits.
+
+These files are copies. Two fixes made here (2026-10) must also reach the ElasticPro
+repository, or the next copy brings the old versions back: the automation template's
+"scrape has stopped running" trigger (`fuzzytime(...)=0 or nodata(...)=1`) in
+`deploy/zabbix/template-elasticpro.yaml`, and the `template_groups` section that
+`tools/zabbix-delay-template.mjs` should emit for the log-delay template.
