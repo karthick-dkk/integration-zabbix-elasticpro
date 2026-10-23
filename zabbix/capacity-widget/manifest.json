@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro client capacity",
 	"namespace": "EpCapacity",
-	"version": "2.1.4",
+	"version": "2.1.5",
 	"author": "ElasticPro",
 	"description": "One row per client master host: purchased, requested, allocated and used \u2014 ES storage, CPU and memory for ES nodes, parsers and forwarders, forwarder storage and log delay. Every column customisable per widget or as report defaults: names, order, any Zabbix item key or two items calculated, now or average, minimum, maximum or change over a window, shown as a value, bar, coloured cell or text, indicators, sparkline or badge, with its own thresholds and colours or ElasticPro Settings and its palette. Table options (density, totals, sort, top N), toolbar and Needs attention set on the widget; CSV and Excel export.",
 	"widget": {

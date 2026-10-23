@@ -4,6 +4,10 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.5
+
+- Cluster Management: the **Backups (N)** button on the client list is shown to Zabbix Super admins only. Backups stay with Super admins whatever ElasticPro says, but a Zabbix Admin whom ElasticPro calls an admin was offered the button and pressed it into "Access denied" (the menu already hid it). The button and the backup count are no longer given to anyone else; Import / export, Roles and Add client are unchanged.
+
 ## 2.1.4
 
 - ElasticPro automation template: `elasticpro.state` accepts pushed values (`allow_traps`), and its poll interval is the new `{$ELASTICPRO.POLL}` macro (default 5m; 0 = push-only host never polls). This matches ElasticPro 0.3.24's `elasticpro-scrape.mjs --format sender`, which now sends the whole scrape document to that item. No other objects changed; UUIDs kept.
