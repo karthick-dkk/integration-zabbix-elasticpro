@@ -6,10 +6,6 @@ How a version is chosen and released is in [README.md](README.md#versions-and-re
 
 ## 2.1.4
 
-TODO: describe what changed in this release.
-
-## 2.1.4
-
 - ElasticPro automation template: `elasticpro.state` accepts pushed values (`allow_traps`), and its poll interval is the new `{$ELASTICPRO.POLL}` macro (default 5m; 0 = push-only host never polls). This matches ElasticPro 0.3.24's `elasticpro-scrape.mjs --format sender`, which now sends the whole scrape document to that item. No other objects changed; UUIDs kept.
 
 ## 2.1.3
