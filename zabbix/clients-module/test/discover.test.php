@@ -242,6 +242,7 @@ namespace Modules\EpClients\Test {
 	check('…linked directly, in one step', strpos($link, 'directly and in one step') !== false);
 	check('the unknown generation stays linked beside', strpos($link, 'Stays linked beside') !== false && strpos($link, $OLDGEN) !== false, $link);
 	check('the master host is made', in_array('master', $ops, true));
+	check('a cluster with its own password: the user macro is written on it', (bool) preg_grep('/as the cluster host.*\{\$ELASTICSEARCH\.SCHEME\/HOST\/PORT\/USERNAME\}/', array_column($w, 1)));
 	check('the server move is listed: unlink without clear, link, adopt', (bool) preg_grep('/without clear.*adopted/', array_column($w, 1)), array_column($w, 1));
 	check('nothing is renamed: no rename in the list, and it says so', !in_array('rename', $ops, true) && (bool) preg_grep('/no host name is changed/', array_column($w, 1)));
 	check('each server line names its IP, host name and server name', (bool) preg_grep('/host name "gx-data-a" \(unchanged\), server name unknown.*IP 10\.3\.0\.1, role ES Data Hot/', array_column($w, 1)), array_column($w, 1));
@@ -464,6 +465,8 @@ namespace Modules\EpClients\Test {
 	check('a host monitored by a proxy today is said under Missing, with what adopting would do', (bool) preg_grep('/^px-es is monitored by proxy proxy-dc1; adoption would move it to the Zabbix server unless you choose that proxy/', $pm)
 		&& (bool) preg_grep('/^10\.6\.0\.1 is monitored by proxy proxy-dc2/', $pm) && !preg_grep('/10\.6\.0\.2/', $pm), $pm);
 	check('…and nothing is refused for it', !preg_grep('/Proxy not chosen/', $px['plan']['blockers']));
+	check('a cluster on the default credential: no user macro promised on it', (bool) preg_grep('/as the cluster host.*\{\$ELASTICSEARCH\.SCHEME\/HOST\/PORT\} \(user and password from the default credential\)/', array_column($px['plan']['writes'], 1)),
+		array_column($px['plan']['writes'], 1));
 	check('the default write list says which hosts would move to the Zabbix server', (bool) preg_grep('/Set proxy on "px-es": proxy proxy-dc1 → the Zabbix server/', array_column($px['plan']['writes'], 1)));
 	$c = Discovery::choicesFrom($px, ['sel' => [$px['id'] => '1'], 'host' => [$px['id'] => array_fill_keys(array_column($px['hosts'], 'hostid'), '1')],
 		'es_url' => [$px['id'] => 'https://es.px:9200'], 'proxy_es' => 'proxy:proxy-dc1', 'proxy_linux' => 'proxy:proxy-dc2'], $roles);

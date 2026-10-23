@@ -979,8 +979,11 @@ final class Discovery {
 			if ($old) {
 				$w[] = ['link', _s('Stays linked beside them, items and history as they are: %1$s.', $q($old))];
 			}
-			$w[] = ['cluster', _s('Adopt "%1$s" as the cluster host: into "%2$s" and "%3$s"; tags ep-client, ep-kind=cluster, ep-status%4$s; macros {$GRP.CLIENT}, {$ELASTICSEARCH.SCHEME/HOST/PORT/USERNAME} and the requested figures.',
-				$c['host'], $name, Reconciler::CLUSTER_GROUP, ', ep-name=own')];
+			// The user macro only when the cluster has a credential of its own (ClientSpec::clusterMacros).
+			$own = ($client['fields']['es_password_mode'] ?? 'default') !== 'default';
+			$w[] = ['cluster', _s('Adopt "%1$s" as the cluster host: into "%2$s" and "%3$s"; tags ep-client, ep-kind=cluster, ep-status%4$s; macros {$GRP.CLIENT}, %5$s and the requested figures.',
+				$c['host'], $name, Reconciler::CLUSTER_GROUP, ', ep-name=own',
+				$own ? '{$ELASTICSEARCH.SCHEME/HOST/PORT/USERNAME}' : _('{$ELASTICSEARCH.SCHEME/HOST/PORT} (user and password from the default credential)'))];
 		}
 		$byId = Roles::byId($this->roles);
 		foreach ($plan['servers'] as $id => $s) {
