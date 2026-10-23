@@ -456,7 +456,10 @@ def plan_replace(snap, gen, old_tpl, target, unlink=True):
     # Macros. (a) Preserve what kept objects resolve today: a macro they use that only the old
     # template defines would vanish with the unlink. (b) Carry host-level settings to their new
     # names. Never a value made up, never a secret guessed.
-    if plan["unlink"]:
+    # Without an unlink the old template still answers for its macros — unless a new template
+    # defines the same macro differently: two linked templates with one macro resolve by template
+    # order, so the link could change what the kept items see. Those are pinned at host level too.
+    if old_ids:
         old_macros = {}
         for t in old_tpl.values():
             for m, v in t["macros"].items():
@@ -480,11 +483,15 @@ def plan_replace(snap, gen, old_tpl, target, unlink=True):
             val, typ = old_macros[m]
             if m in target["macros"] and target["macros"][m] == (val, typ) and typ != "1":
                 continue
+            if not plan["unlink"] and m not in target["macros"]:
+                continue  # the old template stays linked and nothing new competes for the name
             if typ == "1":
                 plan["manual"].append(f"{m}: secret on the old template, used by kept items — set it on the host "
                                       "by hand (secret values cannot be read through the API)")
             else:
-                plan["macros"].append({"macro": m, "value": val, "type": typ, "why": "kept items use it; it came from the old template"})
+                plan["macros"].append({"macro": m, "value": val, "type": typ, "why":
+                                       "kept items use it; it came from the old template" if plan["unlink"] else
+                                       "kept items use it and a new template defines it differently"})
     on_host = {m["macro"]: m for m in host["macros"]}
     planned = {m["macro"] for m in plan["macros"]}
     for m, hm in sorted(on_host.items()):

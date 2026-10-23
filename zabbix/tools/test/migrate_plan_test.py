@@ -87,6 +87,13 @@ class ReplacePlan(unittest.TestCase):
         self.assertIn("{$SECRET}", manual)
         self.assertIn("{$NEWM.PASS}", manual)                         # a secret is never copied, only listed
 
+    def test_additive_link_pins_a_macro_the_new_template_redefines(self):
+        tgt = dict(TARGET, macros={"{$URL}": ("", "0"), "{$SHARED}": ("x", "0")})
+        s = snap([item("5", "kept.key", OLD, url="{$URL}/x", username="{$SHARED}", params="{$UNUSED}")])
+        p = mig.plan_replace(s, GEN, OLD_TPL, tgt, unlink=False)
+        self.assertEqual([m["macro"] for m in p["macros"]], ["{$URL}"])   # differs; SHARED is the same; UNUSED not redefined
+        self.assertEqual(p["macros"][0]["value"], "http://old")
+
     def test_refusals(self):
         cases = {
             "value type": snap([item("1", "own.float", vt="0")]),
