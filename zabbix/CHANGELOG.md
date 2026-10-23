@@ -33,6 +33,10 @@ How a version is chosen and released is in [README.md](README.md#versions-and-re
   (new, displayed only).
 - The ElasticPro cluster template (version 2) no longer defines `{$ELASTICSEARCH.USERNAME}` or
   `{$ELASTICSEARCH.PASSWORD}`, which hid the global default: **Write master template** once.
+  Until then the client's page names it under Missing and says so.
+- A cluster template under a name the module does not know (found by its Elasticsearch health
+  item) is named everywhere: Discover, the list's "+ N older beside", the client page's Beside and
+  Templates tab, and Missing. It was reported by Discover only.
 - `tools/migrate-templates.py`: an old item whose key the new template also has, with another value
   type, is now refused (the link would adopt and convert it) instead of reported as kept apart.
 

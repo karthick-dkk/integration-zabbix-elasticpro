@@ -175,8 +175,12 @@ final class Missing {
 				_('Set the default on ElasticPro → Settings, or this cluster\'s own with "Change password" on the client\'s page.'));
 		}
 		elseif ($source === 'template') {
+			// ElasticPro's own cluster template did, up to version 1: writing it again (version 2)
+			// drops the macro for every cluster at once. Anyone else's template is theirs to change.
+			$ours = in_array(ClusterTemplate::name(), $es['hidden_by'] ?? [], true);
 			$out[] = self::item('credential_hidden', _s('A linked template defines {$ELASTICSEARCH.PASSWORD} and hides the default credential: %1$s.', implode(', ', $es['hidden_by'] ?? [])),
-				_('Give this cluster its own password, or remove that macro from the template.'));
+				$ours ? _s('"%1$s" is an older version of ElasticPro\'s own template: press "Write master template" on Cluster Management, and version 2 no longer defines it. Or give this cluster its own password.', ClusterTemplate::name())
+					: _('Give this cluster its own password, or remove that macro from the template.'));
 		}
 		elseif ($source === 'default') {
 			if ($defaultRecord !== null && empty($defaultRecord['core'])) {

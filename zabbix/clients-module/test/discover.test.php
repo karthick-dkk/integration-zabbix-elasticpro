@@ -447,6 +447,10 @@ namespace Modules\EpClients\Test {
 	$u = array_values(array_filter($miss, fn($m) => $m['key'] === 'unknown_template'));
 	check('Missing names the unknown template still linked, and says it stays', count($u) === 1 && str_contains($u[0]['text'], $OLDGEN)
 		&& str_contains($u[0]['fix'], 'stays linked') && !in_array('old_generation', array_column($miss, 'key'), true), $miss);
+	$hidden = fn(array $by) => array_values(array_filter(Missing::forClient($now, $r->macros($hid), [], null, false, ['source' => 'template', 'hidden_by' => $by]),
+		fn($m) => $m['key'] === 'credential_hidden'))[0] ?? null;
+	check('hidden by an older ElasticPro cluster template: the fix is "Write master template"', str_contains($hidden([ClusterTemplate::name()])['fix'] ?? '', 'Write master template'));
+	check('hidden by someone else\'s template: theirs to change, or this cluster\'s own password', !str_contains($hidden(['Some stock ES template'])['fix'] ?? 'Write master template', 'Write master template'));
 	check('without the lookup, Missing says nothing it does not know', !in_array('unknown_template', array_column(Missing::forClient($now, $r->macros($hid), [], null, false), 'key'), true));
 
 	/* ======================================================================================
