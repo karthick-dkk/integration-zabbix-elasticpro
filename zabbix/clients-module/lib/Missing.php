@@ -93,7 +93,8 @@ final class Missing {
 	 * values are never read), templates the client needs that the user cannot see or Zabbix does
 	 * not have, and ClusterSecret::of() — who handed the password over, when.
 	 */
-	public static function forClient(array $now, array $clusterMacros, array $missingTemplates, ?array $secret, bool $jump, array $credential = []): array {
+	public static function forClient(array $now, array $clusterMacros, array $missingTemplates, ?array $secret, bool $jump, array $credential = [],
+			?string $signature = null): array {
 		$out = [];
 		if ($now['groupid'] === null) {
 			$out[] = self::item('client_group', _('No client group in Zabbix.'), _('Saving the client creates it.'));
@@ -113,9 +114,12 @@ final class Missing {
 				'hidden_by' => $credential['hidden_by'] ?? []
 			];
 			$templates = array_column($cluster['parentTemplates'] ?? [], 'host');
-			$current = array_merge([Roles::clusterTemplate(), Roles::templateName('jump')]);
-			$old = array_values(array_diff(array_intersect($templates, Reconciler::clusterHostTemplates()), $current));
-			$out = array_merge($out, self::cluster($es, $jump, array_keys($clusterMacros + $types), $old, '', $secret, $clusterMacros, $credential['default_record'] ?? null));
+			$beside = Reconciler::besideTemplates($templates, $signature);
+			$out = array_merge($out, self::cluster($es, $jump, array_keys($clusterMacros + $types), $beside['known'], '', $secret, $clusterMacros, $credential['default_record'] ?? null));
+			if ($beside['unknown']) {
+				$out[] = self::item('unknown_template', _s('Also linked: "%1$s", which gives the cluster host the Elasticsearch items under a template name this module does not know.', $beside['unknown'][0]),
+					_('It stays linked, items and history as they are. To have it counted as an older generation, name it on the Roles page under the cluster template\'s extra names.'));
+			}
 			$own = $jump ? Reconciler::jumpClusterTemplates() : Reconciler::clusterTemplates();
 			$notLinked = array_values(array_diff($own, $templates));
 			if ($templates && $notLinked) {

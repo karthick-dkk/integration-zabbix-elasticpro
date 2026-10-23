@@ -4,7 +4,7 @@ namespace Modules\EpClients\Actions;
 
 use API;
 use CControllerResponseData;
-use Modules\EpClients\Lib\{ClusterSecret, DefaultCredential, Forecast, History, JumpTemplate, Settings, SetupChecks, Lifecycle, Missing, Reconciler, Registry, Roles};
+use Modules\EpClients\Lib\{ClusterSecret, DefaultCredential, Discovery, Forecast, History, JumpTemplate, Settings, SetupChecks, Lifecycle, Missing, Reconciler, Registry, Roles};
 
 /** The form: empty for a new client, filled for one that exists or a cluster host being taken on. */
 class ClientEdit extends Base {
@@ -70,6 +70,8 @@ class ClientEdit extends Base {
 		$cluster = $now['cluster'] ?? null;
 		$password = ['stored' => Reconciler::hasStoredPassword($cluster), 'record' => $cluster !== null ? ClusterSecret::of((string) $cluster['host']) : null];
 		$default = DefaultCredential::current();
+		// What the cluster host carries beside the current template (Reconciler::besideTemplates).
+		$signature = $cluster !== null ? (Discovery::signatureTemplates([(string) $cluster['hostid']])['templates'][(string) $cluster['hostid']] ?? null) : null;
 		$missing = [];
 		if ($now !== null && $mode === 'edit') {
 			$rec = new Reconciler($c->specFor());
@@ -82,7 +84,7 @@ class ClientEdit extends Base {
 						fn($t) => in_array(DefaultCredential::PASSWORD_MACRO, $tm[(string) $t['templateid']] ?? [], true))))];
 			}
 			$missing = Missing::forClient($now, $cluster !== null ? $rec->macros((string) $cluster['hostid']) : [],
-				$bad ? [] : $rec->missingTemplates($parsed), $password['record'], ($form['monitored_by'] ?? '') === 'jump', $credential);
+				$bad ? [] : $rec->missingTemplates($parsed), $password['record'], ($form['monitored_by'] ?? '') === 'jump', $credential, $signature);
 		}
 		// The Overview tab (board Client-page.dc.html): servers by role, the cluster and its
 		// templates, when it last answered, when its storage fills.
@@ -126,7 +128,8 @@ class ClientEdit extends Base {
 			'password' => $password,
 			'by_role' => $byRole,
 			'cluster_info' => $cluster !== null ? ['host' => $cluster['host'], 'hostid' => $cluster['hostid'],
-				'templates' => array_column($cluster['parentTemplates'] ?? [], 'host')] : null,
+				'templates' => array_column($cluster['parentTemplates'] ?? [], 'host'),
+				'beside' => Reconciler::besideTemplates(array_column($cluster['parentTemplates'] ?? [], 'host'), $signature)] : null,
 			'master_host' => $now['master']['host'] ?? null,
 			'last_seen' => $lastSeen,
 			'full_in' => $fullIn,

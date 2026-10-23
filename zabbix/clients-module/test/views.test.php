@@ -314,7 +314,8 @@ namespace Modules\EpClients\Test {
 			['key' => 'old_generation', 'text' => 'An older template generation is still linked', 'fix' => 'It stays beside']],
 		'by_role' => ['es_data_hot' => [['ip' => '10.0.0.11', 'name' => 'es-hot-1', 'host' => '10.0.0.11', 'confirm' => ''], ['ip' => '10.0.0.12', 'name' => '', 'host' => '10.0.0.12', 'confirm' => '']],
 			'forwarder' => [['ip' => '10.0.0.9', 'name' => 'kfk', 'host' => '10.0.0.9', 'confirm' => 'kafka']]],
-		'cluster_info' => ['host' => 'acme-ES-Cluster', 'hostid' => '501', 'templates' => ['Elasticsearch Cluster by HTTP EP', 'Old ES template']], 'master_host' => 'acme-Master',
+		'cluster_info' => ['host' => 'acme-ES-Cluster', 'hostid' => '501', 'templates' => ['Elasticsearch Cluster by HTTP EP', 'Old ES template', 'Odd ES template', 'Linux extra'],
+			'beside' => ['known' => ['Old ES template'], 'unknown' => ['Odd ES template']]], 'master_host' => 'acme-Master',
 		'last_seen' => 0, 'full_in' => null, 'forecast' => [],
 		'default_credential' => ['set' => true, 'user' => 'svc', 'record' => ['at' => 1790000000, 'by' => 'alice']], 'proxy_groups' => []],
 		['servers_monitored_by' => 'server', 'retention_days' => '', 'backup_gb' => '250'])));
@@ -325,12 +326,17 @@ namespace Modules\EpClients\Test {
 	check('client page: the Missing panel at the top of Overview, each line with its Fix', strpos($cp, 'id="ep-missing"') < strpos($cp, 'Servers by role')
 		&& str_contains($cp, 'Missing: 2 things could not be determined or set') && str_contains($cp, 'data-goto="servers">Fix: Servers &amp; roles')
 		&& str_contains($cp, 'data-goto="templates">Fix: Templates'));
+	check('client page: Beside names the older generation and the template whose name is not known here, not "none"',
+		(bool) preg_match('~ep-k">Beside</div><div><span class="ep-flag">Old ES template</span>.*Odd ES template</span> <span class="ep-hint">name not known here~', $cp));
+	check('client page: the Templates tab says what each linked template is', str_contains($cp, 'Old ES template</td><td class="ep-hint">older generation, kept beside')
+		&& str_contains($cp, 'Odd ES template</td><td class="ep-hint">gives the Elasticsearch items under a name this module does not know')
+		&& str_contains($cp, 'Linux extra</td><td class="ep-hint">another template, left as it is'));
 	check('client page: servers by role as IP · server name, unknown said, kafka flagged, empty roles "none"', str_contains($cp, '10.0.0.11</span> · es-hot-1')
 		&& str_contains($cp, '10.0.0.12</span> · <span class="ep-hint">server name unknown') && str_contains($cp, 'kafka: confirm Forwarder or Parser')
 		&& (bool) preg_match('~ep-k">Parser</div><div><span class="ep-hint">none~', $cp));
 	check('client page: last seen never, disk full unknown, retention not set, backup 250 GB', str_contains($cp, 'Last seen</div><div><span class="ep-hint">never')
 		&& str_contains($cp, 'unknown: not measured yet') && str_contains($cp, 'Retention</div><div><span class="ep-hint">not set') && str_contains($cp, '250 GB'));
-	check('client page: the Templates tab names each template and what it is; the ones not linked yet', str_contains($cp, '<td>Old ES template</td><td class="ep-hint">another template, left as it is')
+	check('client page: the Templates tab names each template and what it is; the ones not linked yet', str_contains($cp, '<td>Linux extra</td><td class="ep-hint">another template, left as it is')
 		&& str_contains($cp, 'not linked yet: saving links it'));
 	check('form: Client | Connection, Servers & roles, Capacity | Log archive, and the action bar', strpos($cp, 'id="ep-card-client"') < strpos($cp, 'id="ep-card-connection"')
 		&& strpos($cp, 'id="ep-card-connection"') < strpos($cp, 'id="ep-card-servers"') && strpos($cp, 'id="ep-card-servers"') < strpos($cp, 'id="ep-card-capacity"')

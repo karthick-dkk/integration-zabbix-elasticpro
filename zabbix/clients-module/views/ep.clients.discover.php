@@ -131,7 +131,7 @@ if ($scan !== null) {
 		->setAttribute('autocomplete', 'off')->setId('ep-disc-form')
 		->setAttribute('data-ep-text', json_encode(['head' => _('Adopting %n selected will:'), 'adopt' => _('Adopt selected (%n)'),
 			'tpl' => count(\Modules\EpClients\Lib\Reconciler::clusterTemplates()),
-			'line' => _('link %tpl templates to %links hosts · create %groups groups · adopt %hosts hosts · set proxy on %proxy hosts · delete nothing · old templates kept beside')]));
+			'line' => _('link %tpl templates to %links{host|hosts} · create %groups{group|groups} · adopt %hosts{host|hosts} · set proxy on %proxy{host|hosts} · delete nothing · old templates kept beside')]));
 
 	$t = (new CTag('table', true))->addClass('ep-lt');
 	$t->addItem(new CTag('thead', true, new CTag('tr', true, [
@@ -319,8 +319,9 @@ if ($scan !== null) {
 				(new CDiv([new CLabel([_('ES hosts monitored by'), ' ', $proxyOptions('proxy_es')], null),
 					new CLabel([_('Linux hosts monitored by'), ' ', $proxyOptions('proxy_linux')], null)]))->addClass('ep-proxies'),
 				(new CDiv(new CTag('b', true, _s('Adopting %1$s selected will:', count($ticked)))))->addClass('ep-sum-h')->setAttribute('data-ep-sum-head', '1'),
-				(new CDiv(_s('link %1$s templates to %2$s hosts · create %3$s groups · adopt %4$s hosts · set proxy on %5$s hosts · delete nothing · old templates kept beside',
-					count($five), $clusterLinks, count(array_unique($created)), $hosts, $proxyMoves)))->addClass('ep-sum-line')->setAttribute('data-ep-sum-line', '1'),
+				(new CDiv(_s('link %1$s templates to %2$s · create %3$s · adopt %4$s · set proxy on %5$s · delete nothing · old templates kept beside',
+					count($five), _n('%1$s host', '%1$s hosts', $clusterLinks), _n('%1$s group', '%1$s groups', count(array_unique($created))),
+					_n('%1$s host', '%1$s hosts', $hosts), _n('%1$s host', '%1$s hosts', $proxyMoves))))->addClass('ep-sum-line')->setAttribute('data-ep-sum-line', '1'),
 				$ul([
 					[new CTag('b', true, _s('%1$s templates, linked directly to each cluster host:', count($five))), ' ', implode(', ', $five), '. ', _('Not nested in one template.')],
 					_('Proxy: each cluster host by "ES hosts monitored by", every Linux role host by "Linux hosts monitored by" — both the Zabbix server unless you choose a proxy. A host monitored otherwise today is listed under Missing.'),

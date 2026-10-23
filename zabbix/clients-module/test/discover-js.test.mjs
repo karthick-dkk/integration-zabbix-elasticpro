@@ -43,3 +43,10 @@ test('the view reads this file and gives it the figures it adds up', () => {
   assert.match(view, /'data-ep-sum'/);
   assert.match(view, /'data-ep-text'/);
 });
+
+test('the summary line says "1 host", "2 hosts": the figure and the word agree', () => {
+  const t = 'link %tpl templates to %links{host|hosts} · create %groups{group|groups} · set proxy on %proxy{host|hosts}';
+  assert.equal(D.fill(t, { tpl: 5, links: 1, groups: 2, proxy: 0 }), 'link 5 templates to 1 host · create 2 groups · set proxy on 0 hosts');
+  assert.equal(D.fill('Adopt selected (%n)', { n: 3 }), 'Adopt selected (3)');
+  assert.equal(D.fill('%x{a|b} stays', { n: 1 }), '%x{a|b} stays', 'an unknown figure is left as it is');
+});

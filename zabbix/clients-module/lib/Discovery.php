@@ -122,6 +122,39 @@ final class Discovery {
 	}
 
 	/** Whether a host group's name makes its hosts clusters. */
+	/**
+	 * Hosts carrying the Elasticsearch health check every generation of the cluster template has
+	 * (SetupChecks::ES_HEALTH_KEY, or the jump route's), and the template that gives it them —
+	 * which finds a cluster template under a name no setting here knows without naming it.
+	 * One lookup for Discover, the list, the client page and Missing.
+	 *
+	 * @param string[]|null $hostids  only these hosts; null for every host
+	 * @return array{hosts: array<string, true>, templates: array<string, string>}  hostid => true; hostid => template name
+	 */
+	public static function signatureTemplates(?array $hostids = null): array {
+		$out = ['hosts' => [], 'templates' => []];
+		if ($hostids === []) {
+			return $out;
+		}
+		$signature = [];
+		foreach (API::Item()->get(['output' => ['itemid', 'hostid', 'templateid'], 'filter' => ['key_' => [SetupChecks::ES_HEALTH_KEY, JumpTemplate::FAST]],
+				'templated' => false] + ($hostids !== null ? ['hostids' => array_values($hostids)] : [])) ?: [] as $it) {
+			$out['hosts'][(string) $it['hostid']] = true;
+			$signature[(string) $it['hostid']] = (string) $it['templateid'];
+		}
+		$parents = array_values(array_filter(array_unique(array_values($signature)), fn($x) => $x !== '0'));
+		if ($parents) {
+			$tplOf = array_column(API::Item()->get(['output' => ['itemid', 'hostid'], 'itemids' => $parents, 'templated' => true]) ?: [], 'hostid', 'itemid');
+			$names = $tplOf ? array_column(API::Template()->get(['output' => ['templateid', 'host'], 'templateids' => array_values(array_unique($tplOf))]) ?: [], 'host', 'templateid') : [];
+			foreach ($signature as $hostid => $parent) {
+				if (isset($tplOf[$parent], $names[$tplOf[$parent]])) {
+					$out['templates'][$hostid] = $names[$tplOf[$parent]];
+				}
+			}
+		}
+		return $out;
+	}
+
 	public static function isClusterGroup(string $name): bool {
 		return stripos($name, self::CLUSTER_GROUP_MATCH) !== false;
 	}
@@ -247,23 +280,8 @@ final class Discovery {
 		}
 		// A cluster host whose template has a name no setting here knows: found by the health check
 		// every generation of the Elasticsearch template carries, and the template that gives it.
-		$signature = [];
-		foreach (API::Item()->get(['output' => ['itemid', 'hostid', 'templateid'], 'filter' => ['key_' => [SetupChecks::ES_HEALTH_KEY, JumpTemplate::FAST]],
-				'templated' => false]) ?: [] as $it) {
-			$ids[(string) $it['hostid']] = true;
-			$signature[(string) $it['hostid']] = (string) $it['templateid'];
-		}
-		$fromTemplate = [];
-		$parents = array_values(array_filter(array_unique(array_values($signature)), fn($x) => $x !== '0'));
-		if ($parents) {
-			$tplOf = array_column(API::Item()->get(['output' => ['itemid', 'hostid'], 'itemids' => $parents, 'templated' => true]) ?: [], 'hostid', 'itemid');
-			$names = $tplOf ? array_column(API::Template()->get(['output' => ['templateid', 'host'], 'templateids' => array_values(array_unique($tplOf))]) ?: [], 'host', 'templateid') : [];
-			foreach ($signature as $hostid => $parent) {
-				if (isset($tplOf[$parent], $names[$tplOf[$parent]])) {
-					$fromTemplate[$hostid] = $names[$tplOf[$parent]];
-				}
-			}
-		}
+		['hosts' => $carriers, 'templates' => $fromTemplate] = self::signatureTemplates();
+		$ids += $carriers;
 		foreach ($ctx['masters'] as $id) {
 			unset($ids[$id]);
 		}

@@ -5,7 +5,7 @@ namespace Modules\EpClients\Actions;
 use API;
 use CControllerResponseData;
 use Exception;
-use Modules\EpClients\Lib\{ClientSpec, ClientState, ClusterSecret, DefaultCredential, Forecast, History, JumpTemplate, ListColumns, MasterTemplate, Lifecycle, Missing, Reconciler, Registry, Roles, Settings, SetupChecks, Store, TemplateInstaller};
+use Modules\EpClients\Lib\{ClientSpec, ClientState, ClusterSecret, DefaultCredential, Discovery, Forecast, History, JumpTemplate, ListColumns, MasterTemplate, Lifecycle, Missing, Reconciler, Registry, Roles, Settings, SetupChecks, Store, TemplateInstaller};
 
 /**
  * The clients, by status: each with its type, ES URL, contacts, servers per family, setup checks,
@@ -94,7 +94,8 @@ class ClientList extends Base {
 		$default = DefaultCredential::current();
 		$defaultRecord = ClusterSecret::of(DefaultCredential::KEY);
 		$tm = DefaultCredential::templateMacros(array_merge([], ...array_map(fn($n) => array_column($n['cluster']['parentTemplates'] ?? [], 'templateid'), array_values($nows))));
-		$current = [Roles::clusterTemplate(), Roles::templateName('jump')];
+		// A cluster template under a name no setting knows, found by its health check (one lookup).
+		$signature = Discovery::signatureTemplates($clusterIds)['templates'];
 
 		$clients = [];
 		foreach ($live as $name => $c) {
@@ -143,14 +144,14 @@ class ClientList extends Base {
 					'shared' => count(array_filter($held, fn($h) => count($h['_roles']) > 1))];
 			}
 			$cl = $now['cluster'];
-			$beside = $cl !== null ? array_values(array_diff(array_intersect(array_column($cl['parentTemplates'] ?? [], 'host'), Reconciler::clusterHostTemplates()), $current)) : [];
+			$beside = $cl !== null ? array_merge(...array_values(Reconciler::besideTemplates(array_column($cl['parentTemplates'] ?? [], 'host'), $signature[(string) $cl['hostid']] ?? null))) : [];
 			$source = $cl !== null ? DefaultCredential::sourceOf($cl, $tm, $default['password']) : 'none';
 			$missing = [];
 			try {
 				['client' => $parsed, 'errors' => $bad] = $this->spec()->fromForm(ClientState::plain($state->formFor($name)));
 				$missing = Missing::forClient($now, $cl !== null ? $rec->macros((string) $cl['hostid']) : [], $bad ? [] : $rec->missingTemplates($parsed),
 					$cl !== null ? ClusterSecret::of((string) $cl['host']) : null, ($m['{$EP.MONITORED.BY}'] ?? '') === 'jump',
-					['source' => $source, 'default_record' => $defaultRecord]);
+					['source' => $source, 'default_record' => $defaultRecord], $cl !== null ? ($signature[(string) $cl['hostid']] ?? null) : null);
 			}
 			catch (Exception $e) {
 				$missing = [['key' => 'read', 'text' => _s('Could not be read: %1$s', $e->getMessage()), 'fix' => '']];

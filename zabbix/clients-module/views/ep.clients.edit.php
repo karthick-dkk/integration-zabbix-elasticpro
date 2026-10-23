@@ -203,8 +203,10 @@ if ($tabs) {
 		.'<div class="ep-card"><div class="ep-ct">'.$e(_('Templates')).'</div><div class="ep-kv">'
 		.'<div class="ep-k">'.$e(_('Current')).'</div><div><div class="ep-chips">'.implode('', array_map(fn($t) => '<span class="ep-chip'.($ci !== null && !in_array($t, $ci['templates'], true) ? ' ep-chip-miss' : '').'">'.$e($t).'</span>', $five)).'</div>'
 			.'<div class="ep-hint">'.$e(_('linked directly to the cluster host')).'</div></div>'
-		.'<div class="ep-k">'.$e(_('Beside')).'</div><div>'.(($ci !== null && ($old = array_values(array_diff(array_intersect($ci['templates'], \Modules\EpClients\Lib\Reconciler::clusterHostTemplates()), [\Modules\EpClients\Lib\Roles::clusterTemplate(), \Modules\EpClients\Lib\Roles::templateName('jump')]))))
-			? implode(' ', array_map(fn($t) => '<span class="ep-flag">'.$e($t).'</span>', $old)) : '<span class="ep-hint">'.$e(_('none')).'</span>').'</div>'
+		.'<div class="ep-k">'.$e(_('Beside')).'</div><div>'.(($ci !== null && ($ci['beside']['known'] || $ci['beside']['unknown']))
+			? implode(' ', array_map(fn($t) => '<span class="ep-flag">'.$e($t).'</span>', $ci['beside']['known']))
+				.implode(' ', array_map(fn($t) => ' <span class="ep-flag" title="'.$e(_('Gives the Elasticsearch items under a template name this module does not know.')).'">'.$e($t).'</span> <span class="ep-hint">'.$e(_('name not known here')).'</span>', $ci['beside']['unknown']))
+			: '<span class="ep-hint">'.$e(_('none')).'</span>').'</div>'
 		.'<div class="ep-k">'.$e(_('Master host')).'</div><div class="ep-mono">'.$e($data['master_host'] ?? _('none')).'</div>'
 		.'</div></div>'
 		.'<div class="ep-card"><div class="ep-ct">'.$e(_('Contacts')).'</div><div class="ep-kv">'
@@ -222,7 +224,10 @@ if ($tabs) {
 	// Templates tab: what the cluster host carries, by name.
 	$tt = '';
 	foreach (($ci['templates'] ?? []) as $t) {
-		$kind = in_array($t, $five, true) ? _('ElasticPro, linked directly') : (in_array($t, \Modules\EpClients\Lib\Reconciler::clusterHostTemplates(), true) ? _('older generation, kept beside with its history') : _('another template, left as it is'));
+		$kind = in_array($t, $five, true) ? _('ElasticPro, linked directly')
+			: (in_array($t, $ci['beside']['known'], true) ? _('older generation, kept beside with its history')
+			: (in_array($t, $ci['beside']['unknown'], true) ? _('gives the Elasticsearch items under a name this module does not know; kept beside with its history')
+			: _('another template, left as it is')));
 		$tt .= '<tr><td>'.$e($t).'</td><td class="ep-hint">'.$e($kind).'</td></tr>';
 	}
 	foreach (array_diff($five, $ci['templates'] ?? []) as $t) {

@@ -423,6 +423,31 @@ namespace Modules\EpClients\Test {
 	$miss = Missing::forClient($now, $r->macros($now['cluster']['hostid']), [], ['core' => true, 'at' => 1, 'by' => 'alice'], false);
 	check('once handed over, the password is not missing', !in_array('password_core', array_column($miss, 'key'), true));
 
+	// A cluster template under a name no setting knows, beside the current one: one definition
+	// (Reconciler::besideTemplates) for the list, the client page and Missing — not "none".
+	\Zbx::addHost(['host' => 'u-ES-Cluster', 'groups' => ['u', Reconciler::CLUSTER_GROUP], 'templates' => [Roles::clusterTemplate(), $OLDGEN],
+		'macros' => ['{$ELASTICSEARCH.HOST}' => 'es.u']]);
+	$r = $rec();
+	$now = $r->current('u');
+	$hid = (string) $now['cluster']['hostid'];
+	$sig = Discovery::signatureTemplates([$hid]);
+	check('signatureTemplates finds the template that gives the health check, by its item', ($sig['templates'][$hid] ?? null) === $OLDGEN && isset($sig['hosts'][$hid]), $sig);
+	check('signatureTemplates of no hosts asks nothing', Discovery::signatureTemplates([]) === ['hosts' => [], 'templates' => []]);
+	$names = array_column($now['cluster']['parentTemplates'], 'host');
+	check('besideTemplates: the unknown one is beside, apart from known older generations',
+		Reconciler::besideTemplates($names, $OLDGEN) === ['known' => [], 'unknown' => [$OLDGEN]], Reconciler::besideTemplates($names, $OLDGEN));
+	check('besideTemplates: a known older generation is known, and never counted twice',
+		Reconciler::besideTemplates([Roles::clusterTemplate(), Reconciler::LEGACY_CLUSTER_TEMPLATE], Reconciler::LEGACY_CLUSTER_TEMPLATE)
+			=== ['known' => [Reconciler::LEGACY_CLUSTER_TEMPLATE], 'unknown' => []]);
+	check('besideTemplates: the current template is never beside itself, nor a signature not linked',
+		Reconciler::besideTemplates([Roles::clusterTemplate()], Roles::clusterTemplate()) === ['known' => [], 'unknown' => []]
+		&& Reconciler::besideTemplates([Roles::clusterTemplate()], $OLDGEN) === ['known' => [], 'unknown' => []]);
+	$miss = Missing::forClient($now, $r->macros($hid), [], null, false, [], $sig['templates'][$hid]);
+	$u = array_values(array_filter($miss, fn($m) => $m['key'] === 'unknown_template'));
+	check('Missing names the unknown template still linked, and says it stays', count($u) === 1 && str_contains($u[0]['text'], $OLDGEN)
+		&& str_contains($u[0]['fix'], 'stays linked') && !in_array('old_generation', array_column($miss, 'key'), true), $miss);
+	check('without the lookup, Missing says nothing it does not know', !in_array('unknown_template', array_column(Missing::forClient($now, $r->macros($hid), [], null, false), 'key'), true));
+
 	/* ======================================================================================
 	 *  TWO PROXIES: THE CLUSTER HOST'S, AND ONE FOR ALL THE LINUX ROLE HOSTS
 	 * ====================================================================================== */

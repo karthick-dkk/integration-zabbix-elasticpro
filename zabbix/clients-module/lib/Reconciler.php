@@ -208,6 +208,24 @@ class Reconciler {
 	}
 
 	/**
+	 * What a cluster host carries beside the current cluster template: older generations by name,
+	 * and a template this module does not know by name that gives it the Elasticsearch items
+	 * ($signature, from Discovery::signatureTemplates). One definition for the list's "+ N older
+	 * beside", the client page's Beside and Missing.
+	 *
+	 * @param string[] $templates  names of the templates linked to the host
+	 * @param string|null $signature  the template giving it the health check, if any
+	 * @return array{known: string[], unknown: string[]}
+	 */
+	public static function besideTemplates(array $templates, ?string $signature = null): array {
+		$current = [Roles::clusterTemplate(), Roles::templateName('jump')];
+		$known = array_values(array_diff(array_intersect($templates, self::clusterHostTemplates()), $current));
+		$unknown = $signature !== null && in_array($signature, $templates, true) && !in_array($signature, $current, true)
+			&& !in_array($signature, $known, true) ? [$signature] : [];
+		return ['known' => $known, 'unknown' => $unknown];
+	}
+
+	/**
 	 * Every template name that marks a host as a client's cluster host, in both generations:
 	 * the Elasticsearch template for a cluster asked over HTTP, the jump host template for one
 	 * asked through SSH. current() recognises a cluster host by any of them.

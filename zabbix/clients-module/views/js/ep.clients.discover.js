@@ -43,6 +43,16 @@
 			return { count: rows.length, links, groups: groups.size, hosts, proxy };
 		},
 
+		/**
+		 * Put the figures into a line: "%k" is the figure, "%k{one|many}" the figure and the word
+		 * that agrees with it ("1 host", "3 hosts").
+		 */
+		fill(t, v) {
+			const out = (t || '').replace(/%(\w+)\{([^|}]*)\|([^}]*)\}/g, (all, k, one, many) =>
+				(k in v ? `${v[k]} ${Number(v[k]) === 1 ? one : many}` : all));
+			return Object.keys(v).reduce((s, k) => s.split('%' + k).join(String(v[k])), out);
+		},
+
 		init(root) {
 			const form = root.querySelector('#ep-disc-form');
 			if (!form) return;
@@ -51,7 +61,7 @@
 			const ticked = () => rowBoxes().filter((b) => b.checked)
 				.map((b) => b.closest('tr')).filter((tr) => tr && tr.dataset.epSum).map((tr) => JSON.parse(tr.dataset.epSum));
 			const choice = (n) => { const s = root.querySelector(`select[name="${n}"]`); return s ? s.value : EpDiscover.KEEP; };
-			const fill = (t, v) => Object.keys(v).reduce((s, k) => s.split('%' + k).join(String(v[k])), t || '');
+			const fill = EpDiscover.fill;
 			function update() {
 				const sum = EpDiscover.summarize(ticked(), choice('proxy_es'), choice('proxy_linux'));
 				const head = root.querySelector('[data-ep-sum-head]');
