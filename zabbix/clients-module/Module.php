@@ -13,7 +13,7 @@ use Zabbix\Core\CModule as CoreModule;
 require_once __DIR__.'/lib/EpRole.php';
 
 /**
- * Puts ElasticPro in the sidebar: Cluster Management, Roles, Settings and Backups.
+ * Puts ElasticPro in the sidebar: Cluster Management, Discover, Roles, Settings and Backups.
  *
  * The section is joined when another ElasticPro module has already made one, and made here when
  * none has, so this module needs nothing but itself to install. Before, it only looked for a
@@ -50,9 +50,10 @@ class Module extends CoreModule {
 	 */
 	private static function entries(): array {
 		return [
-			[_('Cluster Management'), 'ep.clients.list', ['ep.clients.edit', 'ep.clients.save', 'ep.clients.import'], 'show'],
+			[_('Cluster Management'), 'ep.clients.list', ['ep.clients.edit', 'ep.clients.save', 'ep.clients.import', 'ep.clients.columns.save'], 'show'],
+			[_('Discover'), 'ep.clients.discover', ['ep.clients.discover.apply'], 'edit'],
 			[_('Roles'), 'ep.clients.roles', ['ep.clients.role.save', 'ep.clients.template.install'], 'edit'],
-			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save'], 'show'],
+			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save', 'ep.clients.credential.save'], 'show'],
 			[_('Backups'), 'ep.clients.backups', ['ep.clients.backup.restore', 'ep.clients.backup.download'], 'super']
 		];
 	}

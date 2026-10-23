@@ -130,11 +130,11 @@ namespace Modules\EpClients\Test {
 	check('it sits straight after Monitoring', array_slice($menu->labels(), 0, 3) === ['Dashboards', 'Monitoring', 'ElasticPro'], $menu->labels());
 	check('Cluster Management is NOT left under Data collection',
 		$menu->find('Data collection')->getSubMenu()->find('Cluster Management') === null);
-	check('all four entries are there, in order',
-		array_map(fn($i) => $i->label, $home->getSubMenu()->items) === ['Cluster Management', 'Roles', 'Settings', 'Backups'],
+	check('all five entries are there, in order',
+		array_map(fn($i) => $i->label, $home->getSubMenu()->items) === ['Cluster Management', 'Discover', 'Roles', 'Settings', 'Backups'],
 		array_map(fn($i) => $i->label, $home->getSubMenu()->items));
 	check('each entry opens its own page', array_map(fn($i) => $i->action, $home->getSubMenu()->items)
-		=== ['ep.clients.list', 'ep.clients.roles', 'ep.clients.settings', 'ep.clients.backups']);
+		=== ['ep.clients.list', 'ep.clients.discover', 'ep.clients.roles', 'ep.clients.settings', 'ep.clients.backups']);
 	check('the selection is run again, so the section is open on its own pages', $menu->selected_for === 'ep.clients.list');
 
 	// Every alias must belong to one entry only, or Zabbix would have two to mark.
@@ -156,17 +156,17 @@ namespace Modules\EpClients\Test {
 	check('there is one ElasticPro section, not two', count(array_filter($menu->labels(), fn($l) => $l === 'ElasticPro')) === 1, $menu->labels());
 	check('the other module\'s own entry is left alone, and first',
 		array_map(fn($i) => $i->label, $menu->find('ElasticPro')->getSubMenu()->items)
-			=== ['Overview', 'Cluster Management', 'Roles', 'Settings', 'Backups']);
+			=== ['Overview', 'Cluster Management', 'Discover', 'Roles', 'Settings', 'Backups']);
 
 	/* ---------------- nothing is ever doubled ---------------- */
 	$menu = run(sidebar(), USER_TYPE_SUPER_ADMIN, 3);
 	check('three passes over the same sidebar add one of each entry',
-		count($menu->find('ElasticPro')->getSubMenu()->items) === 4);
+		count($menu->find('ElasticPro')->getSubMenu()->items) === 5);
 	// A second module instance is what a second request really is, and the guard is per instance.
 	$menu = sidebar();
 	run($menu); run($menu);
 	check('a second module instance over a sidebar already done adds nothing twice',
-		array_map(fn($i) => $i->label, $menu->find('ElasticPro')->getSubMenu()->items) === ['Cluster Management', 'Roles', 'Settings', 'Backups'],
+		array_map(fn($i) => $i->label, $menu->find('ElasticPro')->getSubMenu()->items) === ['Cluster Management', 'Discover', 'Roles', 'Settings', 'Backups'],
 		array_map(fn($i) => $i->label, $menu->find('ElasticPro')->getSubMenu()->items));
 	check('and still one section', count(array_filter($menu->labels(), fn($l) => $l === 'ElasticPro')) === 1);
 
@@ -186,10 +186,10 @@ namespace Modules\EpClients\Test {
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
 	check('a Zabbix Admin whom ElasticPro calls an admin is offered Roles, but not Backups — those stay Super admin',
-		$labels($menu) === ['Cluster Management', 'Roles', 'Settings'], $labels($menu));
+		$labels($menu) === ['Cluster Management', 'Discover', 'Roles', 'Settings'], $labels($menu));
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_USER);
-	check('so is a Zabbix User whom ElasticPro calls an admin', $labels($menu) === ['Cluster Management', 'Roles', 'Settings'], $labels($menu));
+	check('so is a Zabbix User whom ElasticPro calls an admin', $labels($menu) === ['Cluster Management', 'Discover', 'Roles', 'Settings'], $labels($menu));
 	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'operator'], 'error' => ''];
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
@@ -212,19 +212,19 @@ namespace Modules\EpClients\Test {
 	check('another Zabbix page: the kept answer, not a question', $asked === 0 && $labels($menu) === ['Cluster Management', 'Settings'], [$asked, $labels($menu)]);
 	$session = null; $asked = 0; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
-	check('another Zabbix page with nothing kept: asked once', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings'], [$asked, $labels($menu)]);
+	check('another Zabbix page with nothing kept: asked once', $asked === 1 && $labels($menu) === ['Cluster Management', 'Discover', 'Roles', 'Settings'], [$asked, $labels($menu)]);
 	$session = ['user' => 'alice', 'type' => USER_TYPE_ZABBIX_ADMIN, 'answer' => ['asked' => true, 'role' => 'operator', 'at' => 1]];
 	$asked = 0; elasticpro();
 	\CController::$action = 'ep.clients.list';
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
-	check('one of this module\'s pages: an old answer is asked again', $asked === 1 && $labels($menu) === ['Cluster Management', 'Roles', 'Settings'], [$asked, $labels($menu)]);
+	check('one of this module\'s pages: an old answer is asked again', $asked === 1 && $labels($menu) === ['Cluster Management', 'Discover', 'Roles', 'Settings'], [$asked, $labels($menu)]);
 	$asked = 0; elasticpro();
 	run(sidebar(), USER_TYPE_SUPER_ADMIN);
 	check('a Super admin is never asked about', $asked === 0);
 
 	/* ---------------- Backups and the register: Super admins only, whatever ElasticPro says ---------------- */
 	// The pages themselves, not only the sidebar: Zabbix answers 403 when checkPermissions() is false.
-	foreach (['Base', 'BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate', 'RoleList', 'RoleSave', 'TemplateInstall'] as $a) {
+	foreach (['Base', 'BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate', 'RoleList', 'RoleSave', 'TemplateInstall', 'DiscoverList', 'DiscoverApply'] as $a) {
 		require_once __DIR__.'/../actions/'.$a.'.php';
 	}
 	$allowed = function (string $class): bool {
@@ -237,15 +237,23 @@ namespace Modules\EpClients\Test {
 	foreach (['BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate'] as $a) {
 		check("a Zabbix Admin whom ElasticPro calls an admin is refused $a", !$allowed('Modules\\EpClients\\Actions\\'.$a));
 	}
-	foreach (['RoleList', 'RoleSave', 'TemplateInstall'] as $a) {
-		check("but may open $a, as the sidebar offers Roles", $allowed('Modules\\EpClients\\Actions\\'.$a));
+	foreach (['RoleList', 'RoleSave', 'TemplateInstall', 'DiscoverList', 'DiscoverApply'] as $a) {
+		check("but may open $a, as the sidebar offers Roles and Discover", $allowed('Modules\\EpClients\\Actions\\'.$a));
 	}
 	\CWebUser::$type = USER_TYPE_SUPER_ADMIN;
 	foreach (['BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate', 'RoleList'] as $a) {
 		check("a Super admin may open $a", $allowed('Modules\\EpClients\\Actions\\'.$a));
 	}
+	// Discover writes: an operator in ElasticPro may not open it, as the sidebar does not offer it.
+	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'operator'], 'error' => ''];
+	$session = null; elasticpro();
+	\CWebUser::$type = USER_TYPE_ZABBIX_ADMIN;
+	foreach (['DiscoverList', 'DiscoverApply'] as $a) {
+		check("a Zabbix Admin whom ElasticPro calls an operator is refused $a", !$allowed('Modules\\EpClients\\Actions\\'.$a));
+	}
+	\CWebUser::$type = USER_TYPE_SUPER_ADMIN;
 	$menu = run(sidebar(), USER_TYPE_SUPER_ADMIN);
-	check('a Super admin still sees Backups', $labels($menu) === ['Cluster Management', 'Roles', 'Settings', 'Backups'], $labels($menu));
+	check('a Super admin still sees Backups', $labels($menu) === ['Cluster Management', 'Discover', 'Roles', 'Settings', 'Backups'], $labels($menu));
 
 	/* ---------------- a sidebar without Monitoring ---------------- */
 	$bare = new \CMenu();

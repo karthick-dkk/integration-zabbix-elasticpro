@@ -1,5 +1,5 @@
 /**
- * The client form's name preview (views/js/ep.clients.edit.js) against the same table the PHP
+ * The client form's server labels and the role-name table (views/js/ep.clients.edit.js) against the same table the PHP
  * naming is held to (names.json) — so what the page shows is what Zabbix gets.
  */
 import { test } from 'node:test';
@@ -24,10 +24,22 @@ test('the preview names servers as the PHP does, case by case', () => {
   for (const c of table) assert.equal(Form.serverBase(families, c.roles), c.base, c.roles.join('+'));
 });
 
-test('an existing host keeps a name that fits; the rest take the next number', () => {
-  const servers = [{ ip: '10.0.0.1', roles: ['es_data_hot'] }, { ip: '10.0.0.2', roles: ['es_data_hot'] }, { ip: '10.0.0.3', roles: ['engine', 'aiml'] }];
-  const existing = { '10.0.0.2': 'karthi-ES-Data-Hot-4', '10.0.0.3': 'vm old name' };
-  assert.deepEqual(Form.names('karthi', families, servers, existing), ['karthi-ES-Data-Hot-5', 'karthi-ES-Data-Hot-4', 'karthi-Engine-AIML-1']);
+test('host name = IP, server name = visible name: nothing is made up, nothing renamed', () => {
+  const servers = [
+    { ip: '10.0.0.1', roles: ['es_data_hot'] },                          // new, no server name
+    { ip: '10.0.0.2', roles: ['es_data_hot'], host: 'es-hot-02' },       // new, named
+    { ip: '10.0.0.3', roles: ['engine'] },                               // existing, renamed by an earlier release
+    { ip: '10.0.0.4', roles: ['parser'] },                               // existing, IP host name, a visible name
+  ];
+  const tech = { '10.0.0.3': 'karthi-Engine-1', '10.0.0.4': '10.0.0.4' };
+  const visible = { '10.0.0.3': 'karthi-Engine-1', '10.0.0.4': 'parser-a' };
+  assert.deepEqual(Form.labels(servers, tech, visible), [
+    { host: '10.0.0.1', name: '' },
+    { host: '10.0.0.2', name: 'es-hot-02' },
+    { host: 'karthi-Engine-1', name: '' },
+    { host: '10.0.0.4', name: 'parser-a' },
+  ]);
+  assert.equal(Form.names, undefined, 'the <client>-<Role>-<n> namer is gone');
 });
 
 test('the view reads this file, and the file follows the roles the page is given', () => {

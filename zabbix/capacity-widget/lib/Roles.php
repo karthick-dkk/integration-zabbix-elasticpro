@@ -116,7 +116,7 @@ class Roles {
 	public const DISK_SLOTS = 5;
 
 	public static function defaults(): array {
-		return ['version' => 2, 'families' => [
+		return ['version' => 3, 'families' => [
 			['id' => 'es', 'label' => 'ES', 'group' => 'ESNodes', 'macroPrefix' => 'ES', 'memAlias' => 'ES.MEM.REQUESTED',
 				'order' => ['servers', 'cpu', 'mem', 'disk'], 'roles' => [
 				['id' => 'es_data', 'label' => 'ES Data', 'short' => 'ES-Data', 'group' => 'ES Data'],
@@ -140,9 +140,29 @@ class Roles {
 				['id' => 'engine', 'label' => 'Engine', 'short' => 'Engine', 'group' => 'Engine'],
 				['id' => 'ueba', 'label' => 'UEBA', 'short' => 'UEBA', 'group' => 'UEBA'],
 				['id' => 'aiml', 'label' => 'AIML', 'short' => 'AIML', 'group' => 'AIML']
+			]],
+			// Added in version 3. Linux hosts like the rest, so the Linux agent template — no
+			// Trino- or SOAR-specific template exists yet, and the note says so on the Roles page.
+			// Trino is the ULM role; its id is not "ulm", which the master template's keys reserve.
+			['id' => 'trino', 'label' => 'Trino (ULM)', 'group' => 'Trino', 'macroPrefix' => 'TRINO', 'memAlias' => '',
+				'order' => ['servers', 'cpu', 'mem', 'disk'], 'roles' => [
+				['id' => 'trino', 'label' => 'Trino (ULM)', 'short' => 'Trino', 'group' => 'Trino',
+					'note' => 'No Trino template yet: monitored by the Linux agent template only.']
+			]],
+			['id' => 'soar', 'label' => 'SOAR', 'group' => 'SOAR', 'macroPrefix' => 'SOAR', 'memAlias' => '',
+				'order' => ['servers', 'cpu', 'mem', 'disk'], 'roles' => [
+				['id' => 'soar', 'label' => 'SOAR', 'short' => 'SOAR', 'group' => 'SOAR',
+					'note' => 'No SOAR template yet: monitored by the Linux agent template only.']
 			]]
 		]];
 	}
+
+	/**
+	 * The roles each version of the defaults added, for upgrade(): a saved configuration older than
+	 * the version gets those families when nothing it has clashes with them. Kafka is not among
+	 * them on purpose — a Kafka server is a Forwarder or a Parser.
+	 */
+	public const ADDED_IN = [3 => ['trino', 'soar']];
 
 	/**
 	 * The "Single node" family earlier releases shipped: one all-in-one role counted in ES,
@@ -177,7 +197,7 @@ class Roles {
 			}
 		}
 		if ((int) ($config['version'] ?? 1) >= 2) {
-			return $config;
+			return self::upgradeTo3($config);
 		}
 		$original = $config;
 		$have = [];
@@ -209,6 +229,41 @@ class Roles {
 		$config['version'] = 2;
 		// A name the added roles would clash with (a role already called "Engine" in host names):
 		// keep the roles as they are rather than half-upgrade them.
+		return self::validate($config) ? $original : self::upgradeTo3($config);
+	}
+
+	/**
+	 * Version 2 → 3: the Trino (ULM) and SOAR families, each added only when no family or role
+	 * already has its id, its group or its name in host names — a site that made its own SOAR role
+	 * keeps it as it is. Nothing already there is changed or removed.
+	 */
+	private static function upgradeTo3(array $config): array {
+		if ((int) ($config['version'] ?? 1) >= 3) {
+			return $config;
+		}
+		$original = $config;
+		$ids = [];
+		$groups = [];
+		$shorts = [];
+		foreach ($config['families'] as $f) {
+			$ids[$f['id']] = true;
+			$groups[strtolower((string) $f['group'])] = true;
+			foreach ($f['roles'] as $r) {
+				$ids[$r['id']] = true;
+				$groups[strtolower((string) $r['group'])] = true;
+				$shorts[strtolower((string) $r['short'])] = true;
+			}
+		}
+		foreach (self::defaults()['families'] as $df) {
+			if (!in_array($df['id'], self::ADDED_IN[3], true) || isset($ids[$df['id']]) || isset($groups[strtolower($df['group'])])) {
+				continue;
+			}
+			$clash = array_filter($df['roles'], fn($r) => isset($ids[$r['id']]) || isset($shorts[strtolower($r['short'])]));
+			if (!$clash) {
+				$config['families'][] = $df;
+			}
+		}
+		$config['version'] = 3;
 		return self::validate($config) ? $original : $config;
 	}
 

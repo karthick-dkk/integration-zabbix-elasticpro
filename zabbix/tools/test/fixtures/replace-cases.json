@@ -1,0 +1,114 @@
+{
+  "_readme": [
+    "One table of cases for the replace plan, run by BOTH implementations:",
+    "tools/test/migrate_plan_test.py (plan_replace in migrate-templates.py, a generation with no key or macro renames)",
+    "and clients-module/test/discover.test.php (TemplateMove::plan, the in-module port).",
+    "Change a rule in one and this table fails the other. Template ids: 100 old, 200 new, 300 a third template.",
+    "expect.actions: item key -> ADOPT | KEEP | CURRENT | UNTOUCHED | REFUSE; refused / manual are counts."
+  ],
+  "cases": [
+    {
+      "name": "same key and type: the link adopts it; the old template is unlinked",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "11", "key_": "same.key", "templateid": "911", "value_type": "3", "flags": "0", "origin": "100"}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"same.key": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"same.key": "ADOPT"}, "refused": 0, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "no equivalent key: kept as a host item; the macro it uses is copied, a secret is left for a person",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "12", "key_": "kept.key", "templateid": "912", "value_type": "3", "flags": "0", "origin": "100",
+                          "url": "{$URL}/x", "password": "{$SECRET}", "username": "{$SHARED}"}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {"{$URL}": ["http://old", "0"], "{$SECRET}": [null, "1"], "{$SHARED}": ["x", "0"], "{$UNUSED}": ["u", "0"]}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"other.key": "3"}, "lld": [],
+                 "macros": {"{$SHARED}": ["x", "0"]}},
+      "expect": {"actions": {"kept.key": "KEEP"}, "refused": 0, "unlink": ["100"], "link": ["200"], "macros": ["{$URL}"], "manual": 1}
+    },
+    {
+      "name": "same key, another value type: refused — the link would adopt and convert it",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "13", "key_": "same.key", "templateid": "913", "value_type": "0", "flags": "0", "origin": "100"}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"same.key": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"same.key": "REFUSE"}, "refused": 1, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "the host's own item with a new key and another type: refused",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "14", "key_": "own.key", "templateid": "0", "value_type": "0", "flags": "0", "origin": null},
+                         {"itemid": "15", "key_": "mine.key", "templateid": "0", "value_type": "3", "flags": "0", "origin": null}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"own.key": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"own.key": "REFUSE", "mine.key": "UNTOUCHED"}, "refused": 1, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "the host's own item with a new key and the same type: adopted",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "16", "key_": "own.key", "templateid": "0", "value_type": "3", "flags": "0", "origin": null}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"own.key": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"own.key": "ADOPT"}, "refused": 0, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "a new key a third template already gives: refused",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}, {"templateid": "300", "host": "Third"}], "macros": []},
+               "items": [{"itemid": "17", "key_": "third.key", "templateid": "917", "value_type": "3", "flags": "0", "origin": "300"}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"third.key": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"third.key": "REFUSE"}, "refused": 1, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "a discovery rule in both the old and the new template: refused; a discovered item stays with its rule",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "18", "key_": "disc[1]", "templateid": "0", "value_type": "3", "flags": "4", "origin": null}],
+               "rules": [{"itemid": "19", "key_": "lld.both", "templateid": "919", "origin": "100"}], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {}, "lld": ["lld.both"], "macros": {}},
+      "expect": {"actions": {"disc[1]": "KEEP"}, "refused": 1, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "unlink_old false while a key must move: refused (the old template would keep it)",
+      "unlink": false,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "20", "key_": "same.key", "templateid": "920", "value_type": "3", "flags": "0", "origin": "100"}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"same.key": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"same.key": "ADOPT"}, "refused": 1, "unlink": [], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "beside: unlink_old false and no key in common — nothing moves, the new template is linked beside",
+      "unlink": false,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "21", "key_": "old.only", "templateid": "921", "value_type": "3", "flags": "0", "origin": "100"}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {"{$U}": ["u", "0"]}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {"new.only": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"old.only": "KEEP"}, "refused": 0, "unlink": [], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "already from the new template: current; a new template not in Zabbix is refused",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}, {"templateid": "200", "host": "New"}], "macros": []},
+               "items": [{"itemid": "22", "key_": "new.key", "templateid": "922", "value_type": "3", "flags": "0", "origin": "200"}],
+               "rules": [], "prototypes": [], "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": ["Gone template"], "keys": {"new.key": "3"}, "lld": [], "macros": {}},
+      "expect": {"actions": {"new.key": "CURRENT"}, "refused": 1, "unlink": ["100"], "link": [], "macros": [], "manual": 0}
+    }
+  ]
+}

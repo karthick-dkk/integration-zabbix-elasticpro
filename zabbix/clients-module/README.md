@@ -13,11 +13,11 @@ cluster DL and contract end date), **Elasticsearch** (URL, user, password, monit
 |---|---|
 | **Add client** | Creates (or reuses) the host group named after the client, then `<client>-Master` (figures, alerts, dashboard), `<client>-ES-Cluster` when an ES URL is given, `<client>-ULM` when a bucket is given, and one Linux host per server. |
 | **Type** | **DI**: log archive (S3 bucket, region) and ES URL required. **On-Prem**: optional. tag1 values are not typed in: the archive check finds them in the cluster once a day. |
-| **Servers** | Added one at a time: an IP (or several pasted), one or more roles, optional extra services and notes. The host name follows the roles: `karthi-AIML-1`, `karthi-ES-Data-Parser-Engine-1`, `karthi-ES-Data-Hot-Coord-1`; a single node is one server holding ES Data, Parser, Forwarder and Engine (`karthi-ES-Data-Parser-Forwarder-Engine-1`), marked *single node* in Client resources. The page previews each name before it is added. |
+| **Servers** | Added one at a time: an IP (or several pasted), a server name, one or more roles, optional extra services and notes. **The Zabbix host name is the IP and the visible name is the server name** (decided 2026-10-23): a new server host is created so; a host taken on keeps the host name it has — never renamed, not even back from the `<client>-<Role>-<n>` an earlier release gave it — and only its visible name follows the server name, when one is known. A host name is never taken for a server name: with none known, the visible name is left as it is and the Missing panel says "server name unknown". A single node is one server holding ES Data, Parser, Forwarder and Engine, marked *single node* in Client resources. |
 | **Password** | **Vault** (a `path:key`) or **Zabbix secret** (typed once, kept as a secret macro on the cluster and archive hosts, never shown again). |
 | **Monitored by** | The Zabbix server, a proxy or a proxy group — every host of the client except the master is monitored through it. Or **Windows jump host (SSH), no proxy**: see below. |
 | **Requested capacity** | Per role; rows appear for the roles the servers have ("+ Request another role" for capacity not built yet). A family's total adds up the roles that count in it. |
-| **Set up as client** | For a cluster made by hand before this page. Its hosts are **kept** — history, passwords — renamed to the pattern, and only what is missing is added. |
+| **Discover clusters** | For clusters made by hand before this page: see [Discover existing hosts](#discover-existing-hosts). Their hosts are **kept** — history, passwords, host names — and only what is missing is added. |
 | **Edit** | Change anything. Changing a server's roles renames it and moves it between role and family groups; removing a server deletes its host **only if this page made it**. |
 | **Clone** | A new client started from an existing one: roles, requested capacity, purchase and settings (monitored by, jump host, region) copied; name, ES URL, password, API key, contacts, archive bucket and servers left empty. |
 | **Alerts** | "Email this client's problems to the cluster DL": see below. |
@@ -46,8 +46,8 @@ One workbook, **clients.xlsx** (**Import / export** → Download template, or Ex
 
 - **Clients** — one row per client: settings, then requested capacity per role (five columns a
   role, in one collapsed column group; Other disks as `/data=4000; /logs=500`).
-- **Servers** — one row per server: Client, IP, Host name, Role 1–4, Services, Notes. Any other
-  column becomes an attribute of the server. Host name: empty — ElasticPro names the host from
+- **Servers** — one row per server: Client, IP, Host name (the **server name**: the host's visible name; its Zabbix host name is the IP), Role 1–4, Services, Notes. Any other
+  column becomes an attribute of the server. Server name: empty — keeps the server name the host has (none: "server name unknown"); before 2026-10-23 an empty one meant ElasticPro named the host from
   the client and roles, as before; given — kept as the host's own (tag `ep-name=own`), which no
   later save renames; on an existing server a different name renames the host. Names are checked
   against Zabbix's rule and for clashes at Check time. A client on the Servers sheet gets exactly
@@ -98,15 +98,83 @@ The status lives in Zabbix: `{$EP.CLIENT.STATUS}` on the master host and an `ep-
 every host. The report widgets badge disabled clients and clients in maintenance. Tick several
 rows for **Maintenance… / Disable / Enable** on all of them at once.
 
+## Discover existing hosts
+
+**Cluster Management → Discover** (Super admins and ElasticPro admins, as every page that writes)
+finds the Elasticsearch clusters Zabbix already holds and adopts them, so nobody has to make host
+groups by hand. Nothing is written until **Adopt selected**.
+
+**What a cluster is.** A host in a host group whose name contains `elasticsearch` (any case).
+Its Zabbix host name is the cluster's — and the client's — name, editable before adopting. A host
+that carries an Elasticsearch template but is in no such group is not proposed; the page names it.
+
+**Role hosts** are hosts in a role or family group, with a template only one role names, or with
+the module's `ep-role` tag, and Kafka hosts (by group, name or template). They are attached to a
+cluster by the first hint that points at exactly one cluster: the cluster's client group or a host
+group only it is in, then `{$GRP.CLIENT}`, then a `client:` tag (or `ep-client`), then a name that
+starts `<cluster>-` or `<client>-`. A hint that points at two clusters attaches the host to
+neither, and says so; a host no hint attaches is listed as unattached. Roles: ES, Parser,
+Forwarder, Engine, AIML, Trino (ULM), SOAR. **Kafka is not a role**: a Kafka server is placed under
+Forwarder, flagged "kafka: confirm Forwarder or Parser", and stays flagged (tag `ep-confirm=kafka`)
+on the client's page until someone confirms its role. A role is never guessed: no role group, no
+role template, no tag — "role unknown", and the host is not adopted until a role is picked.
+
+**Template generations.** The ElasticPro cluster template, the name before the rename, and any
+other name — a cluster host whose items include the Elasticsearch health check
+(`es.cluster.get_health`) under a template name no setting knows is still found, and the template
+is named. Adopting links **five templates directly to the cluster host, in one host.massadd**:
+the ElasticPro cluster template, client plan, alerts, log delay and cluster devices — not nested in
+one template (a nested link is invisible to `host.get templateids`, which is how the ElasticPro
+core and this module find clusters). An older template stays linked beside, items and history as
+they are. A role host whose old agent template gives it the keys the role's template carries is
+moved the way `tools/migrate-templates.py` moves one (replace mode, exact keys): unlink the old
+template **without clear** (its items stay, same ids, all their history), link the new one, which
+adopts every item with the same key; macros the remaining items use are copied to the host first.
+Anything that needs key renames, would convert a value type, or clashes with a third template is
+refused for that host, naming the script (docs/MIGRATION.md). `lib/TemplateMove.php` is a port of
+the script's `plan_replace()`; both are run against one table of cases
+(`tools/test/fixtures/replace-cases.json`).
+
+**Proxies.** Two choices, both the Zabbix server unless you choose a proxy: the cluster hosts'
+("ES hosts monitored by") and one for all the Linux role hosts ("Linux hosts monitored by"). A host
+monitored by a proxy today is listed under Missing with what adopting would do to it, and every
+host whose proxy changes is a "Set proxy on" line in the write list.
+
+**The table** shows, per cluster: the editable name, the host and how it is monitored today, its
+host groups (and whether a client group exists or will be created), the templates found and their
+generation, the role hosts as `IP · server name`, and Ready, Missing N (with what), or refused (with
+why — Reconciler's own pre-flight, and, for anyone but a Super admin, whether their Zabbix rights
+cover it: WriteCheck). Hosts that are a client's already are hidden behind "Show hosts that are
+already a client" and never ticked. Each row's details list exactly what adopting it writes, what
+was left out, and Missing in full; a cluster with no password of its own may be given one there
+(This cluster only), otherwise it uses the default credential. The summary box adds up the ticked
+rows and names every template that will be linked.
+
+**Adopting** takes one backup, then per client: template moves, the cluster host into the client's
+group, and the same `Reconciler::apply()` every save uses — it makes `<client>-Master`, links the
+templates, puts the role hosts in their role and family groups and tags them. A host made by hand
+is adopted, never recreated, and does not get `managed-by: elasticpro-clients` (only hosts this
+page made do, and only those are ever deleted). Nothing is deleted, unlinked with clear or renamed.
+A client something stops is skipped with the reason; the others go on. The scan is kept for the
+session; **Rescan** reads Zabbix again.
+
 ## The list
 
-Tabs by status, and a search that also matches host names and IPs. **Setup** is the checks that
-say the monitoring works: Elasticsearch answers (or SSH to the jump host does), devices are
-counted, agents answer, the log archive check ran and found tag1, the proxy answers. The first
-failing check is named. **Problems** links to Zabbix Problems filtered by the client's
-`ep-client` tag. **Disk full in** is `timeleft()` over 7 days of storage usage ("not growing"
-when it never reaches 100 %). Every change is recorded with who and when; the edit page shows the
-client's activity.
+As the approved board draws it (2026-10-23): a search that also matches host names and IPs; the
+filters **All / Missing / Not adopted / Old templates** (Not adopted opens Discover — hosts not yet
+adopted are not on the list); a **Status** choice (In service, Maintenance, Disabled,
+Decommissioned); and **Columns** — hide, reorder (drag) and rename, one shared setting for the page
+(`list-columns.json`, names and switches only). The columns: **Client** with its cluster host under
+it, **one column per role family** (ES, Parser, Forwarder, Engine, Trino (ULM), SOAR) and **AIML** on
+its own, each the number of servers in it (hover: `IP · server name`; "0 of N" when the plan asks
+for servers no host holds) and hidden when no listed client has a server in it or asks for one;
+**Templates** (current, "+ N older beside"); **Password** (own, default, not set, hidden by a
+template); **Last seen** (when the cluster last answered its Elasticsearch check); **Missing** (a
+chip that opens the client's Missing panel). No Problems and no Disk full columns: open problems
+are Zabbix's own page, and when storage fills is on the client's page. Under the table: "N clients ·
+N with missing pieces · N hosts not adopted → Discover" (the last from this session's Discover
+scan), which role columns are hidden and why, and the key. Every change is recorded with who and
+when; the client's page shows its activity.
 
 **Other flags on a row.** *storage / devices over purchase* — the master host's share of what was
 bought (`ep.es.storage.purchased.usage`, `ep.devices.usage`) above 100 %; the master template
@@ -268,10 +336,56 @@ a refused key or a failed SSH session is a failed check, never a missing day.
 ElasticPro's `deploy/zabbix/jump-sim/` is a stand-in jump host (OpenSSH + curl answering as `curl.exe`) with
 the fixture cluster behind it, for testing without Windows.
 
+## The client's page
+
+Tabs **Overview / Servers & roles / Templates / Connection / Backups** (board Client-page).
+Overview opens with the **Missing** panel: everything about the cluster that could not be determined
+or is not set — no client group, no role hosts, a role to confirm (Kafka), server names unknown, no
+credential or a password ElasticPro has not been given, macros not set, the jump host unknown, an
+older template generation still linked, templates you cannot see — each with what to do and a Fix
+link to the tab. Nothing is guessed. Then servers by role (`IP · server name`, every role, "none"
+said), the cluster (host, URL, last seen, disk full in, retention, backup), its templates and
+contacts, and the activity. Servers & roles and Connection open the form.
+
+**The form** (board Edit-after): **Client** (name — fixed after creation —, type, status, lead,
+cluster DL, "This DL receives" alert e-mails / weekly PDF report, notes) | **Connection** (cluster
+host, URL, **Credential**: Default or This cluster only — kept in Zabbix + ElasticPro, or Vault —
+the password rows, **Route** Direct or Jump host, the cluster host's **Zabbix proxy**, default the
+Zabbix server); **Servers & roles** (IP · server name · roles, and **Linux hosts monitored by** —
+one proxy for all of them, default the Zabbix server, chosen apart from the cluster host's);
+**Capacity** (purchased storage or devices, **Retention** in days and **Backup** capacity in GB —
+new fields, kept on the master host as `{$EP.RETENTION.DAYS}` and `{$EP.BACKUP.GB}`, shown "not set"
+when empty; nothing reads them yet — and the requested figures per role, folded) | **Log archive
+(S3)**; and the action bar. Fields the compact form does not show (contract end) are still posted,
+so a save never blanks them.
+
+**The password** is typed once and never shown: the form says when and by whom it was set, and
+"Change" brings the field ("Keep current" takes it away). A hidden keep-marker
+(`es_password_action`) decides whether a typed password counts at all, so editing any other field
+never touches it and a browser's autofill cannot replace it. A password typed for a Zabbix secret
+goes to `{$ELASTICSEARCH.PASSWORD}` on the cluster host **and to the ElasticPro core**, over the
+pairing's signed channel (`POST /sso/zabbix/cluster-secret`, HMAC-signed like the role lookup,
+answered signed; sent only over https with verification, a core on this machine, or the internal
+network's named core), which keeps it encrypted at rest and polls the cluster with it. The module
+keeps only who set it and when (`cluster-secrets.json`).
+
+**The default credential** (ElasticPro → Settings → Default Elasticsearch credential, Super admins:
+it writes global macros) is the global macros `{$ELASTICSEARCH.USERNAME}` and
+`{$ELASTICSEARCH.PASSWORD}` (Secret text), also handed to the core (as cluster `*`). A cluster host
+inherits them unless it has its own ("This cluster only"); switching a cluster back to the default
+takes its own two macros off the host (refused while no default password is set). The card says
+"Used by N of M clusters · K override". Since version 2 the ElasticPro cluster template no longer
+defines either macro (an empty one there hid the default from every cluster): press **Write master
+template** once after upgrading. A template of your own linked to a cluster host that defines
+`{$ELASTICSEARCH.PASSWORD}` hides the default too; the client's page names it.
+
 ## Roles
 
 Families and their roles: ES (ES Data, ES Data Hot, ES Data Warm, ES Coordination, ES Master),
-Parser (Parser, S3 Parser), Forwarder, Engine (Engine, UEBA, AIML). There is no Single node role:
+Parser (Parser, S3 Parser), Forwarder, Engine (Engine, UEBA, AIML), Trino (ULM) and SOAR (each a
+family of one, added in roles version 3 — a saved configuration gains them unless it already has a
+family or role with their id, group or name; no Trino or SOAR template exists yet, so they are
+monitored by the Linux agent template only, and the role says so). Kafka is not a role. There is no Single node role:
 pick ES Data, Parser, Forwarder and Engine for one server. A site whose roles still carry the
 "Single node" family an earlier release shipped keeps it working, and can remove it here once no
 server uses it. Add a family

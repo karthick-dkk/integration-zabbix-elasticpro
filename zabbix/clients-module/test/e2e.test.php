@@ -21,559 +21,10 @@
  * Nothing here talks to a real Zabbix, so none of it can touch item history.
  */
 namespace {
-	/*
-	 * Zabbix's own constants, with Zabbix 7.0's values. The values matter: the module compares
-	 * against them (INTERFACE_TYPE_AGENT on an interface, HOST_STATUS_NOT_MONITORED on a host),
-	 * and a fake that invented its own numbers would agree with the module about nothing.
-	 */
-	foreach ([
-		'ZBX_MACRO_TYPE_TEXT' => 0, 'ZBX_MACRO_TYPE_SECRET' => 1, 'ZBX_MACRO_TYPE_VAULT' => 2,
-		'INTERFACE_TYPE_AGENT' => 1, 'INTERFACE_PRIMARY' => 1, 'INTERFACE_SECONDARY' => 0,
-		'INTERFACE_USE_IP' => 1, 'INTERFACE_USE_DNS' => 0,
-		'HOST_STATUS_MONITORED' => 0, 'HOST_STATUS_NOT_MONITORED' => 1,
-		'HOST_INVENTORY_DISABLED' => -1, 'HOST_INVENTORY_MANUAL' => 0, 'HOST_INVENTORY_AUTOMATIC' => 1,
-		'HOST_MAINTENANCE_STATUS_OFF' => 0,
-		'TAG_OPERATOR_LIKE' => 0, 'TAG_OPERATOR_EQUAL' => 1,
-		'TAG_EVAL_TYPE_AND_OR' => 0, 'TAG_EVAL_TYPE_OR' => 2,
-		'ITEM_STATE_NORMAL' => 0, 'ITEM_STATE_NOTSUPPORTED' => 1,
-		'ZBX_MONITORED_BY_SERVER' => 0, 'ZBX_MONITORED_BY_PROXY' => 1, 'ZBX_MONITORED_BY_PROXY_GROUP' => 2,
-		'TRIGGER_VALUE_FALSE' => 0, 'TRIGGER_VALUE_TRUE' => 1,
-		'USER_TYPE_ZABBIX_USER' => 1, 'USER_TYPE_ZABBIX_ADMIN' => 2, 'USER_TYPE_SUPER_ADMIN' => 3,
-		'MEDIA_TYPE_EMAIL' => 0, 'MEDIA_TYPE_STATUS_ACTIVE' => 0, 'MEDIA_STATUS_ACTIVE' => 0,
-		'GROUP_GUI_ACCESS_DISABLED' => 3, 'PERM_READ' => 2,
-		'EVENT_SOURCE_TRIGGERS' => 0, 'ACTION_STATUS_ENABLED' => 0, 'ACTION_PAUSE_SUPPRESSED_TRUE' => 1,
-		'CONDITION_EVAL_TYPE_AND_OR' => 0, 'ZBX_CONDITION_TYPE_HOST_GROUP' => 0, 'CONDITION_OPERATOR_EQUAL' => 0,
-		'OPERATION_TYPE_MESSAGE' => 0, 'OPERATION_TYPE_RECOVERY_MESSAGE' => 11,
-		'MAINTENANCE_TYPE_NORMAL' => 0, 'MAINTENANCE_TYPE_NODATA' => 1, 'TIMEPERIOD_TYPE_ONETIME' => 3,
-		'ZBX_REPORT_PERIOD_WEEK' => 1, 'ZBX_REPORT_CYCLE_WEEKLY' => 1, 'ZBX_REPORT_STATUS_ENABLED' => 0,
-		'ZBX_WIDGET_FIELD_TYPE_GROUP' => 2, 'ZBX_TM_TASK_CHECK_NOW' => 6
-	] as $k => $v) { define($k, $v); }
-	define('API_OUTPUT_COUNT', 'count');
-
-	set_error_handler(function ($no, $msg, $file, $line) { throw new \ErrorException($msg, 0, $no, $file, $line); });
-	// Guarded because PHP's gettext extension already defines _(), and a Zabbix frontend host
-	// has gettext loaded — Zabbix uses it for translations. Without the guard every suite
-	// died with "Cannot redeclare _()" on exactly the machine the modules run on. gettext's
-	// _() returns its argument when no domain is bound, which is what the stub did anyway.
-	if (!function_exists('_')) { function _($s) { return $s; } }
-	/**
-	 * Both %N$s and %N$d, because some of the module's own messages use %1$d — the count of
-	 * pre-rename macros that stopped a save is one — and a stub that only knew %N$s would leave
-	 * the placeholder in the string, so a test asserting what the operator reads would fail for a
-	 * reason that has nothing to do with the module.
-	 */
-	if (!function_exists('_s')) {
-		function _s($s, ...$a) {
-			foreach ($a as $i => $v) {
-				$s = str_replace(['%'.($i + 1).'$s', '%'.($i + 1).'$d'], (string) $v, $s);
-			}
-			return $s;
-		}
-	}
-	if (!function_exists('_n')) { function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); } }
-
-	/**
-	 * Zabbix's own channel for "why the last call failed". Reconciler::api() and
-	 * Lifecycle::api() read it after a call answered false, so the fake has to fill it: without
-	 * it every refusal would read "no reason given" and the tests below could not tell a
-	 * permission refusal from a constraint one.
-	 */
-	function get_and_clear_messages(): array {
-		$out = array_map(fn($m) => ['message' => $m], \Zbx::$messages);
-		\Zbx::$messages = [];
-		return $out;
-	}
-
-	/** The fake Zabbix: its data, and the log of what was asked of it. */
-	class Zbx {
-		/** @var array hostid => record */
-		public static $hosts = [];
-		/** @var array templateid => ['host' => name, 'uuid' => string] */
-		public static $templates = [];
-		/** @var array groupid => name */
-		public static $groups = [];
-		/** @var array hostmacroid => ['hostid', 'macro', 'value', 'type'] */
-		public static $macros = [];
-		/** @var array name => ['proxyid' => id, 'lastaccess' => int] */
-		public static $proxies = [];
-		/** @var array name => ['proxy_groupid' => id, 'state' => int] */
-		public static $proxyGroups = [];
-		/** @var array every call made: [resource.method, params] */
-		public static $calls = [];
-		/** @var array every call that changed something */
-		public static $wrote = [];
-		/** @var array "Host.create" => the reason Zabbix gives for refusing it */
-		public static $deny = [];
-		/** @var string[] what get_and_clear_messages() will hand back */
-		public static $messages = [];
-		/** @var bool a read-only token: every write is refused, every read works */
-		public static $readOnly = false;
-		/**
-		 * @var bool what a Zabbix Admin sees: hosts, but no templates at all. template.get
-		 * answers an empty list and host.get shows no parentTemplates — the ambiguity the module
-		 * must not read as "this install has no templates".
-		 */
-		public static $hideTemplates = false;
-		/** @var int */
-		public static $nextId = 1;
-		/**
-		 * @var string[] host groups the signed-in user may read but not write: absent from
-		 * hostgroup.get with editable, and their hosts absent from host.get with editable unless
-		 * another of their groups is writable — a Zabbix Admin's view of a group given read only.
-		 */
-		public static $readOnlyGroups = [];
-		/** @var string[] host groups the signed-in user has no permission on: absent from every hostgroup.get */
-		public static $hiddenGroups = [];
-
-		public static function reset(): void {
-			self::$hosts = []; self::$templates = []; self::$groups = []; self::$macros = [];
-			self::$proxies = []; self::$proxyGroups = [];
-			self::$calls = []; self::$wrote = []; self::$deny = []; self::$messages = [];
-			self::$readOnly = false; self::$hideTemplates = false; self::$nextId = 1;
-			self::$readOnlyGroups = []; self::$hiddenGroups = [];
-		}
-
-		private static function id(): string {
-			return (string) self::$nextId++;
-		}
-
-		public static function groupId(string $name): string {
-			foreach (self::$groups as $id => $have) {
-				if ($have === $name) { return (string) $id; }
-			}
-			$id = self::id();
-			self::$groups[$id] = $name;
-			return $id;
-		}
-
-		/** A template Zabbix holds. A host linked to one implies it exists, so addHost calls this too. */
-		public static function addTemplate(string $name, string $uuid = ''): string {
-			foreach (self::$templates as $id => $t) {
-				if ($t['host'] === $name) {
-					if ($uuid !== '') { self::$templates[$id]['uuid'] = $uuid; }
-					return (string) $id;
-				}
-			}
-			$id = self::id();
-			self::$templates[$id] = ['host' => $name, 'uuid' => $uuid];
-			return $id;
-		}
-
-		/**
-		 * A host. 'macros' is macro => value or macro => [value, type]; it goes into the one
-		 * macro store, so host.get's selectMacros and usermacro.get can never disagree about what
-		 * a host carries — the disagreement Reconciler::hasStoredPassword() would be caught by.
-		 */
-		public static function addHost(array $f): string {
-			$id = self::id();
-			$h = [
-				'hostid' => $id,
-				'host' => (string) $f['host'],
-				'name' => (string) ($f['name'] ?? $f['host']),
-				'status' => (string) ($f['status'] ?? HOST_STATUS_MONITORED),
-				'monitored_by' => (string) ($f['monitored_by'] ?? ZBX_MONITORED_BY_SERVER),
-				'proxyid' => (string) ($f['proxyid'] ?? 0),
-				'proxy_groupid' => (string) ($f['proxy_groupid'] ?? 0),
-				'inventory_mode' => (string) ($f['inventory_mode'] ?? HOST_INVENTORY_DISABLED),
-				'maintenance_status' => (string) HOST_MAINTENANCE_STATUS_OFF,
-				'active_available' => '0',
-				'hostgroups' => [],
-				'parentTemplates' => [],
-				'interfaces' => [],
-				'tags' => [],
-				'inventory' => ['notes' => (string) ($f['notes'] ?? '')]
-			];
-			foreach ((array) ($f['groups'] ?? []) as $g) {
-				$h['hostgroups'][] = ['groupid' => self::groupId($g), 'name' => $g];
-			}
-			foreach ((array) ($f['templates'] ?? []) as $t) {
-				$h['parentTemplates'][] = ['templateid' => self::addTemplate($t), 'host' => $t];
-			}
-			foreach ((array) ($f['tags'] ?? []) as $t) {
-				$h['tags'][] = ['tag' => (string) $t['tag'], 'value' => (string) ($t['value'] ?? '')];
-			}
-			if (isset($f['ip'])) {
-				$h['interfaces'][] = ['interfaceid' => self::id(), 'ip' => (string) $f['ip'], 'dns' => '',
-					'type' => (string) INTERFACE_TYPE_AGENT, 'main' => (string) INTERFACE_PRIMARY,
-					'available' => (string) ($f['available'] ?? 1)];
-			}
-			self::$hosts[$id] = $h;
-			foreach ((array) ($f['macros'] ?? []) as $macro => $v) {
-				self::addMacro($id, (string) $macro, is_array($v) ? (string) $v[0] : (string) $v, is_array($v) ? (int) $v[1] : 0);
-			}
-			return $id;
-		}
-
-		/** A Zabbix proxy, so a client monitored through one can be saved. */
-		public static function addProxy(string $name, int $lastaccess = 0): string {
-			$id = self::id();
-			self::$proxies[$name] = ['proxyid' => $id, 'lastaccess' => $lastaccess];
-			return $id;
-		}
-
-		public static function addMacro(string $hostid, string $macro, string $value, int $type = 0): string {
-			$id = self::id();
-			self::$macros[$id] = ['hostmacroid' => $id, 'hostid' => $hostid, 'macro' => $macro, 'value' => $value, 'type' => (string) $type];
-			return $id;
-		}
-
-		/* ------------------------------ what the tests ask the fake ------------------------------ */
-
-		/** A host by its technical name, or null. */
-		public static function byHost(string $host): ?array {
-			foreach (self::$hosts as $h) {
-				if ($h['host'] === $host) { return $h; }
-			}
-			return null;
-		}
-
-		/** A host's macros as macro => value. */
-		public static function macrosOf(string $hostid): array {
-			$out = [];
-			foreach (self::$macros as $m) {
-				if ($m['hostid'] === $hostid) { $out[$m['macro']] = $m['value']; }
-			}
-			return $out;
-		}
-
-		/** A host's tags as "tag=value" strings, sorted — one comparable shape for the checks. */
-		public static function tagsOf(string $hostid): array {
-			$out = array_map(fn($t) => $t['tag'].'='.$t['value'], self::$hosts[$hostid]['tags'] ?? []);
-			sort($out);
-			return $out;
-		}
-
-		/** Every call of one kind, with its parameters. */
-		public static function calls(string $key): array {
-			return array_values(array_map(fn($c) => $c[1], array_filter(self::$calls, fn($c) => $c[0] === $key)));
-		}
-
-		/* ------------------------------ the API surface ------------------------------ */
-
-		private static function vals($v): array {
-			return array_map(fn($x) => (string) $x, is_array($v) ? array_values($v) : [$v]);
-		}
-
-		/** A host's templates as the caller would see them — none at all to a Zabbix Admin. */
-		private static function shown(array $h): array {
-			return self::$hideTemplates ? [] : $h['parentTemplates'];
-		}
-
-		private static function matchFilter(array $rec, array $filter): bool {
-			foreach ($filter as $k => $v) {
-				if (!in_array((string) ($rec[$k] ?? ''), self::vals($v), true)) { return false; }
-			}
-			return true;
-		}
-
-		private static function matchSearch(array $rec, array $search, bool $start): bool {
-			foreach ($search as $k => $v) {
-				$hay = strtolower((string) ($rec[$k] ?? ''));
-				$needle = strtolower((string) $v);
-				if ($start ? strpos($hay, $needle) !== 0 : strpos($hay, $needle) === false) { return false; }
-			}
-			return true;
-		}
-
-		/**
-		 * host.get's tag filter. The default is "every tag given", which is what made the
-		 * two-generation filter match nothing until Reconciler::kindFilter() started passing
-		 * evaltype OR; both are implemented here so that mistake would fail a test again.
-		 */
-		private static function matchTags(array $rec, array $tags, int $evaltype): bool {
-			$hits = 0;
-			foreach ($tags as $want) {
-				foreach ($rec['tags'] as $t) {
-					if ($t['tag'] !== $want['tag']) { continue; }
-					$v = (string) ($want['value'] ?? '');
-					$eq = (int) ($want['operator'] ?? TAG_OPERATOR_LIKE) === TAG_OPERATOR_EQUAL;
-					if ($eq ? $t['value'] === $v : ($v === '' || strpos($t['value'], $v) !== false)) { $hits++; break; }
-				}
-			}
-			return $evaltype === TAG_EVAL_TYPE_OR ? $hits > 0 : $hits === count($tags);
-		}
-
-		public static function hostGet(array $p): array {
-			$out = [];
-			foreach (self::$hosts as $id => $h) {
-				if (isset($p['hostids']) && !in_array((string) $id, self::vals($p['hostids']), true)) { continue; }
-				if (isset($p['groupids']) && !array_intersect(self::vals($p['groupids']), array_column($h['hostgroups'], 'groupid'))) { continue; }
-				if (isset($p['templateids']) && !array_intersect(self::vals($p['templateids']), array_column(self::shown($h), 'templateid'))) { continue; }
-				if (isset($p['filter']) && !self::matchFilter($h, (array) $p['filter'])) { continue; }
-				if (isset($p['search']) && !self::matchSearch($h, (array) $p['search'], !empty($p['startSearch']))) { continue; }
-				if (isset($p['tags']) && !self::matchTags($h, (array) $p['tags'], (int) ($p['evaltype'] ?? TAG_EVAL_TYPE_AND_OR))) { continue; }
-				if (!empty($p['editable']) && !array_diff(array_column($h['hostgroups'], 'name'), self::$readOnlyGroups, self::$hiddenGroups)) { continue; }
-				// A host all of whose groups the user has no permission on: Zabbix does not show it at all.
-				if (self::$hiddenGroups && !array_diff(array_column($h['hostgroups'], 'name'), self::$hiddenGroups)) { continue; }
-				// Only what the call asked for: see the note on $hideTemplates.
-				$rec = ['hostid' => $h['hostid'], 'host' => $h['host'], 'name' => $h['name'], 'status' => $h['status'],
-					'monitored_by' => $h['monitored_by'], 'proxyid' => $h['proxyid'], 'proxy_groupid' => $h['proxy_groupid'],
-					'inventory_mode' => $h['inventory_mode'], 'maintenance_status' => $h['maintenance_status'],
-					'active_available' => $h['active_available']];
-				if (isset($p['selectHostGroups'])) { $rec['hostgroups'] = $h['hostgroups']; }
-				if (isset($p['selectParentTemplates'])) { $rec['parentTemplates'] = self::shown($h); }
-				if (isset($p['selectInterfaces'])) { $rec['interfaces'] = $h['interfaces']; }
-				if (isset($p['selectTags'])) { $rec['tags'] = $h['tags']; }
-				if (isset($p['selectInventory'])) { $rec['inventory'] = $h['inventory']; }
-				if (isset($p['selectMacros'])) {
-					$rec['macros'] = [];
-					foreach (self::$macros as $m) {
-						if ($m['hostid'] === $h['hostid']) { $rec['macros'][] = ['macro' => $m['macro'], 'type' => $m['type']]; }
-					}
-				}
-				$out[(string) $id] = $rec;
-			}
-			if (isset($p['sortfield'])) {
-				uasort($out, fn($a, $b) => strcmp((string) ($a[$p['sortfield']] ?? ''), (string) ($b[$p['sortfield']] ?? '')));
-			}
-			if (isset($p['limit'])) { $out = array_slice($out, 0, (int) $p['limit'], true); }
-			return empty($p['preservekeys']) ? array_values($out) : $out;
-		}
-
-		public static function hostCreate(array $p): array {
-			$f = ['host' => $p['host'], 'name' => $p['name'] ?? $p['host'], 'status' => $p['status'] ?? HOST_STATUS_MONITORED,
-				'monitored_by' => $p['monitored_by'] ?? ZBX_MONITORED_BY_SERVER, 'proxyid' => $p['proxyid'] ?? 0,
-				'proxy_groupid' => $p['proxy_groupid'] ?? 0, 'inventory_mode' => $p['inventory_mode'] ?? HOST_INVENTORY_DISABLED,
-				'tags' => $p['tags'] ?? [], 'notes' => $p['inventory']['notes'] ?? ''];
-			$f['groups'] = array_map(fn($g) => self::$groups[(string) $g['groupid']], (array) ($p['groups'] ?? []));
-			$f['templates'] = array_map(fn($t) => self::$templates[(string) $t['templateid']]['host'], (array) ($p['templates'] ?? []));
-			foreach ((array) ($p['interfaces'] ?? []) as $if) {
-				if ((string) ($if['ip'] ?? '') !== '') { $f['ip'] = $if['ip']; }
-			}
-			return ['hostids' => [self::addHost($f)]];
-		}
-
-		public static function hostUpdate(array $p): array {
-			$id = (string) $p['hostid'];
-			foreach (['host', 'name', 'status', 'monitored_by', 'proxyid', 'proxy_groupid', 'inventory_mode'] as $k) {
-				if (array_key_exists($k, $p)) { self::$hosts[$id][$k] = (string) $p[$k]; }
-			}
-			if (array_key_exists('tags', $p)) {
-				self::$hosts[$id]['tags'] = array_values(array_map(fn($t) => ['tag' => (string) $t['tag'], 'value' => (string) ($t['value'] ?? '')], (array) $p['tags']));
-			}
-			if (array_key_exists('inventory', $p)) {
-				self::$hosts[$id]['inventory'] = (array) $p['inventory'] + self::$hosts[$id]['inventory'];
-			}
-			return ['hostids' => [$id]];
-		}
-
-		public static function hostMassAdd(array $p): array {
-			$ids = array_map(fn($h) => (string) $h['hostid'], (array) ($p['hosts'] ?? []));
-			foreach ($ids as $id) {
-				foreach ((array) ($p['templates'] ?? []) as $t) {
-					$tid = (string) $t['templateid'];
-					if (!in_array($tid, array_column(self::$hosts[$id]['parentTemplates'], 'templateid'), true)) {
-						self::$hosts[$id]['parentTemplates'][] = ['templateid' => $tid, 'host' => self::$templates[$tid]['host']];
-					}
-				}
-				foreach ((array) ($p['groups'] ?? []) as $g) {
-					$gid = (string) $g['groupid'];
-					if (!in_array($gid, array_column(self::$hosts[$id]['hostgroups'], 'groupid'), true)) {
-						self::$hosts[$id]['hostgroups'][] = ['groupid' => $gid, 'name' => self::$groups[$gid]];
-					}
-				}
-			}
-			return ['hostids' => $ids];
-		}
-
-		public static function hostMassRemove(array $p): array {
-			$ids = self::vals($p['hostids'] ?? []);
-			$drop_t = array_merge(self::vals($p['templateids'] ?? []), self::vals($p['templateids_clear'] ?? []));
-			$drop_g = self::vals($p['groupids'] ?? []);
-			foreach ($ids as $id) {
-				self::$hosts[$id]['parentTemplates'] = array_values(array_filter(self::$hosts[$id]['parentTemplates'],
-					fn($t) => !in_array($t['templateid'], $drop_t, true)));
-				self::$hosts[$id]['hostgroups'] = array_values(array_filter(self::$hosts[$id]['hostgroups'],
-					fn($g) => !in_array($g['groupid'], $drop_g, true)));
-			}
-			return ['hostids' => $ids];
-		}
-
-		public static function hostDelete(array $ids): array {
-			foreach (self::vals($ids) as $id) {
-				unset(self::$hosts[$id]);
-				foreach (self::$macros as $mid => $m) {
-					if ($m['hostid'] === $id) { unset(self::$macros[$mid]); }
-				}
-			}
-			return ['hostids' => self::vals($ids)];
-		}
-
-		public static function groupGet(array $p): array {
-			$out = [];
-			foreach (self::$groups as $id => $name) {
-				if (in_array($name, self::$hiddenGroups, true) || (!empty($p['editable']) && in_array($name, self::$readOnlyGroups, true))) { continue; }
-				$rec = ['groupid' => (string) $id, 'name' => $name, 'hosts' => 0];
-				if (isset($p['filter']) && !self::matchFilter($rec, (array) $p['filter'])) { continue; }
-				if (isset($p['groupids']) && !in_array((string) $id, self::vals($p['groupids']), true)) { continue; }
-				foreach (self::$hosts as $h) {
-					if (in_array((string) $id, array_column($h['hostgroups'], 'groupid'), true)) { $rec['hosts']++; }
-				}
-				$out[] = $rec;
-			}
-			return $out;
-		}
-
-		public static function groupCreate(array $p): array {
-			$names = isset($p['name']) ? [$p['name']] : array_column((array) $p, 'name');
-			return ['groupids' => array_map(fn($n) => self::groupId((string) $n), $names)];
-		}
-
-		public static function interfaceGet(array $p): array {
-			$out = [];
-			foreach (self::$hosts as $h) {
-				foreach ($h['interfaces'] as $if) {
-					$rec = ['interfaceid' => $if['interfaceid'], 'hostid' => $h['hostid'], 'ip' => $if['ip'], 'type' => $if['type']];
-					if (isset($p['filter']) && !self::matchFilter($rec, (array) $p['filter'])) { continue; }
-					if (isset($p['search']) && !self::matchSearch($rec, (array) $p['search'], !empty($p['startSearch']))) { continue; }
-					$out[] = $rec;
-				}
-			}
-			return isset($p['limit']) ? array_slice($out, 0, (int) $p['limit']) : $out;
-		}
-
-		public static function templateGet(array $p): array {
-			if (self::$hideTemplates) { return []; }
-			$out = [];
-			foreach (self::$templates as $id => $t) {
-				$rec = ['templateid' => (string) $id, 'host' => $t['host'], 'uuid' => $t['uuid']];
-				if (isset($p['filter']) && !self::matchFilter($rec, (array) $p['filter'])) { continue; }
-				// selectHosts, because the mapping table counts the hosts carrying each template
-				// and a stub that always answered none would have passed a count that never works.
-				if (isset($p['selectHosts'])) {
-					$rec['hosts'] = [];
-					foreach (self::$hosts as $hid => $h) {
-						foreach ((array) ($h['parentTemplates'] ?? []) as $pt) {
-							if ((string) ($pt['templateid'] ?? '') === (string) $id) { $rec['hosts'][] = ['hostid' => (string) $hid]; }
-						}
-					}
-				}
-				$out[] = $rec;
-			}
-			if (($p['sortfield'] ?? '') === 'host') { usort($out, fn($a, $b) => strcmp($a['host'], $b['host'])); }
-			if (isset($p['limit'])) { $out = array_slice($out, 0, (int) $p['limit']); }
-			return $out;
-		}
-
-		public static function macroGet(array $p): array {
-			$out = [];
-			foreach (self::$macros as $m) {
-				if (isset($p['hostids']) && !in_array($m['hostid'], self::vals($p['hostids']), true)) { continue; }
-				if (isset($p['filter']) && !self::matchFilter($m, (array) $p['filter'])) { continue; }
-				$out[] = $m;
-			}
-			return $out;
-		}
-
-		public static function macroCreate(array $p): array {
-			$list = isset($p['macro']) ? [$p] : array_values($p);
-			$ids = [];
-			foreach ($list as $m) {
-				$ids[] = self::addMacro((string) $m['hostid'], (string) $m['macro'], (string) ($m['value'] ?? ''), (int) ($m['type'] ?? 0));
-			}
-			return ['hostmacroids' => $ids];
-		}
-
-		public static function macroUpdate(array $p): array {
-			$list = isset($p['hostmacroid']) ? [$p] : array_values($p);
-			foreach ($list as $m) {
-				$id = (string) $m['hostmacroid'];
-				foreach (['value', 'type'] as $k) {
-					if (array_key_exists($k, $m)) { self::$macros[$id][$k] = (string) $m[$k]; }
-				}
-			}
-			return ['hostmacroids' => array_map(fn($m) => (string) $m['hostmacroid'], $list)];
-		}
-
-		public static function macroDelete(array $ids): array {
-			foreach (self::vals($ids) as $id) { unset(self::$macros[(string) $id]); }
-			return ['hostmacroids' => array_values(self::vals($ids))];
-		}
-
-		public static function proxyGet(array $p): array {
-			$out = [];
-			foreach (self::$proxies as $name => $px) {
-				$rec = ['proxyid' => (string) $px['proxyid'], 'name' => $name, 'lastaccess' => (string) $px['lastaccess']];
-				if (isset($p['filter']) && !self::matchFilter($rec, (array) $p['filter'])) { continue; }
-				$out[] = $rec;
-			}
-			return $out;
-		}
-
-		public static function proxyGroupGet(array $p): array {
-			$out = [];
-			foreach (self::$proxyGroups as $name => $pg) {
-				$rec = ['proxy_groupid' => (string) $pg['proxy_groupid'], 'name' => $name, 'state' => (string) $pg['state']];
-				if (isset($p['filter']) && !self::matchFilter($rec, (array) $p['filter'])) { continue; }
-				$out[] = $rec;
-			}
-			return $out;
-		}
-	}
-
-	/** One Zabbix API resource. Every call is logged; a write is refused when the test says so. */
-	class ZbxResource {
-		/** @var string */
-		private $res;
-
-		public function __construct(string $res) {
-			$this->res = $res;
-		}
-
-		public function __call(string $method, array $args) {
-			$p = $args[0] ?? [];
-			$key = $this->res.'.'.$method;
-			\Zbx::$calls[] = [$key, $p];
-			if ($method !== 'get') {
-				if (\Zbx::$readOnly) {
-					// The wording Zabbix itself uses, so a test can tell a permission refusal
-					// from a constraint one by reading the message the operator would see.
-					\Zbx::$messages[] = 'No permissions to call "'.lcfirst($this->res).'.'.$method.'".';
-					return false;
-				}
-				if (isset(\Zbx::$deny[$key])) {
-					\Zbx::$messages[] = \Zbx::$deny[$key];
-					return false;
-				}
-				\Zbx::$wrote[] = $key;
-			}
-			switch ($key) {
-				case 'Host.get': return \Zbx::hostGet((array) $p);
-				case 'Host.create': return \Zbx::hostCreate((array) $p);
-				case 'Host.update': return \Zbx::hostUpdate((array) $p);
-				case 'Host.massAdd': return \Zbx::hostMassAdd((array) $p);
-				case 'Host.massRemove': return \Zbx::hostMassRemove((array) $p);
-				case 'Host.delete': return \Zbx::hostDelete((array) $p);
-				case 'HostGroup.get': return \Zbx::groupGet((array) $p);
-				case 'HostGroup.create': return \Zbx::groupCreate((array) $p);
-				case 'HostInterface.get': return \Zbx::interfaceGet((array) $p);
-				case 'Template.get': return \Zbx::templateGet((array) $p);
-				case 'UserMacro.get': return \Zbx::macroGet((array) $p);
-				case 'UserMacro.create': return \Zbx::macroCreate((array) $p);
-				case 'UserMacro.update': return \Zbx::macroUpdate((array) $p);
-				case 'UserMacro.delete': return \Zbx::macroDelete((array) $p);
-				case 'Proxy.get': return \Zbx::proxyGet((array) $p);
-				case 'ProxyGroup.get': return \Zbx::proxyGroupGet((array) $p);
-				// Asked by SetupChecks on an install with no history yet. Empty is the honest
-				// answer here and the module has to read it as "not measured yet", not "broken".
-				case 'Item.get': return [];
-				case 'Trigger.get': return [];
-				case 'Task.create': return ['taskids' => []];
-			}
-			// Never an empty array for something the fake does not model: that is how a fake
-			// starts passing tests for code it is not exercising.
-			throw new \RuntimeException('the fake Zabbix was asked '.$key.', which it does not implement');
-		}
-	}
-
-	class API {
-		public static function __callStatic(string $name, array $args) {
-			return new \ZbxResource($name);
-		}
-	}
+	require __DIR__.'/fake-zabbix.php';
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'DefaultCredential', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate, WriteCheck};
@@ -753,9 +204,10 @@ namespace Modules\EpClients\Test {
 	 * ====================================================================================== */
 
 	/*
-	 * The field case: a host whose technical name is the machine's own FQDN and whose visible name
-	 * is whatever an operator typed. Taking it on renames both, in one update, and keeps its
-	 * history, templates and interface.
+	 * Role hosts: the host name is the IP, the visible name is the server name (decided
+	 * 2026-10-23). A host taken on keeps the host name it has — an FQDN, an IP, or the
+	 * <client>-<Role>-<n> an earlier release gave it — and only its visible name follows the
+	 * server name, when one is known. Nothing is ever renamed to a pattern, or back from one.
 	 */
 	/** A master host of today's generation, with nothing for a save to change on it. */
 	$addMaster = function (string $cl): string {
@@ -773,61 +225,54 @@ namespace Modules\EpClients\Test {
 	/** Every rename a save asked Zabbix for: a host.update that carries a technical name. */
 	$renames = fn() => array_values(array_filter(\Zbx::calls('Host.update'), fn($p) => array_key_exists('host', $p)));
 
-	$begin('a hostname that is not our name');
+	$begin('a role host taken on keeps its host name');
 	$addMaster('acme');
 	$fqdn = $addServer('acme', ['host' => 'vm-prod-17.acme.internal', 'name' => 'ES hot node (rack 4)', 'ip' => '10.20.0.11']);
 	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.11', 'roles' => ['es_data_hot']]])]));
 	$rr = $rec();
 	$rr->apply($c);
-	check('the host is renamed, technical and visible name together',
-		\Zbx::$hosts[$fqdn]['host'] === 'acme-ES-Data-Hot-1' && \Zbx::$hosts[$fqdn]['name'] === 'acme-ES-Data-Hot-1',
+	check('no server name given: host name and visible name stay as they are',
+		\Zbx::$hosts[$fqdn]['host'] === 'vm-prod-17.acme.internal' && \Zbx::$hosts[$fqdn]['name'] === 'ES hot node (rack 4)',
 		[\Zbx::$hosts[$fqdn]['host'], \Zbx::$hosts[$fqdn]['name']]);
-	check('in one update, so there is no moment where the two names disagree', count($renames()) === 1, $renames());
+	check('and no host name was ever asked for', $renames() === [], $renames());
+	check('read back, its visible name is its server name', str_contains($state($rec())->formFor('acme')['servers'], '"host":"ES hot node (rack 4)"'));
+	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.11', 'roles' => ['es_data_hot'], 'host' => 'es-hot-17']])]));
+	$rr = $rec();
+	$rr->apply($c);
+	check('a server name given becomes the visible name; the host name stays', \Zbx::$hosts[$fqdn]['host'] === 'vm-prod-17.acme.internal'
+		&& \Zbx::$hosts[$fqdn]['name'] === 'es-hot-17' && $renames() === []);
 	check('it is the same host: its interface and its id are untouched, so its history stays',
 		\Zbx::$hosts[$fqdn]['interfaces'][0]['ip'] === '10.20.0.11' && \Zbx::$hosts[$fqdn]['hostid'] === $fqdn);
-	check('and the save tells the operator what it renamed, by the name they knew it by',
-		(bool) preg_grep('/Renamed "vm-prod-17\.acme\.internal" to "acme-ES-Data-Hot-1"/', $rr->done()), $rr->done());
+	check('and the save says what it changed', (bool) preg_grep('/Visible name of vm-prod-17\.acme\.internal set to "es-hot-17"/', $rr->done()), $rr->done());
 
-	$begin('a host already named as we would name it');
+	$begin('an earlier release\'s <client>-<Role>-<n> is left alone');
 	$addMaster('acme');
 	$same = $addServer('acme', ['host' => 'acme-ES-Data-Hot-1', 'ip' => '10.20.0.11']);
-	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.11', 'roles' => ['es_data_hot']]])]));
+	$halfway = $addServer('acme', ['host' => 'vm-prod-19.acme.internal', 'name' => 'acme-ES-Data-Hot-2', 'ip' => '10.20.0.12']);
+	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.11', 'roles' => ['es_data_hot']], ['ip' => '10.20.0.12', 'roles' => ['es_data_hot']]])]));
 	$rec()->apply($c);
-	check('it is not renamed at all', $renames() === [], $renames());
-	check('and keeps the name it had', \Zbx::$hosts[$same]['host'] === 'acme-ES-Data-Hot-1' && \Zbx::$hosts[$same]['name'] === 'acme-ES-Data-Hot-1');
+	check('nothing is renamed, back or forward', $renames() === [], $renames());
+	check('both keep the names they had', \Zbx::$hosts[$same]['host'] === 'acme-ES-Data-Hot-1' && \Zbx::$hosts[$same]['name'] === 'acme-ES-Data-Hot-1'
+		&& \Zbx::$hosts[$halfway]['host'] === 'vm-prod-19.acme.internal' && \Zbx::$hosts[$halfway]['name'] === 'acme-ES-Data-Hot-2');
+	$now = $rec()->current('acme');
+	check('a host name is never taken for a server name', $now['machines'][$same]['_server_name'] === '' && $now['machines'][$halfway]['_server_name'] === 'acme-ES-Data-Hot-2');
 
-	/*
-	 * The visible name already reads as ours and the technical name does not. The technical name
-	 * is the one Zabbix item keys and host.create go by, so this host still has to be renamed —
-	 * and the update has to set both, or the host ends up with two different names.
-	 */
-	$begin('only the visible name already matches');
+	$begin('a new role host: host name = IP, visible name = server name');
 	$addMaster('acme');
-	$halfway = $addServer('acme', ['host' => 'vm-prod-19.acme.internal', 'name' => 'acme-ES-Data-Hot-1', 'ip' => '10.20.0.11']);
-	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.11', 'roles' => ['es_data_hot']]])]));
-	$rec()->apply($c);
-	check('slotOf looks at the technical name, so this host has no number yet',
-		ClientSpec::slotOf('vm-prod-19.acme.internal', 'acme', 'ES-Data-Hot') === null);
-	check('it is renamed once, and both names are set', count($renames()) === 1
-		&& \Zbx::$hosts[$halfway]['host'] === 'acme-ES-Data-Hot-1' && \Zbx::$hosts[$halfway]['name'] === 'acme-ES-Data-Hot-1', $renames());
-
-	/*
-	 * Numbers already in use. A host whose name follows the pattern keeps its number; the ones
-	 * being taken on get the next free one, because asking Zabbix for a name a host already has
-	 * is refused in the middle of the save.
-	 */
-	$begin('numbers already in use are not handed out twice');
-	$addMaster('acme');
-	$newcomer = $addServer('acme', ['host' => 'vm-prod-17.acme.internal', 'ip' => '10.20.0.11']);
-	$numbered = $addServer('acme', ['host' => 'acme-ES-Data-Hot-2', 'ip' => '10.20.0.12']);
-	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.11', 'roles' => ['es_data_hot']],
-		['ip' => '10.20.0.12', 'roles' => ['es_data_hot']]])]));
-	$rec()->apply($c);
-	check('the numbered host keeps its number', \Zbx::$hosts[$numbered]['host'] === 'acme-ES-Data-Hot-2');
-	check('the one taken on gets the next free number, not the first', \Zbx::$hosts[$newcomer]['host'] === 'acme-ES-Data-Hot-3',
-		\Zbx::$hosts[$newcomer]['host']);
-	check('so no two hosts share a technical name',
-		count(array_unique(array_column(\Zbx::$hosts, 'host'))) === count(\Zbx::$hosts), array_column(\Zbx::$hosts, 'host'));
+	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.13', 'roles' => ['es_data_hot'], 'host' => 'es-hot-13'],
+		['ip' => '10.20.0.14', 'roles' => ['parser']]])]));
+	$rr = $rec();
+	$rr->apply($c);
+	check('with a server name', (\Zbx::byHost('10.20.0.13')['name'] ?? null) === 'es-hot-13');
+	check('without one: the IP for both, and the save says no server name is known', (\Zbx::byHost('10.20.0.14')['name'] ?? null) === '10.20.0.14'
+		&& (bool) preg_grep('/Created host 10\.20\.0\.14 \(no server name yet\)/', $rr->done()), $rr->done());
+	check('no host is named <client>-<Role>-<n>', !array_filter(array_column(\Zbx::$hosts, 'host'), fn($h) => preg_match('/^acme-(ES|Parser)/', $h)));
+	$taken = \Zbx::addHost(['host' => '10.20.0.15', 'groups' => ['Elsewhere']]);
+	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.20.0.13', 'roles' => ['es_data_hot'], 'host' => 'es-hot-13'],
+		['ip' => '10.20.0.14', 'roles' => ['parser']], ['ip' => '10.20.0.15', 'roles' => ['parser']]])]));
+	$r = $rec();
+	check('an IP that is already another host\'s host name is refused before anything is written',
+		(bool) preg_grep('/A host whose host name is 10\.20\.0\.15 already exists/', $r->problems($c, $r->current('acme'))), $r->problems($c, $r->current('acme')));
 
 	/*
 	 * Two clients each have a server whose hostname is the same string — a template-built VM name
@@ -866,18 +311,12 @@ namespace Modules\EpClients\Test {
 	check('49 is refused, and the message says what is allowed',
 		(bool) preg_grep('/may hold only/', $spec->fromForm($form(str_repeat('a', 49), ['es_url' => '']))['errors']));
 	check('a client name of one character is accepted', $spec->fromForm($form('a', ['es_url' => '']))['errors'] === []);
-	$wide = Roles::serverBase($roles, ['es_data_hot', 'es_coord', 'es_master', 'parser', 's3_parser']);
-	check('so does a five-role server of one', strlen(ClientSpec::machineName($n48, $wide, 99)) <= $ZBX_NAME_MAX,
-		[$wide, strlen(ClientSpec::machineName($n48, $wide, 99))]);
-	// The widest name the shipped roles can produce: every role that may share a server, on one
-	// server, numbered. A client name of 41 characters or fewer keeps even that inside 128.
-	$everyRole = array_keys(array_filter($byId, fn($r) => empty($r['exclusive'])));
-	$widest = Roles::serverBase($roles, $everyRole);
-	check('a 41-character client name fits whatever roles one server holds',
-		strlen(ClientSpec::machineName(str_repeat('a', 41), $widest, 99)) <= $ZBX_NAME_MAX,
-		[$widest, strlen(ClientSpec::machineName(str_repeat('a', 41), $widest, 99))]);
-	check('the widest base is built from every non-exclusive role, each family word written once',
-		substr_count($widest, 'ES') === 1 && substr_count($widest, 'Forwarder') === 1, $widest);
+	// A role host's host name is its IP and its visible name its server name (at most 128), so no
+	// host name is built from the client and its roles any more: nothing about a server's name
+	// grows with the roles it holds.
+	check('the longest server name accepted is 128, as Zabbix\'s visible name', ClientSpec::isServerName(str_repeat('s', 128)) && !ClientSpec::isServerName(str_repeat('s', 129)));
+	check('the master, cluster and archive host names of a 48-character client fit', strlen(ClientSpec::clusterName($n48)) <= $ZBX_NAME_MAX
+		&& strlen(ClientSpec::masterName($n48)) <= $ZBX_NAME_MAX && strlen(ClientSpec::ulmName($n48)) <= $ZBX_NAME_MAX);
 	$tooLong = false;
 	try { Roles::saveTemplateNames(['agent' => str_repeat('x', 129)]); } catch (\InvalidArgumentException $e) { $tooLong = true; }
 	check('a template name over Zabbix 128 characters is refused rather than silently cut, and nothing is saved',
@@ -928,8 +367,8 @@ namespace Modules\EpClients\Test {
 	$rr->apply($c);
 	check('it is still there afterwards, under its own name', isset(\Zbx::$hosts[$lookalike]) && \Zbx::$hosts[$lookalike]['host'] === 'acme-Parser-3');
 	check('and the save says why it was left alone', (bool) preg_grep('/has no role and is left as it is/', $rr->done()), $rr->done());
-	check('its number was not handed out again: the new server is Parser-4', \Zbx::byHost('acme-Parser-4') !== null
-		&& \Zbx::byHost('acme-Parser-4')['interfaces'][0]['ip'] === '10.40.0.9');
+	check('the new server\'s host name is its IP', \Zbx::byHost('10.40.0.9') !== null
+		&& \Zbx::byHost('10.40.0.9')['interfaces'][0]['ip'] === '10.40.0.9');
 
 	/* ======================================================================================
 	 *  CLIENT NAMES
@@ -1116,8 +555,8 @@ namespace Modules\EpClients\Test {
 	$c = $client($form('acme', ['es_url' => '', 'servers' => json_encode([['ip' => '10.70.0.4', 'roles' => ['parser']]])]));
 	$rr = $rec();
 	$rr->apply($c);
-	check('it was taken on, renamed, and the save says its history stays',
-		\Zbx::$hosts[$off]['host'] === 'acme-Parser-1' && (bool) preg_grep('/Took on the existing host/', $rr->done()), $rr->done());
+	check('it was taken on, its host name untouched, and the save says its history stays',
+		\Zbx::$hosts[$off]['host'] === 'spare-vm-04' && (bool) preg_grep('/Took on the existing host/', $rr->done()), $rr->done());
 	check('adoption did not switch it on', (int) \Zbx::$hosts[$off]['status'] === HOST_STATUS_NOT_MONITORED);
 	check('no update of it asked for a status at all',
 		array_filter(\Zbx::calls('Host.update'), fn($p) => (string) $p['hostid'] === $off && array_key_exists('status', $p)) === []);
@@ -1127,7 +566,7 @@ namespace Modules\EpClients\Test {
 		in_array('Servers are monitored', $labels, true), $labels);
 	$monitored = array_values(array_filter($checks['acme'], fn($ck) => $ck[0] === 'Servers are monitored'));
 	check('the check fails and names the host', $monitored !== [] && $monitored[0][1] === false
-		&& strpos($monitored[0][2], 'acme-Parser-1') !== false, $monitored);
+		&& strpos($monitored[0][2], 'spare-vm-04') !== false, $monitored);
 	check('and it is not asked of a client that is disabled, where every host being off is the point',
 		!in_array('Servers are monitored', array_column(SetupChecks::forClients(['acme' => $rec()->current('acme')],
 			['acme' => [Lifecycle::MACRO => 'disabled']])['acme'], 0), true));
@@ -1375,53 +814,53 @@ namespace Modules\EpClients\Test {
 	 * marked ep-name=own, and no later save takes it away. Checked at Check time: Zabbix's rule for
 	 * a host name, and unique in Zabbix.
 	 */
-	$begin('Host name: a name of the operator\'s own');
+	$begin('Server name: the visible name of a role host whose host name is its IP');
 	$hn = fn(array $servers) => Workbook::parse(Xlsx::build([
 		['name' => 'Clients', 'rows' => [1 => [1 => 'Client *', 2 => 'Type ▾', 3 => 'ES URL *', 4 => 'Vault path'], 2 => [1 => 'named', 2 => 'On-Prem', 3 => 'https://es.named.example:9243', 4 => 'secret/elasticpro/named:password']]],
 		['name' => 'Servers', 'rows' => [1 => [1 => 'Client ▾ *', 2 => 'IP *', 3 => 'Host name', 4 => 'Role 1 ▾ *']] + $servers]]), $roles, $lists);
 	$hw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 3 => 'named-edge-01', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 4 => 'Parser']]);
 	$hplan = (new Importer($spec, $state($rec())))->analyze($hw['clients'], $hw['servers']);
-	check('a valid, free host name passes Check', $hplan['errors'] === [] && $hplan['rows'][0]['status'] === 'new', $hplan['errors']);
+	check('a valid, free server name passes Check', $hplan['errors'] === [] && $hplan['rows'][0]['status'] === 'new', $hplan['errors']);
 	$res = (new Importer($spec, $state($rec())))->applyRows($hplan['rows'], $rec, fn($n) => null);
-	$edge = \Zbx::byHost('named-edge-01');
-	check('the new server keeps the name given; the other is named from client and role', $res['failed'] === [] && $res['applied'][0]['problems'] === []
-		&& $edge !== null && in_array('ep-name=own', \Zbx::tagsOf($edge['hostid']), true) && \Zbx::byHost('named-Parser-1') !== null, [$res, array_column(\Zbx::$hosts, 'host')]);
+	$edge = \Zbx::byHost('10.140.0.1');
+	check('host name = IP, visible name = the server name given; without one, the IP', $res['failed'] === [] && $res['applied'][0]['problems'] === []
+		&& $edge !== null && $edge['name'] === 'named-edge-01' && (\Zbx::byHost('10.140.0.2')['name'] ?? null) === '10.140.0.2', [$res, array_column(\Zbx::$hosts, 'name', 'host')]);
 	$nform = $state($rec())->formFor('named');
-	check('read back, the server carries its own name; the made-up one does not', str_contains($nform['servers'], '"host":"named-edge-01"') && substr_count($nform['servers'], '"host"') === 1, $nform['servers']);
+	check('read back, the named server carries its server name; the other none', str_contains($nform['servers'], '"host":"named-edge-01"') && substr_count($nform['servers'], '"host"') === 1, $nform['servers']);
 	// A later save that changes its roles keeps the name.
 	$again = array_merge(ClientState::plain($nform), ['servers' => $spec->canonServers([['ip' => '10.140.0.1', 'roles' => ['forwarder', 'engine']], ['ip' => '10.140.0.2', 'roles' => ['parser']]])]);
 	['client' => $ac] = $spec->fromForm($again);
 	$rec()->apply($ac);
-	check('a later save (from the client page, no host name in it) changes the roles and keeps the name', \Zbx::byHost('named-edge-01') !== null
-		&& \Zbx::byHost('named-edge-01')['hostid'] === $edge['hostid'], array_column(\Zbx::$hosts, 'host'));
+	check('a later save (from the client page) changes the roles and keeps both names', (\Zbx::byHost('10.140.0.1')['name'] ?? null) === 'named-edge-01'
+		&& \Zbx::byHost('10.140.0.1')['hostid'] === $edge['hostid'], array_column(\Zbx::$hosts, 'name', 'host'));
 	// The export carries every host's name; importing it back changes nothing.
 	[$forms0, $names0] = [[ClientState::plain($state($rec())->formFor('named'))], []];
-	foreach ($state($rec())->formFor('named')['_now']['machines'] as $h) { $names0['named'][$h['_ip']] = $h['host']; }
+	foreach ($state($rec())->formFor('named')['_now']['machines'] as $h) { $names0['named'][$h['_ip']] = $h['name']; }
 	$round = Workbook::parse(Workbook::build($roles, $lists, $forms0, $names0), $roles, $lists);
 	$rplan = (new Importer($spec, $state($rec())))->analyze($round['clients'], $round['servers']);
-	check('the export, imported back: the same client, no rename, no host name made own', $rplan['errors'] === [] && $rplan['rows'][0]['status'] === 'same', [$rplan['errors'], $rplan['rows'][0]['diff'] ?? null]);
+	check('the export, imported back: the same client, nothing to change', $rplan['errors'] === [] && $rplan['rows'][0]['status'] === 'same', [$rplan['errors'], $rplan['rows'][0]['diff'] ?? null]);
 	// Renaming an existing server: shown for a tick, then applied, history kept (same host).
 	$rw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 3 => 'named-edge-01', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 3 => 'named-parser-a', 4 => 'Parser']]);
 	$rp = (new Importer($spec, $state($rec())))->analyze($rw['clients'], $rw['servers']);
 	$renames = array_values(array_filter($rp['rows'][0]['diff']['hosts'] ?? [], fn($h) => $h['change'] === 'rename'));
-	check('a new name for an existing server is a change to tick: the rename', $rp['errors'] === [] && $rp['rows'][0]['status'] === 'update'
-		&& count($renames) === 1 && $renames[0]['host'] === 'named-Parser-1' && $renames[0]['as'] === 'named-parser-a', [$rp['errors'], $rp['rows'][0]['diff'] ?? null]);
-	$parserId = \Zbx::byHost('named-Parser-1')['hostid'];
+	check('a new server name for an existing server is a change to tick', $rp['errors'] === [] && $rp['rows'][0]['status'] === 'update'
+		&& count($renames) === 1 && $renames[0]['host'] === '10.140.0.2' && $renames[0]['as'] === 'named-parser-a', [$rp['errors'], $rp['rows'][0]['diff'] ?? null]);
+	$parserId = \Zbx::byHost('10.140.0.2')['hostid'];
 	$res = (new Importer($spec, $state($rec())))->applyRows($rp['rows'], $rec, fn($n) => null);
-	check('applied: the same host, renamed, marked as its own name', $res['failed'] === [] && \Zbx::byHost('named-parser-a')['hostid'] === $parserId
-		&& in_array('ep-name=own', \Zbx::tagsOf($parserId), true), $res);
+	check('applied: the same host, its host name still the IP, its visible name the server name', $res['failed'] === []
+		&& (\Zbx::byHost('10.140.0.2')['hostid'] ?? null) === $parserId && \Zbx::$hosts[$parserId]['name'] === 'named-parser-a', $res);
 	// Refused at Check: a name Zabbix would not take, one another host has, one given twice.
 	\Zbx::addHost(['host' => 'taken-host', 'groups' => ['Elsewhere']]);
-	foreach ([[3 => 'bad/name', 'want' => '/host name "bad\/name" may hold only letters, digits, spaces, dots, dashes and underscores/'],
-			[3 => 'taken-host', 'want' => '/host name "taken-host" for 10\.140\.0\.9 is already taken in Zabbix \(by host "taken-host"\)/'],
-			[3 => 'named-edge-01', 'want' => '/host name "named-edge-01" is already given to 10\.140\.0\.1\. Host names are unique\./']] as $case) {
+	foreach ([[3 => str_repeat('x', 129), 'want' => '/server name "x{129}" is longer than 128 characters/'],
+			[3 => 'taken-host', 'want' => '/server name "taken-host" for 10\.140\.0\.9 is already taken in Zabbix \(by host "taken-host"\)/'],
+			[3 => 'named-edge-01', 'want' => '/server name "named-edge-01" is already given to 10\.140\.0\.1\. Server names are unique\./']] as $case) {
 		$bw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 4 => 'Parser'], 4 => [1 => 'named', 2 => '10.140.0.9', 3 => $case[3], 4 => 'Engine']]);
 		$bp = (new Importer($spec, $state($rec())))->analyze($bw['clients'], $bw['servers']);
-		check('Check refuses host name "'.$case[3].'"', (bool) preg_grep($case['want'], $bp['errors']), $bp['errors']);
+		check('Check refuses server name "'.$case[3].'"', (bool) preg_grep($case['want'], $bp['errors']), $bp['errors']);
 	}
 	$tw = $hn([2 => [1 => 'named', 2 => '10.140.0.1', 4 => 'Forwarder'], 3 => [1 => 'named', 2 => '10.140.0.2', 4 => 'Parser'], 4 => [1 => 'named', 2 => '10.140.0.8', 3 => 'twice', 4 => 'Engine'], 5 => [1 => 'named', 2 => '10.140.0.9', 3 => 'Twice', 4 => 'UEBA']]);
 	$tp = (new Importer($spec, $state($rec())))->analyze($tw['clients'], $tw['servers']);
-	check('Check refuses the same host name twice in the file', (bool) preg_grep('/host name "Twice" is already given to 10\.140\.0\.8/', $tp['errors']), $tp['errors']);
+	check('Check refuses the same server name twice in the file', (bool) preg_grep('/server name "Twice" is already given to 10\.140\.0\.8/', $tp['errors']), $tp['errors']);
 
 	/*
 	 * A backup of an empty client list. Only three backups are kept, so a backup of nothing is not

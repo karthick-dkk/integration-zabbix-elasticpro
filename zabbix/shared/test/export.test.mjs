@@ -88,7 +88,9 @@ test('the modules use only Zabbix constants confirmed to exist in Zabbix 7.0', (
     // CColor's class, which the column editor's colour picker looks for (defines.inc.php of 7.0.31: 'color-picker').
     'ZBX_STYLE_COLOR_PICKER',
     // A label's required mark, toggled by the column editor as the source changes (7.0.31: 'form-label-asterisk').
-    'ZBX_STYLE_FIELD_LABEL_ASTERISK']);
+    'ZBX_STYLE_FIELD_LABEL_ASTERISK',
+    // A text macro, written for the default Elasticsearch user (defines.inc.php of 7.0.31, line 1680).
+    'ZBX_MACRO_TYPE_TEXT']);
   const used = new Set();
   const scan = (dir) => {
     for (const f of fs.readdirSync(dir, {withFileTypes: true})) {

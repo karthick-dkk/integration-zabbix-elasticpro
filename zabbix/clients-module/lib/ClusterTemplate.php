@@ -27,7 +27,7 @@ namespace Modules\EpClients\Lib;
 class ClusterTemplate {
 
 	/** Raised when the macro set changes, so the Clients page offers to write it again. */
-	public const VERSION = '1';
+	public const VERSION = '2';
 
 	public static function name(): string {
 		return Roles::clusterTemplate();
@@ -50,11 +50,10 @@ class ClusterTemplate {
 		['{$ELASTICSEARCH.SCHEME}', '', 'http or https.'],
 		['{$ELASTICSEARCH.HOST}', '', 'Host or IP of the cluster.'],
 		['{$ELASTICSEARCH.PORT}', '9200', 'Usually 9200.'],
-		['{$ELASTICSEARCH.USERNAME}', '', 'Elasticsearch user. Leave empty for a cluster with security disabled.'],
-		// Type is left at TEXT here. A Secret macro cannot be read back through the API by
-		// anyone, including the core, so a password stored as one is reported as unreadable
-		// rather than used; a Vault macro (mount/path:key) is the supported way to hold it.
-		['{$ELASTICSEARCH.PASSWORD}', '', 'A Vault reference, mount/path:key. A Zabbix "Secret text" macro cannot be read back through the API, so it will not work here.'],
+		// No {$ELASTICSEARCH.USERNAME} or {$ELASTICSEARCH.PASSWORD} here since version 2. Zabbix
+		// resolves a macro on the host, then on its templates, then globally — so an empty one on
+		// this template hid the default credential (global macros, DefaultCredential) from every
+		// cluster. The credential is the global default, or the host's own override.
 		['{$ELASTICSEARCH.JUMPHOST}', '', 'An ElasticPro jump host id, or empty for a direct connection.'],
 		['{$GRP.CLIENT}', '', 'The client this cluster belongs to.'],
 	];

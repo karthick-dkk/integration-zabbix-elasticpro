@@ -1,10 +1,13 @@
 <?php declare(strict_types = 0);
 /**
- * Cluster Management: every client by status — In service (active and in maintenance),
- * Maintenance, Disabled, Decommissioned — with setup checks, open problems, days until storage is
- * full and hosts removed from Zabbix. One pencil per row opens the client's own page, which holds
- * what each status allows (Maintenance, Disable, Clone … — ClientActions). Tick clients for bulk
- * Maintenance, Disable or Enable. Follows Zabbix's light or dark theme.
+ * Cluster Management (board List-after.dc.html, approved 2026-10-23): search, filters All /
+ * Missing / Not adopted / Old templates, a Status choice, and a Columns popover (hide, reorder,
+ * rename — one shared setting, ListColumns); the table: Client with its cluster host, one column
+ * per role with its server count (hover: IP · server name; hidden when no listed client has one),
+ * template generation, password (own / default / not set), last seen, and the Missing chip that
+ * opens the client's Missing panel. No Problems and no Disk full columns. The summary line —
+ * clients, with missing pieces, hosts not adopted → Discover — is a footer under the table.
+ * Tick clients for bulk Maintenance, Disable or Enable. Follows Zabbix's light or dark theme.
  *
  * @var CView $this
  * @var array $data
@@ -54,14 +57,49 @@ if ($data['template'] !== 'current') {
 		.($ro ? '' : $post('ep.clients.template.install', _('Write master template'), [], '', 'ep-btn-alt')).'</div>';
 }
 
+$missingN = count(array_filter($data['clients'], fn($c) => !empty($c['missing'])));
+$oldN = count(array_filter($data['clients'], fn($c) => !empty($c['beside'])));
+$cols = $data['columns'] ?? [];
 $html[] = '<div class="ep-tools">'
-	.'<input type="search" id="ep-q" placeholder="'.$e(_('Find a client, host name or IP')).'" aria-label="'.$e(_('Search')).'">'
-	.'<div class="ep-tabs" role="tablist">'
-	.'<button type="button" role="tab" data-tab="live" aria-selected="true">'.$e(_('In service')).' <span>'.$counts['live'].'</span></button>'
-	.'<button type="button" role="tab" data-tab="maint" aria-selected="false">'.$e(_('Maintenance')).' <span>'.$counts['maint'].'</span></button>'
-	.'<button type="button" role="tab" data-tab="disabled" aria-selected="false">'.$e(_('Disabled')).' <span>'.$counts['disabled'].'</span></button>'
-	.'<button type="button" role="tab" data-tab="decom" aria-selected="false">'.$e(_('Decommissioned')).' <span>'.$counts['decom'].'</span></button>'
-	.'</div></div>';
+	.'<label class="ep-search"><span class="ep-sub">'.$e(_('Search')).'</span><input type="search" id="ep-q" placeholder="'.$e(_('Find a client, host name or IP')).'"></label>'
+	.'<div class="ep-seg" role="group" aria-label="'.$e(_('Filter')).'">'
+	.'<button type="button" data-filter="all" aria-pressed="true">'.$e(_('All')).'<span class="ep-c">'.count($data['clients']).'</span></button>'
+	.'<button type="button" data-filter="missing" aria-pressed="false">'.$e(_('Missing')).'<span class="ep-c">'.$missingN.'</span></button>'
+	.'<a href="'.$e($url('ep.clients.discover')).'" title="'.$e(_('Hosts not yet adopted are on Discover, not here.')).'">'.$e(_('Not adopted'))
+		.'<span class="ep-c">'.($data['not_adopted'] === null ? '?' : (int) $data['not_adopted']).'</span></a>'
+	.'<button type="button" data-filter="old" aria-pressed="false">'.$e(_('Old templates')).'<span class="ep-c">'.$oldN.'</span></button>'
+	.'</div>'
+	.'<label class="ep-status"><span class="ep-sub">'.$e(_('Status')).'</span><select id="ep-status">'
+	.'<option value="live">'.$e(_s('In service (%1$s)', $counts['live'])).'</option>'
+	.'<option value="maint">'.$e(_s('Maintenance (%1$s)', $counts['maint'])).'</option>'
+	.'<option value="disabled">'.$e(_s('Disabled (%1$s)', $counts['disabled'])).'</option>'
+	.'<option value="decom">'.$e(_s('Decommissioned (%1$s)', $counts['decom'])).'</option></select></label>'
+	.'<button type="button" class="ep-btn-alt ep-cols-btn" aria-expanded="false" aria-controls="ep-cols"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="2.5" width="3" height="11"></rect><rect x="6.5" y="2.5" width="3" height="11"></rect><rect x="11" y="2.5" width="3" height="11"></rect></svg> '
+	.$e(_('Columns')).'</button>'
+	.'</div>';
+
+// The Columns popover: drag to reorder, untick to hide, type to rename; one shared setting (ListColumns).
+if (!$ro) {
+	$items = '';
+	$items .= '<li class="ep-fixed"><span class="ep-grip" aria-hidden="true"></span><input type="checkbox" checked disabled aria-label="'.$e(_('Show Client (always)')).'"><input type="text" value="'.$e(_('Client')).'" disabled aria-label="'.$e(_('Client')).'"></li>';
+	foreach ($cols as $col) {
+		$isRole = strpos($col['key'], 'family:') === 0 || strpos($col['key'], 'role:') === 0;
+		$empty = $isRole && \Modules\EpClients\Lib\ListColumns::count($col['key'], $data['clients']) === 0;
+		$on = \Modules\EpClients\Lib\ListColumns::shows($col, $data['clients']);
+		$items .= '<li draggable="true" data-key="'.$e($col['key']).'" data-auto="'.($col['show'] === null ? '1' : '0').'"'.($on ? '' : ' class="ep-off"').'>'
+			.'<span class="ep-grip" aria-hidden="true">⋮⋮</span>'
+			.'<input type="checkbox"'.($on ? ' checked' : '').' aria-label="'.$e(_s('Show %1$s', $col['label'])).'">'
+			.'<input type="text" value="'.$e($col['label']).'" maxlength="48" aria-label="'.$e(_s('Rename %1$s', $col['label'])).'">'
+			.($empty && !$on ? '<span class="ep-why">'.$e(_s('hidden: no listed client has a %1$s server', $col['label'])).'</span>' : '')
+			.'</li>';
+	}
+	$html[] = '<form method="post" action="'.$e($url('ep.clients.columns.save')).'" class="ep-pop" id="ep-cols" role="dialog" aria-label="'.$e(_('Columns')).'" hidden>'.$csrf('ep.clients.columns.save')
+		.'<div class="ep-ph"><span>'.$e(_('Columns')).'</span><button type="button" class="ep-x" data-cols-close aria-label="'.$e(_('Close')).'">×</button></div>'
+		.'<div class="ep-sub">'.$e(_('Drag to reorder, untick to hide, type to rename. One shared setting for this page.')).'</div>'
+		.'<ul>'.$items.'</ul><input type="hidden" name="columns" value="">'
+		.'<div class="ep-pf"><span class="ep-sub">'.$e(_('Ticking an empty role shows it anyway.')).'</span>'
+		.'<button type="submit" name="reset" value="1" class="ep-link">'.$e(_('Reset')).'</button> <button type="submit" name="save" value="1">'.$e(_('Save')).'</button></div></form>';
+}
 
 // Bulk: the ticked clients, posted with the chosen action.
 $html[] = $ro ? '' : '<form method="post" action="'.$e($url('ep.clients.status')).'" id="ep-bulk" class="ep-bulk" hidden>'.$csrf('ep.clients.status')
@@ -71,140 +109,119 @@ $html[] = $ro ? '' : '<form method="post" action="'.$e($url('ep.clients.status')
 	.'<button type="submit" name="op" value="enable" class="ep-btn-alt">'.$e(_('Enable')).'</button>'
 	.'<div id="ep-bulk-ticks"></div></form>';
 
-$html[] = '<div class="ep-table-wrap"><table class="ep-t"><thead><tr><th class="ep-tick">'.($ro ? '' : '<input type="checkbox" id="ep-all" aria-label="'.$e(_('Tick all shown')).'">').'</th>'
-	.'<th>'.$e(_('Client')).'</th><th>'.$e(_('Status')).'</th><th>'.$e(_('Setup')).'</th><th>'.$e(_('Servers')).'</th><th>'.$e(_('Problems')).'</th>'
-	.'<th>'.$e(_('Disk full in')).'</th><th>'.$e(_('Last change')).'</th><th>'.$e(_('Actions')).'</th></tr></thead><tbody>';
-if (!$data['clients']) {
-	$html[] = '<tr><td colspan="9" class="ep-empty">'.$e(_('No clients yet. Add one, import a CSV, or set up an existing cluster below.')).'</td></tr>';
+// The columns as set (ListColumns): the Client column first and always; a role column left on
+// "auto" only when a listed client has a server in it.
+$shown = array_values(array_filter($cols, fn($col) => $col['key'] !== 'cluster_host' && \Modules\EpClients\Lib\ListColumns::shows($col, $data['clients'])));
+$underClient = (bool) array_filter($cols, fn($col) => $col['key'] === 'cluster_host' && \Modules\EpClients\Lib\ListColumns::shows($col, $data['clients']));
+$isCount = fn(string $k) => strpos($k, 'family:') === 0 || strpos($k, 'role:') === 0;
+$head = '<th class="ep-tick">'.($ro ? '' : '<input type="checkbox" id="ep-all" aria-label="'.$e(_('Tick all shown')).'">').'</th><th>'.$e(_('Client')).'</th>';
+foreach ($shown as $col) {
+	$head .= '<th'.($isCount($col['key']) ? ' class="ep-r"' : '').' data-col="'.$e($col['key']).'">'.$e($col['label']).'</th>';
 }
+$head .= '<th class="ep-act">'.$e(_('Edit')).'</th>';
+$html[] = '<div class="ep-table-wrap"><table class="ep-t"><thead><tr>'.$head.'</tr></thead><tbody>';
+if (!$data['clients']) {
+	$html[] = '<tr><td colspan="'.(count($shown) + 3).'" class="ep-empty">'.$e(_('No clients yet. Discover the clusters Zabbix already has, add one, or import a workbook.')).'</td></tr>';
+}
+$ago = function (?int $t) use ($now, $e): string {
+	if ($t === null) {
+		return '<span class="ep-sub">'.$e(_('unknown: no cluster host')).'</span>';
+	}
+	if ($t <= 0) {
+		return '<span class="ep-sub">'.$e(_('never')).'</span>';
+	}
+	$d = max(0, $now - $t);
+	$text = $d < 3600 ? _n('%1$s min ago', '%1$s min ago', max(1, (int) round($d / 60))) : ($d < 86400 ? _n('%1$s hour ago', '%1$s hours ago', (int) round($d / 3600))
+		: _n('%1$s day ago', '%1$s days ago', (int) round($d / 86400)));
+	return '<span class="'.($d > 900 ? 'ep-warn-t' : 'ep-sub').'">'.$e($text).'</span>';
+};
 foreach ($data['clients'] as $c) {
 	$name = $c['name'];
-	$sub = [$c['type']];
-	if ($c['jump'] !== '') {
-		$sub[] = _s('via jump host %1$s', $c['jump']);
-	}
-	if ($c['es_url'] !== '') {
-		$sub[] = $c['es_url'];
-	}
-	$contacts = array_filter([$c['lead'], $c['dl']]);
-	$contract = '';
-	if ($c['contract_end'] !== '' && ($t = strtotime($c['contract_end'])) !== false) {
-		$days = (int) floor(($t - $now) / 86400);
-		$contract = $days < 0 ? '<div class="ep-flag ep-bad-t">'.$e(_s('contract ended %1$s', $c['contract_end'])).'</div>'
-			: ($days <= 30 ? '<div class="ep-flag ep-warn-t">'.$e(_n('contract ends in %1$s day', 'contract ends in %1$s days', $days)).'</div>' : '');
-	}
-	// Using more than it bought (storage or devices), from the master host's figures.
-	foreach ($c['over'] ?? [] as $basis => $pct) {
-		$contract .= '<div class="ep-flag ep-bad-t">'.$e(_s($basis === 'devices' ? 'devices over purchase: %1$s%% of what was bought' : 'storage over purchase: %1$s%% of what was bought', (string) round($pct))).'</div>';
-	}
-	$clientCell = '<div class="ep-name">'.($c['masterid'] !== null ? '<a href="'.$e($url('ep.clients.edit', ['client' => $name])).'">'.$e($name).'</a>' : $e($name)).'</div>'
-		.'<div class="ep-sub">'.$e(implode(' · ', $sub)).'</div>'
-		.($contacts ? '<div class="ep-sub">'.$e(implode(' · ', $contacts)).'</div>' : '').$contract;
-
-	// A proxy that stopped answering explains every host of the client looking broken at once.
-	$down = $c['status'] === 'active' ? \Modules\EpClients\Lib\SetupChecks::proxyDown($c['checks']) : null;
-	$proxyNote = $down !== null ? '<div class="ep-flag ep-bad-t" title="'.$e($down).'">'.$e(_('proxy down: its hosts cannot report')).'</div>' : '';
-
-	// Status, with what it means right now.
+	$status = '';
 	if ($c['master_missing']) {
-		$statusCell = '<span class="ep-pill ep-s-bad">'.$e(_('Master host removed')).'</span><div class="ep-sub">'.$e(_('Re-create it, or forget the client')).'</div>';
+		$status = '<span class="ep-pill ep-s-bad">'.$e(_('Master host removed')).'</span>';
 	}
 	elseif ($c['status'] === 'decommissioned') {
-		$statusCell = '<span class="ep-pill ep-s-decom">'.$e(_('Decommissioned')).'</span><div class="ep-sub">'.$e(_('hosts kept, not monitored')).'</div>';
+		$status = '<span class="ep-pill ep-s-decom">'.$e(_('Decommissioned')).'</span>';
 	}
 	elseif ($c['status'] === 'disabled') {
-		$statusCell = '<span class="ep-pill ep-s-off">'.$e(_('Disabled')).'</span><div class="ep-sub">'.$e(_('not monitored')).'</div>';
+		$status = '<span class="ep-pill ep-s-off">'.$e(_('Disabled')).'</span>';
 	}
 	elseif ($c['maintenance'] !== null) {
-		$m = $c['maintenance'];
-		$statusCell = '<span class="ep-pill ep-s-maint">'.$e(_('Maintenance')).'</span><div class="ep-sub">'
-			.$e(($m['since'] > $now ? _s('from %1$s ', date('d M H:i', $m['since'])) : '')._s('until %1$s', date(date('Ymd', $m['till']) === date('Ymd') ? 'H:i' : 'd M H:i', $m['till']))
-			.' · '.($m['collect'] ? _('data collected') : _('no data'))).'</div>'.($m['reason'] !== '' ? '<div class="ep-sub">'.$e($m['reason']).'</div>' : '');
+		$status = '<span class="ep-pill ep-s-maint" title="'.$e($c['maintenance']['reason']).'">'.$e(_s('Maintenance until %1$s', date('d M H:i', $c['maintenance']['till']))).'</span>';
 	}
-	else {
-		$statusCell = '<span class="ep-pill ep-s-on">'.$e(_('Active')).'</span>';
-	}
-	$statusCell .= $proxyNote;
-	if ($c['removed'] && !$c['master_missing']) {
-		$statusCell .= '<div class="ep-flag ep-bad-t" title="'.$e(implode(', ', array_column($c['removed'], 'name'))).'">'
-			.$e(_n('%1$s host removed from Zabbix', '%1$s hosts removed from Zabbix', count($c['removed']))).'</div>';
-	}
-	if (($c['changed'] ?? []) && !$c['master_missing']) {
-		$statusCell .= '<div class="ep-flag ep-warn-t" title="'.$e(implode(', ', array_map(fn($h) => $h['name'].' → '.$h['now'], $c['changed']))).'">'
-			.$e(_n('%1$s host changed outside', '%1$s hosts changed outside', count($c['changed']))).'</div>';
-	}
-	if ($c['shared']) {
-		$statusCell .= '<div class="ep-flag ep-warn-t">'.$e(_n('%1$s IP on several hosts', '%1$s IPs on several hosts', $c['shared'])).'</div>';
-	}
-
-	// Setup checks: n of m working; what fails, in the tooltip and under it.
-	$setup = '<span class="ep-sub">—</span>';
-	if ($c['checks'] && $c['status'] !== 'decommissioned') {
-		$ok = count(array_filter($c['checks'], fn($x) => $x[1] === true));
-		$bad = array_values(array_filter($c['checks'], fn($x) => $x[1] === false));
-		$wait = array_values(array_filter($c['checks'], fn($x) => $x[1] === null));
-		$tip = implode("\n", array_map(fn($x) => ($x[1] === true ? '✓ ' : ($x[1] === false ? '✗ ' : '… ')).$x[0].($x[2] !== '' ? ' — '.$x[2] : ''), $c['checks']));
-		$class = $bad ? 'ep-chk-bad' : ($wait ? 'ep-chk-wait' : 'ep-chk-ok');
-		$setup = '<span class="ep-chk '.$class.'" title="'.$e($tip).'">'.$ok.'/'.count($c['checks']).'</span>'
-			.($bad ? '<div class="ep-flag ep-bad-t">'.$e($bad[0][0].($bad[0][2] !== '' ? ': '.mb_substr($bad[0][2], 0, 60) : '')).'</div>' : '');
-	}
-
-	$sev = '';
-	foreach ($sevNames as $p => [$l, $cls]) {
-		if (!empty($c['problems'][$p])) {
-			$sev .= '<span class="ep-sev ep-sev-'.$cls.'" title="'.$e(ucfirst($cls)).'">'.$c['problems'][$p].'</span>';
+	$clientCell = '<div class="ep-name">'.($c['masterid'] !== null ? '<a href="'.$e($url('ep.clients.edit', ['client' => $name])).'">'.$e($name).'</a>' : $e($name)).'</div>'
+		.($underClient ? ($c['cluster_host'] !== null ? '<div class="ep-mono">'.$e($c['cluster_host']).'</div>' : '<div class="ep-sub">'.$e(_('no cluster host')).'</div>') : '')
+		.$status;
+	$cells = '';
+	foreach ($shown as $col) {
+		$k = $col['key'];
+		if ($isCount($k)) {
+			$cell = \Modules\EpClients\Lib\ListColumns::cell($k, $c);
+			if ($cell['n'] > 0) {
+				$v = '<span class="ep-cnt" title="'.$e(implode("\n", $cell['hosts'])).'">'.$cell['n'].'</span>'.($cell['shared'] ? ' <span class="ep-sub">'.$e(_('shared')).'</span>' : '');
+			}
+			elseif ($cell['requested'] > 0) {
+				$v = '<span class="ep-miss" title="'.$e(_('The plan asks for it; no server holds it.')).'">'.$e(_s('0 of %1$s', $cell['requested'])).'</span>';
+			}
+			else {
+				$v = '<span class="ep-sub">—</span>';
+			}
+			$cells .= '<td class="ep-r">'.$v.'</td>';
+		}
+		elseif ($k === 'templates') {
+			$cells .= '<td>'.($c['cluster_host'] === null ? '<span class="ep-sub">—</span>' : '<span class="ep-sub">'.$e(_('current')).'</span>')
+				.($c['beside'] ? ' <span class="ep-old" title="'.$e(implode(', ', $c['beside'])).'">'.$e(_n('+ %1$s older beside', '+ %1$s older beside', count($c['beside']))).'</span>' : '').'</td>';
+		}
+		elseif ($k === 'password') {
+			$p = $c['password'];
+			$cells .= '<td>'.($p === 'not set' ? '<span class="ep-bad-t">'.$e(_('not set')).'</span>'
+				: ($p === 'hidden' ? '<span class="ep-warn-t" title="'.$e(_('A linked template defines the password macro and hides the default.')).'">'.$e(_('hidden by template')).'</span>'
+				: '<span class="ep-sub">'.$e($p === 'own' ? _('own') : _('default')).'</span>')).'</td>';
+		}
+		elseif ($k === 'last_seen') {
+			$cells .= '<td>'.$ago($c['last_seen']).'</td>';
+		}
+		elseif ($k === 'missing') {
+			$n = count($c['missing']);
+			$tip = implode("\n", array_map(fn($m) => $m['text'], $c['missing']));
+			$cells .= '<td>'.($n && $c['masterid'] !== null ? '<a class="ep-bad-chip" title="'.$e($tip).'" href="'.$e($url('ep.clients.edit', ['client' => $name])).'#ep-missing">'.$e(_s('Missing %1$s', $n)).'</a>'
+				: ($n ? '<span class="ep-bad-chip" title="'.$e($tip).'">'.$e(_s('Missing %1$s', $n)).'</span>' : '')).'</td>';
 		}
 	}
-	// Open problems, linking to Zabbix Problems filtered to the client's hosts (their ep-client tag).
-	$problems = $c['status'] !== 'active' ? '<span class="ep-sub">—</span>'
-		: ($sev === '' ? '<span class="ep-sub">'.$e(_('none')).'</span>'
-		: '<a class="ep-sevs" title="'.$e(_('Open Problems')).'" href="zabbix.php?action=problem.view&amp;filter_set=1&amp;tags%5B0%5D%5Btag%5D=ep-client&amp;tags%5B0%5D%5Boperator%5D=1&amp;tags%5B0%5D%5Bvalue%5D='.rawurlencode($name).'">'.$sev.'</a>');
-
-	// The site's own windows, the same ones the Client capacity widget reads — otherwise one
-	// figure is yellow here and red there.
-	$fc = \Modules\EpClients\Lib\Forecast::fullIn($c['full_in'], $data['forecast'] ?? []);
-	$full = $fc === null ? '<span class="ep-sub">—</span>'
-		: ($fc['level'] === 'flat' ? '<span class="ep-sub">'.$e($fc['text']).'</span>'
-		: '<span class="'.['bad' => 'ep-bad-t ep-strong', 'warn' => 'ep-warn-t ep-strong', 'ok' => ''][$fc['level']].'">'.$e($fc['text']).'</span>');
-	$change = $c['change'] ? date('d M H:i', $c['change']['at']).' · '.$c['change']['how'].' · '.$c['change']['by'] : '—';
-
-	// One pencil opens the client's page, where everything each status allows is offered
-	// (ClientActions::forClient). A client whose master host is gone has no page to open, so its
-	// two ways out stay here. Read only: the same pencil, to look.
-	$acts = [];
-	if ($c['master_missing']) {
-		$acts = \Modules\EpClients\Lib\ClientActions::forMissing($name);
-	}
-	else {
-		$label = $ro ? _s('View %1$s', $name) : _s('Edit %1$s', $name);
-		$acts[] = '<a class="ep-edit" href="'.$e($url('ep.clients.edit', ['client' => $name])).'" title="'.$e($label).'" aria-label="'.$e($label).'">'
-			.($ro ? '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
-				: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M11 2.5l2.5 2.5L5.5 13 2 14l1-3.5z"/></svg>')
-			.'</a>';
-	}
-	$html[] = '<tr data-tabs="'.$e(implode(' ', $tab($c))).'" data-search="'.$e($c['search']).'"'.(in_array('live', $tab($c), true) ? '' : ' hidden').'>'
-		.'<td class="ep-tick">'.($c['master_missing'] || $ro ? '' : '<input type="checkbox" class="ep-sel" value="'.$e($name).'" aria-label="'.$e(_s('Tick %1$s', $name)).'">').'</td>'
-		.'<td>'.$clientCell.'</td><td>'.$statusCell.'</td><td>'.$setup.'</td><td>'.$e($c['machines'])
-		.($c['unassigned'] ? '<div class="ep-flag ep-warn-t">'.$e(_n('%1$s without a role', '%1$s without a role', $c['unassigned'])).'</div>' : '').'</td>'
-		.'<td>'.$problems.'</td><td>'.$full.'</td><td class="ep-sub">'.$e($change).'</td><td class="ep-act"><div class="ep-acts">'.implode('', $acts).'</div></td></tr>';
+	$acts = $c['master_missing'] ? implode('', \Modules\EpClients\Lib\ClientActions::forMissing($name))
+		: '<a class="ep-edit" href="'.$e($url('ep.clients.edit', ['client' => $name])).'" aria-label="'.$e($ro ? _s('View %1$s', $name) : _s('Edit %1$s', $name)).'">'.$e($ro ? _('View') : _('Edit')).'</a>';
+	$html[] = '<tr data-tabs="'.$e(implode(' ', $tab($c))).'" data-search="'.$e($c['search']).'" data-missing="'.($c['missing'] ? '1' : '0').'" data-old="'.($c['beside'] ? '1' : '0').'"'
+		.(in_array('live', $tab($c), true) ? '' : ' hidden').'>'
+		.'<td class="ep-tick">'.($c['master_missing'] || $ro ? '' : '<input type="checkbox" class="ep-sel" value="'.$e($name).'" aria-label="'.$e(_s('Select %1$s', $name)).'">').'</td>'
+		.'<td>'.$clientCell.'</td>'.$cells.'<td class="ep-act"><div class="ep-acts">'.$acts.'</div></td></tr>';
 }
 $html[] = '</tbody></table></div>';
+
+// The footer (moved under the table, 2026-10-23): the summary line, what is shown, the key.
+$hiddenRoles = array_values(array_map(fn($col) => $col['label'], array_filter($cols, fn($col) => $isCount($col['key']) && $col['show'] === null
+	&& !\Modules\EpClients\Lib\ListColumns::shows($col, $data['clients']))));
+$html[] = '<div class="ep-foot">'
+	.'<div class="ep-sumline"><b>'.$e(_n('%1$s client', '%1$s clients', count($data['clients']))).'</b><span class="ep-sub" aria-hidden="true">·</span>'
+	.'<button type="button" class="ep-link" data-filter="missing">'.$e(_n('%1$s with missing pieces', '%1$s with missing pieces', $missingN)).'</button><span class="ep-sub" aria-hidden="true">·</span>'
+	.'<a href="'.$e($url('ep.clients.discover')).'">'.($data['not_adopted'] === null ? $e(_('hosts not adopted: see')) : '<b>'.$e(_n('%1$s host not adopted', '%1$s hosts not adopted', (int) $data['not_adopted'])).'</b>')
+	.' → '.$e(_('Discover')).'</a></div>'
+	.'<div class="ep-sub"><span id="ep-showing" data-of="'.count($data['clients']).'"></span> '.$e(_('Hosts not yet adopted are on Discover, not here.'))
+	.($hiddenRoles ? ' <b>'.$e(_n('%1$s role column hidden:', '%1$s role columns hidden:', count($hiddenRoles))).'</b> '.$e(implode(', ', $hiddenRoles)).'. '
+		.$e(_('No listed client has a server in them; each appears by itself once one does.')) : '').'</div>'
+	.'<div class="ep-key ep-sub"><b>'.$e(_('Key')).'</b> <span><span class="ep-cnt">5</span> '.$e(_('servers in that role; hover for IP · server name')).'</span> '
+	.'<span><span class="ep-miss">0 of 1</span> '.$e(_('plan asks for it, no server holds it')).'</span> '
+	.'<span><span class="ep-old">+ 1 older beside</span> '.$e(_('older template generation still linked (history kept)')).'</span> '
+	.'<span><span class="ep-bad-chip">Missing 2</span> '.$e(_('opens the Missing panel')).'</span></div>'
+	.'</div>';
 
 if (!$ro) {
 	$html[] = \Modules\EpClients\Lib\ClientActions::dialogs();
 }
-
-if ($data['candidates'] && !$ro) {
-	$html[] = '<h4 class="ep-h">'.$e(_('Elasticsearch clusters that are not a client yet')).'</h4><div class="ep-sub">'
-		.$e(_('Setting one up keeps it and every host in its group — history, passwords — renames them to the client\'s pattern and adds what is missing.')).'</div><ul class="ep-cands">';
-	foreach ($data['candidates'] as $c) {
-		$html[] = '<li><b>'.$e($c['host']).'</b> <span class="ep-sub">'.$e($c['es_url']).'</span> <a class="ep-link" href="'.$e($url('ep.clients.edit', ['client' => $c['name']])).'">'.$e(_('Set up as client')).'</a></li>';
-	}
-	$html[] = '</ul>';
-}
 $html[] = '</div>';
 
 $controls = $ro ? new CList() : (new CList())
+	->addItem(new CRedirectButton(_('Discover clusters'), $url('ep.clients.discover')))
 	->addItem(new CRedirectButton(_('Import / export'), $url('ep.clients.import')))
 	->addItem(new CRedirectButton(_s('Backups (%1$s)', $data['backups']), $url('ep.clients.backups')))
 	->addItem(new CRedirectButton(_('Roles'), $url('ep.clients.roles')))
@@ -213,50 +230,7 @@ $controls = $ro ? new CList() : (new CList())
 	->addItem(new CObject(implode("\n", $html)))->show();
 ?>
 <script><?php readfile(__DIR__.'/js/ep.clients.dialogs.js'); ?></script>
-<script>
-	(function () {
-		const root = document.querySelector('.ep-l');
-		if (!root) return;
-		const rows = [...root.querySelectorAll('tbody tr[data-tabs]')];
-		let tab = 'live';
-		const q = root.querySelector('#ep-q');
-		function show() {
-			const term = q.value.trim().toLowerCase();
-			rows.forEach((r) => {
-				const inTab = r.dataset.tabs.split(' ').includes(tab);
-				// A search looks across every status, so a host or IP is found wherever its client is.
-				r.hidden = term !== '' ? !r.dataset.search.includes(term) : !inTab;
-			});
-			ticks();
-		}
-		root.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
-			tab = b.dataset.tab;
-			root.querySelectorAll('[data-tab]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
-			show();
-		}));
-		q.addEventListener('input', show);
-
-		// Bulk: the ticked, shown clients go into the bulk form as clients[<name>]=1.
-		const bulk = root.querySelector('#ep-bulk');
-		function ticked() { return rows.filter((r) => !r.hidden).map((r) => r.querySelector('.ep-sel')).filter((c) => c && c.checked).map((c) => c.value); }
-		function ticks() {
-			if (!bulk) return;
-			const names = ticked();
-			bulk.hidden = !names.length;
-			root.querySelector('#ep-bulk-n').textContent = names.length + (names.length === 1 ? ' client ticked' : ' clients ticked');
-			const box = root.querySelector('#ep-bulk-ticks');
-			box.textContent = '';
-			names.forEach((n) => { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'clients[' + n + ']'; i.value = '1'; box.appendChild(i); });
-		}
-		root.querySelectorAll('.ep-sel').forEach((c) => c.addEventListener('change', ticks));
-		root.querySelector('#ep-all')?.addEventListener('change', (e) => {
-			rows.filter((r) => !r.hidden).forEach((r) => { const c = r.querySelector('.ep-sel'); if (c) c.checked = e.target.checked; });
-			ticks();
-		});
-
-		window.EpDialogs.init(root, ticked);
-	})();
-</script>
+<script><?php readfile(__DIR__.'/js/ep.clients.list.js'); ?></script>
 <style><?php readfile(__DIR__.'/css/ep.clients.dialogs.css'); ?></style>
 <style>
 	.ep-l { --ep-card: #fff; --ep-line: #e3e6ea; --ep-muted: #6b7380; --ep-accent: #0a66d6; --ep-chip: #eef1f5; --ep-soft: #f6f8fa;
@@ -307,5 +281,34 @@ $controls = $ro ? new CList() : (new CList())
 	.ep-l .ep-danger { color: var(--ep-bad); }
 	.ep-l .ep-btn-alt { background: var(--ep-chip); color: inherit; border: 0; border-radius: 6px; padding: 4px 11px; cursor: pointer; font: inherit; height: auto; }
 	.ep-l .ep-empty { color: var(--ep-muted); padding: 16px; }
-	.ep-l .ep-h { margin: 12px 0 2px; } .ep-l .ep-cands { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 4px; }
+	.ep-l .ep-search { display: inline-flex; flex-direction: column; gap: 2px; flex: 1; min-width: 240px; max-width: 420px; margin: 0; padding: 0; float: none; width: auto; }
+	.ep-l .ep-search #ep-q { max-width: none; }
+	.ep-l .ep-seg { display: inline-flex; border: 1px solid var(--ep-line); border-radius: 6px; overflow: hidden; }
+	.ep-l .ep-seg > * { background: var(--ep-card); border: 0; border-right: 1px solid var(--ep-line); padding: 6px 12px; font: inherit; color: inherit; cursor: pointer; height: auto; text-decoration: none; display: inline-flex; gap: 6px; align-items: center; }
+	.ep-l .ep-seg > *:last-child { border-right: 0; }
+	.ep-l .ep-seg [aria-pressed=true] { background: var(--ep-chip); font-weight: 600; }
+	.ep-l .ep-c { background: var(--ep-chip); border-radius: 999px; padding: 0 7px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+	.ep-l .ep-status { display: inline-flex; gap: 6px; align-items: center; margin: 0 0 0 auto; padding: 0; float: none; width: auto; }
+	.ep-l .ep-cols-btn { display: inline-flex; gap: 6px; align-items: center; }
+	.ep-l .ep-pop { position: relative; z-index: 5; justify-self: end; width: 380px; max-width: 100%; background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 18px rgba(0,0,0,.18); display: grid; gap: 8px; }
+	.ep-l .ep-pop[hidden] { display: none; }
+	.ep-l .ep-ph { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+	.ep-l .ep-x { background: none; border: 0; font-size: 18px; cursor: pointer; color: inherit; height: auto; }
+	.ep-l .ep-pop ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+	.ep-l .ep-pop li { display: grid; grid-template-columns: 16px 18px minmax(0, 1fr); gap: 6px; align-items: center; padding: 3px 4px; border-radius: 4px; }
+	.ep-l .ep-pop li.ep-off input[type=text] { opacity: .6; }
+	.ep-l .ep-pop li.ep-drag { background: var(--ep-chip); }
+	.ep-l .ep-pop .ep-grip { cursor: grab; color: var(--ep-muted); }
+	.ep-l .ep-pop .ep-why { grid-column: 3; font-size: 11px; color: var(--ep-muted); }
+	.ep-l .ep-pf { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.ep-l .ep-r { text-align: right; }
+	.ep-l .ep-mono { font-family: Menlo, Consolas, monospace; font-size: 12px; color: var(--ep-muted); }
+	.ep-l .ep-cnt { display: inline-block; min-width: 22px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; border-radius: 4px; background: var(--ep-chip); padding: 0 6px; cursor: help; }
+	.ep-l .ep-miss { color: var(--ep-warn); font-size: 12px; white-space: nowrap; }
+	.ep-l .ep-old { display: inline-block; padding: 1px 6px; border-radius: 3px; background: color-mix(in srgb, var(--ep-warn) 16%, transparent); color: var(--ep-warn); font-size: 11.5px; white-space: nowrap; }
+	.ep-l .ep-bad-chip { display: inline-block; padding: 2px 8px; border-radius: 3px; background: color-mix(in srgb, var(--ep-bad) 14%, transparent); color: var(--ep-bad); font-size: 12px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+	.ep-l .ep-edit { width: auto; padding: 0 8px; }
+	.ep-l .ep-foot { display: grid; gap: 6px; }
+	.ep-l .ep-sumline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13.5px; }
+	.ep-l .ep-key { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
 </style>

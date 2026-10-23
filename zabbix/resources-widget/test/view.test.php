@@ -367,11 +367,11 @@ namespace Modules\EpResources\Test {
 
 	// A family added on the Roles page is in the report, with no change here.
 	$roles = Roles::load();
-	$roles['families'][] = ['id' => 'soar', 'label' => 'SOAR', 'group' => 'SOAR', 'macroPrefix' => 'SOAR', 'roles' => [['id' => 'soar_node', 'label' => 'SOAR', 'short' => 'SOAR', 'group' => 'SOAR nodes']]];
+	$roles['families'][] = ['id' => 'xdr', 'label' => 'XDR', 'group' => 'XDR', 'macroPrefix' => 'XDR', 'roles' => [['id' => 'xdr_node', 'label' => 'XDR', 'short' => 'XDR', 'group' => 'XDR nodes']]];
 	check('the new family is valid', Roles::validate($roles) === [], Roles::validate($roles));
 	Roles::save($roles);
 	$d = run();
-	check('a new family appears as its own columns', col($d, 'f.soar.cpu.requested') !== null && in_array('SOAR memory', array_column($d['columns'], 'group'), true));
+	check('a new family appears as its own columns', col($d, 'f.xdr.cpu.requested') !== null && in_array('XDR memory', array_column($d['columns'], 'group'), true));
 
 	// This widget's copy of the shared Roles: the same neutral defaults, the same override file.
 	check('every template slot defaults to the name ElasticPro ships',

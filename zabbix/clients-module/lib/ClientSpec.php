@@ -32,7 +32,15 @@ class ClientSpec {
 	public static function types(): array {
 		return array_values(array_unique(array_merge(Settings::types()['all'], ClientTypes::ALL)));
 	}
-	public const PASSWORD_MODES = ['vault', 'zabbix'];
+	/**
+	 * Where a cluster's Elasticsearch password comes from: the default credential every cluster
+	 * shares (global macros, DefaultCredential), or this cluster only — a Zabbix secret on its
+	 * host, or a Vault path:key.
+	 */
+	public const PASSWORD_MODES = ['default', 'vault', 'zabbix'];
+
+	/** Why a server's role waits for a person: only "kafka" (Kafka is not a role; Forwarder or Parser). */
+	public const CONFIRMS = ['kafka'];
 	public const PURCHASED_BY = ['storage', 'devices'];
 	public const JUMP_TLS = ['verify', 'ca', 'none'];
 
@@ -83,6 +91,7 @@ class ClientSpec {
 		'es_password_mode' => '{$EP.ES.PASSWORD.MODE}',
 		'es_password_path' => '{$ES.PASSWORD.PATH}',
 		'monitored_by' => '{$EP.MONITORED.BY}',
+		'servers_monitored_by' => '{$EP.SERVERS.MONITORED.BY}',
 		'jump_host' => '{$EP.JUMP.HOST}',
 		'jump_port' => '{$EP.JUMP.PORT}',
 		'jump_user' => '{$EP.JUMP.USER}',
@@ -107,7 +116,11 @@ class ClientSpec {
 		'agent_port' => '{$AGENT.PORT}',
 		'purchased_by' => '{$EP.PURCHASED.BY}',
 		'purchased' => '{$ES.VOLUME.CUS.PURCHASED}',
-		'purchased_devices' => '{$EP.DEVICES.PURCHASED}'
+		'purchased_devices' => '{$EP.DEVICES.PURCHASED}',
+		// New with the compact form (2026-10-23): kept and shown, nothing reads them yet.
+		'client_notes' => '{$EP.NOTES}',
+		'retention_days' => '{$EP.RETENTION.DAYS}',
+		'backup_gb' => '{$EP.BACKUP.GB}'
 	];
 
 	/**
@@ -193,6 +206,24 @@ class ClientSpec {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Where a NEW client's Elasticsearch password is kept unless the operator picks Vault: a Zabbix
+	 * secret macro, handed to the ElasticPro core as well (ClusterSecret). Only a new client's form
+	 * starts from it — an existing client's mode is read from its master host, and the master
+	 * template's own default is left alone so a master host missing the macro reads as before.
+	 */
+	public const NEW_PASSWORD_MODE = 'zabbix';
+
+	/**
+	 * A new client's form: defaults(), its password from the default credential when one is set
+	 * (DefaultCredential), else kept as this cluster's own Zabbix secret.
+	 */
+	public function newForm(bool $defaultCredential = false): array {
+		// Both proxy choices start at the Zabbix server (decided 2026-10-23): the Linux hosts' is
+		// explicit, so picking a proxy for the cluster host does not move them along with it.
+		return ['es_password_mode' => $defaultCredential ? 'default' : self::NEW_PASSWORD_MODE, 'servers_monitored_by' => 'server'] + $this->defaults();
 	}
 
 	/** An empty form: the master template's own defaults, and no servers. */
@@ -307,13 +338,20 @@ class ClientSpec {
 		if (!in_array($f['es_password_mode'], self::PASSWORD_MODES, true)) {
 			$errors[] = _('The ES password is kept in Vault or as a Zabbix secret.');
 		}
-		if ($f['es_password_mode'] === 'zabbix') {
+		if ($f['es_password_mode'] === 'zabbix' || $f['es_password_mode'] === 'default') {
 			$f['es_password_path'] = '';
 		}
 		foreach (['es_password_path' => _('ES password Vault path'), 'ulm_secret_path' => _('S3 secret Vault path')] as $field => $label) {
 			if ($f[$field] !== '' && self::vaultRef($f[$field]) === null) {
 				$errors[] = _s('%1$s "%2$s" is not a Vault path:key, e.g. secret/elasticpro/acme:password.', $label, $f[$field]);
 			}
+		}
+		// The role hosts' proxy, chosen apart from the cluster host's: proxy:<name>, group:<name>,
+		// server (the Zabbix server), or empty — the same as the cluster host (or the Zabbix server
+		// when the cluster is asked through a jump host).
+		if ($f['servers_monitored_by'] !== '' && $f['servers_monitored_by'] !== 'server'
+				&& (!in_array((self::monitoredBy($f['servers_monitored_by']) ?? ['jump'])[0], ['proxy', 'group'], true))) {
+			$errors[] = _s('Linux hosts monitored by "%1$s" is not proxy:<name>, group:<name> or server.', $f['servers_monitored_by']);
 		}
 		if ($f['monitored_by'] !== '' && self::monitoredBy($f['monitored_by']) === null) {
 			$errors[] = _s('Monitored by "%1$s" is not proxy:<name>, group:<name> or jump.', $f['monitored_by']);
@@ -415,6 +453,15 @@ class ClientSpec {
 			$errors[] = _s('Purchased by must be storage or devices, not "%1$s".', $f['purchased_by']);
 		}
 
+		// Retention and backup capacity: empty is "not set" — never turned into 0, so a report can say so.
+		foreach (['retention_days' => _('Retention (days)'), 'backup_gb' => _('Backup capacity (GB)')] as $field => $label) {
+			if ($f[$field] !== '' && (!is_numeric($f[$field]) || (float) $f[$field] < 0)) {
+				$errors[] = _s('%1$s must be a number of 0 or more, or empty for not set — not "%2$s".', $label, $f[$field]);
+			}
+		}
+		if (mb_strlen($f['client_notes']) > 2000) {
+			$errors[] = _('Notes are limited to 2000 characters.');
+		}
 		$numbers = ['purchased' => _('Purchased storage'), 'purchased_devices' => _('Purchased devices')];
 		foreach (Roles::allRoles($this->roles) as $r) {
 			foreach (['servers' => _('servers'), 'cpu' => _('CPU'), 'mem' => _('memory'), 'disk' => _('disk /')] as $suffix => $what) {
@@ -555,19 +602,22 @@ class ClientSpec {
 				$attrs[$k] = $val;
 			}
 			ksort($attrs);
-			// A host name of the operator's own (empty: ElasticPro names it from the client and roles).
+			// The server's name: the host's visible name (its host name is its IP). Empty: none known.
 			$host = trim((string) ($s['host'] ?? ''));
-			if ($host !== '' && !self::isHostName($host)) {
-				$errors[] = _s('%1$s: host name "%2$s" may hold only letters, digits, spaces, dots, dashes and underscores, at most 128.', $label, $host);
+			if ($host !== '' && !self::isServerName($host)) {
+				$errors[] = _s('%1$s: server name "%2$s" is longer than 128 characters, starts or ends with a space, or holds a control character.', $label, $host);
 				continue;
 			}
 			foreach ($out as $other) {
 				if ($host !== '' && strcasecmp($other['host'], $host) === 0) {
-					$errors[] = _s('%1$s: host name "%2$s" is already given to %3$s. Host names are unique.', $label, $host, $other['ip']);
+					$errors[] = _s('%1$s: server name "%2$s" is already given to %3$s. Server names are unique.', $label, $host, $other['ip']);
 					continue 2;
 				}
 			}
-			$out[$ip] = ['ip' => $ip, 'roles' => $roles, 'services' => $services, 'notes' => $notes, 'attrs' => $attrs, 'host' => $host];
+			// A role still to be confirmed: a Kafka server placed under Forwarder by Discover. Kept
+			// until someone picks its role on the client's page (the sheet drops it).
+			$confirm = in_array((string) ($s['confirm'] ?? ''), self::CONFIRMS, true) ? (string) $s['confirm'] : '';
+			$out[$ip] = ['ip' => $ip, 'roles' => $roles, 'services' => $services, 'notes' => $notes, 'attrs' => $attrs, 'host' => $host] + ($confirm !== '' ? ['confirm' => $confirm] : []);
 		}
 		uksort($out, fn($a, $b) => ip2long($a) <=> ip2long($b));
 		return ['servers' => $out, 'errors' => $errors];
@@ -583,8 +633,20 @@ class ClientSpec {
 	public static function encodeServers(array $clean): string {
 		// `host` only when the server has a name of its own, so a list without any reads as it always did.
 		return json_encode(array_map(fn($s) => ['ip' => $s['ip'], 'roles' => $s['roles'], 'services' => $s['services'],
-			'notes' => $s['notes'], 'attrs' => (object) $s['attrs']] + (($s['host'] ?? '') !== '' ? ['host' => $s['host']] : []), array_values($clean)),
+			'notes' => $s['notes'], 'attrs' => (object) $s['attrs']] + (($s['host'] ?? '') !== '' ? ['host' => $s['host']] : [])
+			+ (($s['confirm'] ?? '') !== '' ? ['confirm' => $s['confirm']] : []), array_values($clean)),
 			JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+	}
+
+	/**
+	 * Zabbix's rule for a visible name, which is what a server name is: up to 128 characters,
+	 * any script, no control characters, no space at either end. Wider than a host name on purpose:
+	 * a visible name an operator typed ("ES hot node (rack 4)") is a server name and must read back
+	 * as one — refusing it would drop the server from the form, and the next save would treat it
+	 * as removed.
+	 */
+	public static function isServerName(string $name): bool {
+		return $name !== '' && trim($name) === $name && mb_strlen($name) <= 128 && !preg_match('/\p{Cc}/u', $name);
 	}
 
 	/** Zabbix's rule for a technical host name: letters, digits, space, dot, dash and underscore; at most 128. */
@@ -867,10 +929,14 @@ class ClientSpec {
 			'{$ELASTICSEARCH.SCHEME}' => [$es['scheme'], 0],
 			'{$ELASTICSEARCH.HOST}' => [$es['host'], 0],
 			'{$ELASTICSEARCH.PORT}' => [$es['port'], 0],
-			'{$ELASTICSEARCH.USERNAME}' => [$client['fields']['es_user'] !== '' ? $client['fields']['es_user'] : 'elastic', 0],
+
 			'{$ES.VOLUME.CUS.PURCHASED}' => [$client['fields']['purchased'], 0],
 			'{$EP.DEVICES.PURCHASED}' => [$client['fields']['purchased_devices'], 0]
 		];
+		// With the default credential the host defines neither: it inherits both global macros.
+		if ($client['fields']['es_password_mode'] !== 'default') {
+			$out['{$ELASTICSEARCH.USERNAME}'] = [$client['fields']['es_user'] !== '' ? $client['fields']['es_user'] : 'elastic', 0];
+		}
 		$password = $this->passwordMacro($client, $new);
 		if ($password !== null) {
 			$out['{$ELASTICSEARCH.PASSWORD}'] = $password;
@@ -942,6 +1008,9 @@ class ClientSpec {
 
 	/** [value, type] for the password macro, or null to leave the host's as it is. */
 	public function passwordMacro(array $client, bool $new): ?array {
+		if ($client['fields']['es_password_mode'] === 'default') {
+			return null;
+		}
 		if ($client['fields']['es_password_mode'] === 'zabbix') {
 			return $client['es_password'] !== '' ? [$client['es_password'], ZBX_MACRO_TYPE_SECRET] : null;
 		}

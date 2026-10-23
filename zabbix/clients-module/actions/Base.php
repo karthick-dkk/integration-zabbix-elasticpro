@@ -2,7 +2,7 @@
 
 namespace Modules\EpClients\Actions;
 
-foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'ClusterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClientSpec', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'ClientState', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'TemplateInstaller', 'Importer', 'AlertRouting', 'EpRole', 'WriteCheck'] as $lib) {
+foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'ClusterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClientSpec', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'ClientState', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'TemplateInstaller', 'Importer', 'AlertRouting', 'EpRole', 'WriteCheck', 'SetupChecks', 'TemplateMove', 'Missing', 'ClusterSecret', 'DefaultCredential', 'ListColumns', 'Discovery'] as $lib) {
 	require_once __DIR__.'/../lib/'.$lib.'.php';
 }
 
@@ -13,7 +13,7 @@ use CControllerResponseRedirect;
 use CMessageHelper;
 use CUrl;
 use CWebUser;
-use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, EpRole, History, Importer, Lifecycle, Reconciler, Registry, Roles, Settings, Store, WriteCheck};
+use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Discovery, EpRole, History, Importer, Lifecycle, Reconciler, Registry, Roles, Settings, Store, WriteCheck};
 
 /**
  * What every Clients page shares: who may change things; roles, rules and Zabbix state; backups.
@@ -192,6 +192,35 @@ abstract class Base extends CController {
 		if ($form['_now']['master'] !== null) {
 			Registry::record($client, ClientState::plain($form), $form['_now']);
 		}
+	}
+
+	protected function discovery(?Reconciler $rec = null): Discovery {
+		return new Discovery($this->spec(), $rec ?? $this->rec());
+	}
+
+	/**
+	 * The last Discover scan of this user in this session, or null: one file per user in the data
+	 * folder, overwritten by each scan, holding no password and no secret macro value. A scan from
+	 * another session (another sign-in) is not used.
+	 */
+	protected function cachedScan(): ?array {
+		$c = Store::read(self::scanFile(), null);
+		return is_array($c) && hash_equals((string) ($c['session'] ?? ''), self::sessionHash()) ? $c : null;
+	}
+
+	/** Keep a scan for this session, with a fresh token the apply form must carry. */
+	protected function cacheScan(array $scan): array {
+		$c = ['session' => self::sessionHash(), 'token' => bin2hex(random_bytes(16)), 'scan' => $scan];
+		Store::write(self::scanFile(), $c);
+		return $c;
+	}
+
+	private static function scanFile(): string {
+		return 'discover-'.preg_replace('/\D/', '', (string) (CWebUser::$data['userid'] ?? '0')).'.json';
+	}
+
+	private static function sessionHash(): string {
+		return hash('sha256', 'ep-discover:'.(string) (CWebUser::$data['sessionid'] ?? ''));
 	}
 
 	/** Who last changed a client, and how — shown on the list. */

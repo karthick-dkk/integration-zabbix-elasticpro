@@ -128,9 +128,12 @@ class ClientState {
 			$s['services'] = array_merge($s['services'], $h['_services']);
 			$s['notes'] = $s['notes'] !== '' ? $s['notes'] : $h['_notes'];
 			$s['attrs'] = $s['attrs'] + $h['_attrs'];
-			// A host name of the operator's own is part of the server; a made-up one is not.
-			if (!empty($h['_own_name']) && ($s['host'] ?? '') === '') {
-				$s['host'] = $h['host'];
+			// The server's name (the host's visible name) is part of the server; its host name is not.
+			if (($h['_server_name'] ?? '') !== '' && ($s['host'] ?? '') === '') {
+				$s['host'] = $h['_server_name'];
+			}
+			if (($h['_confirm'] ?? '') !== '') {
+				$s['confirm'] = $h['_confirm'];
 			}
 			$servers[$h['_ip']] = $s;
 		}

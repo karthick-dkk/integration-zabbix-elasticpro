@@ -52,6 +52,38 @@ def by_key(plan):
     return {r["key"]: r for r in plan["items"]}
 
 
+def load_cases():
+    import json
+    with open(os.path.join(HERE, "fixtures", "replace-cases.json"), encoding="utf-8") as fh:
+        return json.load(fh)["cases"]
+
+
+def tupled(macros):
+    return {m: tuple(v) for m, v in macros.items()}
+
+
+class SharedCases(unittest.TestCase):
+    """fixtures/replace-cases.json — the table TemplateMove::plan (clients-module) is run against too."""
+
+    def test_every_case(self):
+        gen = {"name": "t", "mode": "replace", "keys": {}, "key_prefixes": [], "macros": {}, "macro_prefixes": []}
+        for case in load_cases():
+            with self.subTest(case["name"]):
+                snap = dict(case["snap"], counts={})
+                for i in snap["items"]:
+                    i.setdefault("name", i["key_"])
+                old = {k: {"host": v["host"], "macros": tupled(v["macros"])} for k, v in case["old_tpl"].items()}
+                target = dict(case["target"], lld=set(case["target"]["lld"]), macros=tupled(case["target"]["macros"]))
+                p = mig.plan_replace(snap, gen, old, target, unlink=case["unlink"])
+                e = case["expect"]
+                self.assertEqual({r["key"]: r["action"] for r in p["items"]}, e["actions"])
+                self.assertEqual(len(p["refused"]), e["refused"], p["refused"])
+                self.assertEqual(p["unlink"], e["unlink"])
+                self.assertEqual(p["link"], e["link"])
+                self.assertEqual([m["macro"] for m in p["macros"]], e["macros"])
+                self.assertEqual(len(p["manual"]), e["manual"], p["manual"])
+
+
 class ReplacePlan(unittest.TestCase):
     def test_actions(self):
         s = snap([item("1", "same.key", OLD), item("2", "oldp.a", OLD), item("3", "oldp.f", OLD, vt="0"),

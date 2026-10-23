@@ -431,6 +431,14 @@ def plan_replace(snap, gen, old_tpl, target, unlink=True):
             row["new_key"] = nk
             if nk not in target["keys"]:
                 row.update(action="KEEP", why="no equivalent key in the new templates", new_key=k)
+            elif target["keys"][nk] != vt and nk == k:
+                # Not KEEP: kept under the same key, the unlinked item is a host item with the new
+                # template's key, and the link adopts it and converts it anyway — the stored values
+                # would stop being visible. Only a renamed key can be kept apart.
+                plan["refused"].append(f"item {k} is {VT_LABEL.get(vt)} and the new template's is "
+                                       f"{VT_LABEL.get(target['keys'][nk])} under the same key: the link would adopt "
+                                       "and convert it, hiding its values")
+                row.update(action="REFUSE", why="value type differs under the same key")
             elif target["keys"][nk] != vt:
                 row.update(action="KEEP", new_key=k, why=f"new key {nk} is {VT_LABEL.get(target['keys'][nk])}, this is "
                            f"{VT_LABEL.get(vt)}: adopting it would hide the stored values")
