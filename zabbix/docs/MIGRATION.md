@@ -34,7 +34,7 @@ instead of failing with "Trigger … already exists" or creating empty second it
 
 | Situation | What happens |
 |---|---|
-| The new key has a different value type (e.g. FLOAT → UNSIGNED) | The item is **kept apart** under its old key. Zabbix would adopt it and convert it, and the values stored under the old type would stop being visible (checked: 5 values before, 0 after). The new template's item starts empty beside it. |
+| The new key has a different value type (e.g. FLOAT → UNSIGNED) | The item is **kept apart** under its old key. Zabbix would adopt it and convert it, and the values stored under the old type would stop being visible (checked on 7.0.31: 1 value before, 0 after). The new template's item starts empty beside it. |
 | The key already comes from a third template on the host | The host is **refused** — the link would fail. |
 | A host item of your own has the new key but another value type | The host is **refused** — the link would convert it. |
 | A discovery rule key is in both the old and the new template | The host is **refused**. |
