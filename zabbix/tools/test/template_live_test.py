@@ -5,7 +5,7 @@
     ZABBIX_URL=... ZABBIX_USER=Admin ZABBIX_PASSWORD=... python3 template_live_test.py --fast
     python3 template_live_test.py --dry-run          # no Zabbix needed: what would be done
 
-What it does, per template file (the four in ../../templates, plus any --extra export, such as
+What it does, per template file (every one in ../../templates, plus any --extra export, such as
 the master, devices, jump and cluster templates the Clients page writes):
 
   1. imports a COPY of the template, named <prefix><name> with uuids derived from the
@@ -42,8 +42,12 @@ import argparse, hashlib, json, os, re, sys, time, urllib.error, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.normpath(os.path.join(HERE, "..", "..", "templates"))
-DEFAULT_FILES = ["template-elasticpro.yaml", "template-elasticpro-alerts.yaml",
-                 "template-elasticpro-client-plan.yaml", "template-elasticpro-log-delay.yaml"]
+
+
+def default_files():
+    """Every template in ../../templates — a template added there is tested without editing this."""
+    names = sorted(f for f in os.listdir(TEMPLATES_DIR) if f.endswith((".yaml", ".yml", ".json")))
+    return sorted(names, key=lambda f: (f != "template-elasticpro.yaml", f))
 
 ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 ap.add_argument("--dry-run", action="store_true", help="print the plan; no Zabbix calls at all")
@@ -569,7 +573,65 @@ def s_master(api, tname, host, tplid, items):
     check(tname, f"{macro}=12 consumed by {key}", True, str(got).startswith("12"), None)
 
 
-SCENARIOS = {"ElasticPro alerts": s_alerts, "ElasticPro client plan": s_plan, "ElasticPro log delay": s_delay,
+def s_gate(api, tname, host, tplid, items):
+    """The request-gate template: one TEXT trapper master that ElasticPro's core fills by
+    history.push once a minute (zbx_push.rs). Fed here with a payload of the core's shape —
+    including the fields the core leaves OUT when it cannot measure them (a wait p95 with no
+    grants, a memory limit that does not exist), which must be discarded, not stored as 0."""
+    raw = items["elasticpro.gate.raw"]["itemid"]
+    set_macro(api, host, "{$ELASTICPRO.GATE.WINDOW}", "2m")
+    time.sleep(15)
+
+    def cls(t, a, b, c):
+        return {"total": t, "interactive": a, "prompted": b, "background": c}
+
+    def payload(queued, refused, p95i, paused, inflight_pused):
+        return {"schema": 1, "version": "ztest-1", "clock": 0, "window_s": 60,
+                "inflight": cls(5, 2, 1, 2), "queued": dict(cls(queued, queued, 0, 0), oldest_wait_ms=2500),
+                "granted": cls(40, 20, 5, 15), "wait_p95_ms": {"interactive": p95i},
+                "refused": {"overloaded": refused, "queue_timeout": 0, "total": refused}, "too_large": 0,
+                "shared": 3, "cached": 7, "requests_per_min": 44,
+                "limits": {"global": 16, "queue_max": 64, "queue_wait_ms": 30000},
+                "policy": {"mode": "hybrid", "paused_all": paused, "paused_clusters": 1},
+                "memory": {"cache_used_bytes": 1, "cache_budget_bytes": 10, "inflight_used_bytes": 95,
+                           "inflight_budget_bytes": 100, "read_cache_used_bytes": 1, "read_cache_budget_bytes": 4,
+                           "cache_pused": 10.0, "inflight_pused": inflight_pused},
+                "clusters": 3}
+
+    for _ in range(3):  # three pushes, every threshold crossed
+        ok, bad = push(api, [{"itemid": raw, "value": json.dumps(payload(25, 30, 20000, 1, 95.0))}])
+        check(tname, "history.push of a core-shaped payload accepted", True, ok, None)
+        time.sleep(15)
+    its = items_of(api, host)
+    absent = {"elasticpro.gate.memory[limit]", "elasticpro.gate.wait.p95[prompted]", "elasticpro.gate.wait.p95[background]"}
+    deps = {k: it for k, it in its.items() if k != "elasticpro.gate.raw"}
+    check(tname, "no dependent item unsupported", [], sorted(k for k, it in deps.items() if it["state"] == "1"))
+    check(tname, "every dependent got a value, except the fields the core omits",
+          [], sorted(k for k, it in deps.items() if it["lastclock"] == "0" and k not in absent))
+    check(tname, "omitted fields discarded, not stored as 0 (unknown is not zero)",
+          [], sorted(k for k in absent if deps.get(k, {}).get("lastclock") not in ("0", None)))
+    for k, v in {"elasticpro.gate.policy.mode": "2", "elasticpro.gate.paused": "1", "elasticpro.gate.queued.oldest": "2.5",
+                 "elasticpro.gate.wait.p95[interactive]": "20", "elasticpro.gate.version": "ztest-1",
+                 "elasticpro.gate.queued[total]": "25"}.items():
+        check(tname, f"dependent {k} (units/JS/valuemap)", v, deps.get(k, {}).get("lastvalue"))
+    expect_trigger(api, tname, host, "{$...GATE.WINDOW}=2m + QUEUED.CRIT: queueing critical -> problem", "queued[total]", "PROBLEM", priority=3)
+    expect_trigger(api, tname, host, "queueing warning held back by its critical (dependency)", "queued[total]", "OK", priority=2)
+    expect_trigger(api, tname, host, "wait p95 critical -> problem", "wait.p95[interactive]", "PROBLEM", priority=3)
+    expect_trigger(api, tname, host, "wait p95 warning held back by its critical", "wait.p95[interactive]", "OK", priority=2)
+    expect_trigger(api, tname, host, "refused over REFUSED.CRIT in the window -> problem", "refused[total]", "PROBLEM", priority=3)
+    expect_trigger(api, tname, host, "in-flight memory over INFLIGHT.PUSED.WARN -> problem", "inflight.pused", "PROBLEM")
+    expect_trigger(api, tname, host, "figures arriving -> nodata trigger clear", "elasticpro.gate.raw", "OK")
+    if args.fast:
+        row(tname, "{$ELASTICPRO.GATE.NODATA} nodata", "PROBLEM", "skipped (--fast)", "SKIP")
+        return
+    set_macro(api, host, "{$ELASTICPRO.GATE.NODATA}", "60s")
+    time.sleep(30)
+    push(api, [{"itemid": raw, "value": json.dumps(payload(0, 0, 100, 0, 10.0))}])
+    expect_trigger(api, tname, host, "{$...GATE.NODATA}=60s consumed: no push for 60s -> problem",
+                   "elasticpro.gate.raw", "PROBLEM", timeout=240)
+
+
+SCENARIOS = {"ElasticPro request gate by Zabbix trapper": s_gate, "ElasticPro alerts": s_alerts, "ElasticPro client plan": s_plan, "ElasticPro log delay": s_delay,
              "ElasticPro automation": s_automation, "Elasticsearch Cluster by HTTP EP": s_cluster,
              "ElasticPro client master": s_master}
 
@@ -592,7 +654,7 @@ def cleanup(api):
 
 
 def main():
-    files = [os.path.join(TEMPLATES_DIR, f) for f in DEFAULT_FILES] + args.extra
+    files = [os.path.join(TEMPLATES_DIR, f) for f in default_files()] + args.extra
     plan = []
     for f in files:
         text, fmt, names = load(f)
