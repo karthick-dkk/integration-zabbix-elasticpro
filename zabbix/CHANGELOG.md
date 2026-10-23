@@ -4,6 +4,10 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.7
+
+- **Cluster Management: the Add / Edit client form is compact.** Rows are 32 px (inputs 28 px, labels 12.5 px in a 120 px column) with 8 px between them, cards pad 12 px, the (i) hints sit beside their labels, and the cards pack into two columns that are no longer stretched to each other — Client then Capacity, Connection then Log archive — with Servers & roles full width under them (an empty list is one line, "No servers yet · + Add server"). Add client fits a 1440 x 900 screen without scrolling. Layout and spacing only: every field, behaviour and password rule is as before.
+
 ## 2.1.6
 
 - **Discover: a typed ES URL now adopts a cluster host that has no URL macros.** The refused row's hidden host id stayed 0, so typing `https://host:9200` (even then "Preview writes") never enabled Adopt ("No host is ticked that can be adopted"). The row now carries the real host id, a valid typed URL lifts the refusal and ticks the row after the preview, the write list gains "Set connection macros on <host> from the typed URL", and adopting sets `{$ELASTICSEARCH.SCHEME/HOST/PORT}` from it before linking; an invalid URL stays refused with the reason.
