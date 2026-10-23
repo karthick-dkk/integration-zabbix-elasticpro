@@ -78,12 +78,42 @@ installing (ElasticPro: Config → Zabbix → Pair with Zabbix) so the sync role
   keeps for Super admins (creating a host group or template group; the cluster DL alert routing or
   weekly report) or write permission they lack on a host group, a host or the
   `Templates/Applications` template group.
-- **Template fixes** (request gate, found on a real Zabbix 7.0.31): "version has changed" no
-  longer stays UNKNOWN (the version is stored at every push, so `change()` has two values from the
-  second push on); and the "people wait for a request slot" triggers no longer stick in PROBLEM
-  after the slow minutes end (a new item, granted interactive requests, arrives every minute, and
-  both triggers require it, so they recover when nobody is asking).
-<!-- merge slot: fix/templates-audit — its template fixes go here -->
+- **Template fixes**, one per template (`templates/`; the templates are not modules, so they change
+  nothing in the module folders):
+  - *ElasticPro automation*: "the automation scrape has stopped running" now also fires when the
+    document cannot be fetched at all (endpoint down, DNS, 401/404). It was `fuzzytime()` alone,
+    which went UNKNOWN instead of raising anything once the HTTP item went unsupported; now
+    `fuzzytime(...)=0 or nodata(...)=1` on the same item. UUID unchanged, so it keeps its events.
+    Reproduced on Zabbix 7.0.31 and 7.0.32.
+  - *ElasticPro log delay*: declares its template group (the only one of the four that did not), so
+    it imports on a Zabbix whose Templates/Applications group is missing or renamed.
+  - *ElasticPro request gate*: "version has changed" no longer stays UNKNOWN (the version is
+    stored at every push, so `change()` has two values from the second push on); the "people wait
+    for a request slot" triggers no longer stick in PROBLEM after the slow minutes end (a new item,
+    granted interactive requests, arrives every minute and both triggers require it, so they
+    recover when nobody is asking). Found on Zabbix 7.0.31.
+  - The automation and log-delay fixes are made in these copies; the same two fixes still have to
+    reach the ElasticPro repository, or its next copy brings the old versions back
+    (`templates/README.md` says where).
+- **Template tests** (`tools/test/`). `validate_template.py` checks a template statically
+  (references, UUIDs, credentials, macros); CI now runs it on every template in `templates/` and on
+  the templates Cluster Management generates (`gen_templates.php`). `template_live_test.py`
+  imports `ztest-` copies into a test Zabbix (`ZABBIX_URL`, `ZABBIX_TOKEN`), proves a second import
+  changes nothing, sets every macro on a test host and feeds payloads, including the edge cases
+  (empty secret, wrong URL, thresholds at the boundary, stale data); `--dry-run` needs no Zabbix
+  and runs in CI. It covers the four copied templates; the request gate template is not in its
+  default list yet.
+- **Moving hosts onto the ElasticPro templates without losing history**: `tools/migrate-templates.py`
+  and `docs/MIGRATION.md`. Dry run unless `--commit`; it never deletes anything (delete methods and
+  "unlink and clear" are refused before a request is built). Per host it copies to host level the
+  macros the kept items need, unlinks the old template without clearing, renames the keys that map
+  onto the new template, links the new templates (which adopt the renamed items, same ids and
+  history), and checks that every item still exists with at least as many values. A template with
+  the current name but older keys is upgraded in place. A rename onto a key of another value type,
+  or a link that would fail, is refused with the reason and the host left alone. Macros a newly
+  linked template would redefine for kept items are pinned at host level. `--commit` writes a
+  journal and `--rollback` undoes from it. The planner's tests run in CI
+  (`migrate_plan_test.py`); `migrate_live_test.py` proves both modes against a test Zabbix.
 
 ## 2.1.2
 
