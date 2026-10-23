@@ -146,6 +146,33 @@ class InPlacePlan(unittest.TestCase):
         self.assertIn("{$NEWM.PW}", " ".join(p["manual"]))
 
 
+class UuidAlignment(unittest.TestCase):
+    def test_matches_by_new_key_new_macro_and_name(self):
+        g = dict(GEN, mode="in-place")
+        z = [{"section": "templates", "id": "10", "uuid": "a" * 32, "template": "T"},
+             {"section": "items", "id": "1", "uuid": "b" * 32, "key": "oldp.epoch"},
+             {"section": "triggers", "id": "7", "uuid": "c" * 32, "name": "stale for {$OLDM.STALE}",
+              "expression": "nodata(/T/oldp.epoch,{$OLDM.STALE})=1"},
+             {"section": "graphs", "id": "8", "uuid": "d" * 32, "name": "volume"},
+             {"section": "items", "id": "2", "uuid": "e" * 32, "key": "gone.key"}]
+        e = [{"section": "templates", "uuid": "1" * 32, "template": "T"},
+             {"section": "items", "uuid": "2" * 32, "key": "newp.epoch"},
+             {"section": "triggers", "uuid": "3" * 32, "name": "stale for {$NEWM.STALE}",
+              "expression": "nodata(/T/newp.epoch, {$NEWM.STALE})=1"},
+             {"section": "graphs", "uuid": "4" * 32, "name": "volume"},
+             {"section": "items", "uuid": "5" * 32, "key": "brand.new"}]
+        out = {(x["method"], x["id"]): x["uuid"] for x in mig.plan_uuids(z, e, g, {"1": "newp.epoch"})}
+        self.assertEqual(out, {("template.update", "10"): "1" * 32, ("item.update", "1"): "2" * 32,
+                               ("trigger.update", "7"): "3" * 32, ("graph.update", "8"): "4" * 32})
+
+    def test_objects_reader_finds_every_uuid(self):
+        for f in glob.glob(os.path.join(HERE, "..", "..", "templates", "*.yaml")):
+            text = read(f)
+            objs = mig._objects_from_yaml_scan(text)
+            self.assertEqual(len([o for o in objs if o["section"] != "template_groups"]),
+                             text.count("- uuid:") - text.count("template_groups:"), f)
+
+
 class Guard(unittest.TestCase):
     def setUp(self):
         self.api = mig.Api.__new__(mig.Api)
@@ -165,11 +192,13 @@ class Guard(unittest.TestCase):
 
     def test_unknown_methods_and_shapes(self):
         self.api.commit = True
-        for m in ("item.delete", "host.delete", "history.clear", "host.update", "template.delete"):
+        for m in ("item.delete", "host.delete", "history.clear", "host.update", "template.delete", "trend.clear"):
             with self.assertRaises(mig.Refused):
                 self.api.call(m, {})
         with self.assertRaises(mig.Refused):
             self.api.call("item.update", {"itemid": "1", "key_": "x", "status": 1})
+        with self.assertRaises(mig.Refused):   # would REPLACE the template's links
+            self.api.call("template.update", {"templateid": "1", "uuid": "x", "templates": []})
 
 
 class Exports(unittest.TestCase):

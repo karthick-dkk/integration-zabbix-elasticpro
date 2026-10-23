@@ -60,17 +60,25 @@ VT_LABEL = {v: k for k, v in VT_NAMES.items()}
 MACRO_TYPE = {"0": "text", "1": "secret", "2": "vault"}
 
 READ = {"apiinfo.version", "user.login", "host.get", "template.get", "item.get", "itemprototype.get",
-        "discoveryrule.get", "trigger.get", "usermacro.get", "history.get", "hostgroup.get"}
+        "discoveryrule.get", "trigger.get", "triggerprototype.get", "graph.get", "graphprototype.get", "valuemap.get",
+        "templatedashboard.get", "usermacro.get", "history.get", "hostgroup.get"}
 # Every write this script can make, with the only parameter names it may carry. Anything else —
 # a delete, a clear, a host.update that REPLACES a list — cannot be expressed.
 WRITE_SHAPES = {
     "usermacro.create": {"hostid", "macro", "value", "type", "description"},
     "host.massremove": {"hostids", "templateids"},
     "host.massadd": {"hosts", "templates"},
-    "item.update": {"itemid", "key_"},
-    "itemprototype.update": {"itemid", "key_"},
-    "discoveryrule.update": {"itemid", "key_"},
-    "trigger.update": {"triggerid", "status"},
+    "item.update": {"itemid", "key_", "uuid"},
+    "itemprototype.update": {"itemid", "key_", "uuid"},
+    "discoveryrule.update": {"itemid", "key_", "uuid"},
+    "trigger.update": {"triggerid", "status", "uuid"},
+    # uuid only: a template.update carrying "templates", "groups" or "macros" REPLACES that list.
+    "template.update": {"templateid", "uuid"},
+    "triggerprototype.update": {"triggerid", "uuid"},
+    "graph.update": {"graphid", "uuid"},
+    "graphprototype.update": {"graphid", "uuid"},
+    "valuemap.update": {"valuemapid", "uuid"},
+    "templatedashboard.update": {"dashboardid", "uuid"},
     "configuration.import": {"format", "source", "rules"},
 }
 FORBIDDEN_KEYS = {"templateids_clear", "templates_clear", "deleteMissing"}
@@ -186,30 +194,78 @@ def macro_refs(text):
 
 # ------------------------------------------------------------------------- export reading
 
-def export_keys(path):
-    """{'items': {key: vt}, 'prototypes': {key: vt}, 'lld': {key}} of a Zabbix 7.0 export
-    (YAML or JSON). YAML is read with PyYAML when it is installed, otherwise by a scanner for
-    the regular shape Zabbix writes (every object starts with '- uuid:')."""
+def export_objects(path):
+    """Every uuid-carrying object of a Zabbix 7.0 export (YAML or JSON) as
+    {section, uuid, key, value_type, name, expression, template}. YAML is read with PyYAML when
+    it is installed, otherwise by a scanner for the regular shape Zabbix writes (every object
+    starts with '- uuid:')."""
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     if path.endswith(".json"):
-        return _keys_from_doc(json.loads(text))
+        return _objects_from_doc(json.loads(text))
     try:
         import yaml  # optional
-        return _keys_from_doc(yaml.safe_load(text))
+        return _objects_from_doc(yaml.safe_load(text))
     except ImportError:
-        return _keys_from_yaml_scan(text)
+        return _objects_from_yaml_scan(text)
+
+
+def export_keys(path):
+    """{'items': {key: vt}, 'prototypes': {key: vt}, 'lld': {key}} of an export."""
+    return _keys_of(export_objects(path))
+
+
+def _keys_of(objs):
+    out = {"items": {}, "prototypes": {}, "lld": set()}
+    for o in objs:
+        if o["section"] == "items":
+            out["items"][o["key"]] = VT_NAMES.get(o.get("value_type") or "UNSIGNED", "3")
+        elif o["section"] == "item_prototypes":
+            out["prototypes"][o["key"]] = VT_NAMES.get(o.get("value_type") or "UNSIGNED", "3")
+        elif o["section"] == "discovery_rules":
+            out["lld"].add(o["key"])
+    return out
 
 
 def _keys_from_doc(doc):
-    out = {"items": {}, "prototypes": {}, "lld": set()}
+    return _keys_of(_objects_from_doc(doc))
+
+
+def _keys_from_yaml_scan(text):
+    return _keys_of(_objects_from_yaml_scan(text))
+
+
+def _objects_from_doc(doc):
+    out = []
+
+    def add(section, o):
+        out.append({"section": section, "uuid": o.get("uuid"), "key": o.get("key"), "value_type": o.get("value_type"),
+                    "name": o.get("name"), "expression": o.get("expression"), "template": o.get("template")})
+
     for t in doc["zabbix_export"].get("templates", []):
+        add("templates", t)
         for i in t.get("items", []):
-            out["items"][i["key"]] = VT_NAMES.get(i.get("value_type", "UNSIGNED"), "3")
+            add("items", i)
+            for tr in i.get("triggers", []):
+                add("triggers", tr)
         for d in t.get("discovery_rules", []):
-            out["lld"].add(d["key"])
+            add("discovery_rules", d)
             for p in d.get("item_prototypes", []):
-                out["prototypes"][p["key"]] = VT_NAMES.get(p.get("value_type", "UNSIGNED"), "3")
+                add("item_prototypes", p)
+                for tr in p.get("trigger_prototypes", []):
+                    add("trigger_prototypes", tr)
+            for tr in d.get("trigger_prototypes", []):
+                add("trigger_prototypes", tr)
+            for g in d.get("graph_prototypes", []):
+                add("graph_prototypes", g)
+        for v in t.get("valuemaps", []):
+            add("valuemaps", v)
+        for b in t.get("dashboards", []):
+            add("dashboards", b)
+    for tr in doc["zabbix_export"].get("triggers", []):
+        add("triggers", tr)
+    for g in doc["zabbix_export"].get("graphs", []):
+        add("graphs", g)
     return out
 
 
@@ -222,29 +278,23 @@ def _unquote(v):
     return v
 
 
-def _keys_from_yaml_scan(text):
-    out = {"items": {}, "prototypes": {}, "lld": set()}
-    headers, obj = {}, None
+def _objects_from_yaml_scan(text):
+    out, headers, obj = [], {}, None
+    fields = ("key", "value_type", "name", "expression", "template")
 
     def close():
-        if obj and obj.get("key"):
-            sec = obj["section"]
-            if sec == "items":
-                out["items"][obj["key"]] = VT_NAMES.get(obj.get("value_type", "UNSIGNED"), "3")
-            elif sec == "item_prototypes":
-                out["prototypes"][obj["key"]] = VT_NAMES.get(obj.get("value_type", "UNSIGNED"), "3")
-            elif sec == "discovery_rules":
-                out["lld"].add(obj["key"])
+        if obj:
+            out.append({"section": obj["section"], **{f: obj.get(f) for f in ("uuid",) + fields}})
 
     for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         ind = len(line) - len(line.lstrip())
-        m = re.match(r"^(\s*)- uuid: ", line)
+        m = re.match(r"^(\s*)- uuid: (\S+)", line)
         if m:
             close()
             d = len(m.group(1))
-            obj = {"indent": d, "section": headers.get(d - 2)}
+            obj = {"indent": d, "section": headers.get(d - 2), "uuid": _unquote(m.group(2))}
             continue
         m = re.match(r"^(\s*)([a-z_]+):\s*$", line)
         if m:
@@ -255,7 +305,7 @@ def _keys_from_yaml_scan(text):
                 close()
                 obj = None
             elif ind == obj["indent"] + 2:
-                m = re.match(r"^\s*(key|value_type):\s*(.+)$", line)
+                m = re.match(r"^\s*(" + "|".join(fields) + r"):\s*(.+)$", line)
                 if m:
                     obj[m.group(1)] = _unquote(m.group(2))
     close()
@@ -504,6 +554,83 @@ def plan_in_place(tpl, titems, tprotos, trules, target, gen, host_items):
             "manual": manual, "refused": refused}
 
 
+UUID_METHOD = {"templates": ("template.update", "templateid"), "items": ("item.update", "itemid"),
+               "discovery_rules": ("discoveryrule.update", "itemid"), "item_prototypes": ("itemprototype.update", "itemid"),
+               "triggers": ("trigger.update", "triggerid"), "trigger_prototypes": ("triggerprototype.update", "triggerid"),
+               "graphs": ("graph.update", "graphid"), "graph_prototypes": ("graphprototype.update", "graphid"),
+               "valuemaps": ("valuemap.update", "valuemapid"), "dashboards": ("templatedashboard.update", "dashboardid")}
+
+
+def zabbix_objects(api, tid):
+    """A template's own objects with their uuids, in export_objects()' shape plus their id."""
+    out = []
+    t = api.call("template.get", {"templateids": [tid], "output": ["templateid", "host", "uuid"]})[0]
+    out.append({"section": "templates", "id": t["templateid"], "uuid": t["uuid"], "template": t["host"]})
+    for sec, meth, idk, extra in (("items", "item.get", "itemid", ["key_"]), ("discovery_rules", "discoveryrule.get", "itemid", ["key_"]),
+                                  ("item_prototypes", "itemprototype.get", "itemid", ["key_"]),
+                                  ("triggers", "trigger.get", "triggerid", ["description", "expression"]),
+                                  ("trigger_prototypes", "triggerprototype.get", "triggerid", ["description", "expression"]),
+                                  ("graphs", "graph.get", "graphid", ["name"]), ("graph_prototypes", "graphprototype.get", "graphid", ["name"])):
+        p = {"templateids": [tid], "output": [idk, "uuid"] + extra, "inherited": False}
+        if "expression" in extra:
+            p["expandExpression"] = True
+        for o in api.call(meth, p):
+            out.append({"section": sec, "id": o[idk], "uuid": o.get("uuid"), "key": o.get("key_"),
+                        "name": o.get("description") or o.get("name"), "expression": o.get("expression")})
+    for v in api.call("valuemap.get", {"hostids": [tid], "output": ["valuemapid", "name", "uuid"]}):
+        out.append({"section": "valuemaps", "id": v["valuemapid"], "uuid": v["uuid"], "name": v["name"]})
+    for b in api.call("templatedashboard.get", {"templateids": [tid], "output": ["dashboardid", "name", "uuid"]}):
+        out.append({"section": "dashboards", "id": b["dashboardid"], "uuid": b["uuid"], "name": b["name"]})
+    return out
+
+
+def _norm_text(text, gen):
+    """A trigger name or expression with keys and macros in their new spelling and no spaces."""
+    text = re.sub(r"(/[^/()]+/)([A-Za-z0-9_.\-]+(?:\[[^\]]*\])?)", lambda m: m.group(1) + map_key(m.group(2), gen), text or "")
+    text = re.sub(r"\{\$[A-Z0-9_.]+\}", lambda m: map_macro(m.group(0), gen), text)
+    return re.sub(r"\s+", "", text)
+
+
+def plan_uuids(zobjs, eobjs, gen, renames):
+    """The uuid updates that make an import of the export UPDATE these objects in place.
+
+    Zabbix's import matches objects by uuid. A template of an older generation has other uuids,
+    so the import tries to create every trigger, graph and value map a second time and stops at
+    the first ("Trigger ... already exists"). Giving the existing objects the export's uuids
+    first — matched by key, by name and expression in their new spelling, or by name — turns the
+    import into the update it should be. renames: {id: new key} planned for this template."""
+    def ident(o, side):
+        sec = o["section"]
+        if sec == "templates":
+            return ("t",)
+        if sec in ("items", "discovery_rules", "item_prototypes"):
+            k = renames.get(o.get("id"), o.get("key")) if side == "z" else o.get("key")
+            return (k,)
+        if sec in ("triggers", "trigger_prototypes"):
+            return (_norm_text(o.get("name"), gen), _norm_text(o.get("expression"), gen))
+        return (o.get("name"),)
+
+    by = {}
+    for e in eobjs:
+        if e["section"] in UUID_METHOD and e.get("uuid"):
+            by.setdefault((e["section"],) + ident(e, "e"), []).append(e)
+    used = {z["uuid"] for z in zobjs}
+    out = []
+    for z in zobjs:
+        if z["section"] not in UUID_METHOD:
+            continue
+        cand = by.get((z["section"],) + ident(z, "z"), [])
+        if len(cand) != 1 or cand[0]["uuid"] == z["uuid"]:
+            continue
+        if cand[0]["uuid"] in used:
+            continue  # someone already has it; the import will match that one
+        meth, idk = UUID_METHOD[z["section"]]
+        out.append({"method": meth, "idfield": idk, "id": z["id"], "uuid": cand[0]["uuid"], "section": z["section"],
+                    "what": z.get("key") or z.get("name") or z.get("template")})
+        used.add(cand[0]["uuid"])
+    return out
+
+
 # ---------------------------------------------------------------------------------- output
 
 def print_plan(p, verbose):
@@ -546,6 +673,12 @@ def print_in_place(p, verbose):
         print(f"   MACRO   {m['macro']} on the template — {m['why']}")
     for m in p["manual"]:
         print(f"   BY HAND {m}")
+    if p.get("uuids") is not None:
+        secs = {}
+        for x in p["uuids"]:
+            secs[x["section"]] = secs.get(x["section"], 0) + 1
+        print(f"   UUID    {len(p['uuids'])} object(s) take the export's uuid so --import updates them in place"
+              + (": " + ", ".join(f"{k} {v}" for k, v in sorted(secs.items())) if secs else ""))
 
 
 # ----------------------------------------------------------------------------------- commit
@@ -622,6 +755,9 @@ def commit_in_place(api, p, import_file, journal):
             api.call(meth[r["kind"]], {"itemid": r["itemid"], "key_": r["new_key"]})
             j["renamed"].append({"kind": r["kind"], "itemid": r["itemid"], "old": r["key"], "new": r["new_key"]})
     if import_file:
+        for x in p.get("uuids", []):
+            api.call(x["method"], {x["idfield"]: x["id"], "uuid": x["uuid"]})
+        j["uuids"] = len(p.get("uuids", []))
         fmt = "json" if import_file.endswith(".json") else "yaml"
         api.call("configuration.import", {"format": fmt, "source": open(import_file, encoding="utf-8").read(),
                                           "rules": IMPORT_RULES})
@@ -724,6 +860,9 @@ def main(argv=None):
                             host_items.append((h["host"], i["key_"]))
                     p = plan_in_place(tpl, titems, tprotos, trules, target, g, host_items)
                     p["hosts"] = [h["host"] for h in hosts]
+                    if a.do_import:
+                        renames = {r["itemid"]: r["new_key"] for r in p["rows"] if r["action"] == "RENAME"}
+                        p["uuids"] = plan_uuids(zabbix_objects(api, tpl["templateid"]), export_objects(path), g, renames)
                     print_in_place(p, a.verbose)
                     print(f"   hosts following this template: {len(hosts)}")
                     befores = {h["hostid"]: snapshot_host(api, h["hostid"], since) for h in hosts} if a.commit else {}
