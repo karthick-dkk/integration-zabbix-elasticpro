@@ -155,7 +155,7 @@ $pair = $form('pair', 'ep-pair')->addItem((new CFormGrid())
 	])
 );
 
-$pair_explain = (new CDiv(_s('Pairing creates or reuses the user role "%1$s" (API access, read-only methods only, no frontend) and the user "%2$s" (in a group with frontend access disabled, random password never shown), makes a new API token for it and hands the token to ElasticPro over a signed request. A re-pair makes a new token first and deletes the previous pairing\'s token only after ElasticPro accepted the new one.',
+$pair_explain = (new CDiv(_s('Pairing creates or reuses the user role "%1$s" (API access to read methods and history.push only, no frontend) and the user "%2$s" (in a group with frontend access disabled, random password never shown), makes a new API token for it and hands the token to ElasticPro over a signed request. A re-pair makes a new token first and deletes the previous pairing\'s token only after ElasticPro accepted the new one.',
 	$data['role_name'], $data['user_name']
 )))->addClass('ep-hint');
 
