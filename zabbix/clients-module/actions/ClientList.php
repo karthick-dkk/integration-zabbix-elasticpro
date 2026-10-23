@@ -178,7 +178,9 @@ class ClientList extends Base {
 			'can_write' => $this->canWrite(),
 			'write_note' => $this->writeNote(),
 			'store_dir' => Store::dir(),
-			'backups' => count(Store::listing('backups'))
+			// Backups are Super admins' only (BackupList::checkPermissions), whatever ElasticPro
+			// says: null for anyone else, so the list offers no button that would only deny them.
+			'backups' => $this->superOnly() ? count(Store::listing('backups')) : null
 		]);
 		$response->setTitle(_('ElasticPro — Cluster Management'));
 		$this->setResponse($response);
