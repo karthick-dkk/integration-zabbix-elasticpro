@@ -220,12 +220,18 @@ if (!$ro) {
 }
 $html[] = '</div>';
 
-$controls = $ro ? new CList() : (new CList())
-	->addItem(new CRedirectButton(_('Discover clusters'), $url('ep.clients.discover')))
-	->addItem(new CRedirectButton(_('Import / export'), $url('ep.clients.import')))
-	->addItem(new CRedirectButton(_s('Backups (%1$s)', $data['backups']), $url('ep.clients.backups')))
-	->addItem(new CRedirectButton(_('Roles'), $url('ep.clients.roles')))
-	->addItem(new CRedirectButton(_('Add client'), $url('ep.clients.edit')));
+// Backups stays with Super admins (BackupList), so an ElasticPro admin who is a Zabbix Admin edits
+// here without a Backups button that would only answer "Access denied" — as the menu does.
+$controls = new CList();
+if (!$ro) {
+	$controls->addItem(new CRedirectButton(_('Discover clusters'), $url('ep.clients.discover')))
+		->addItem(new CRedirectButton(_('Import / export'), $url('ep.clients.import')));
+	if (($data['backups'] ?? null) !== null) {
+		$controls->addItem(new CRedirectButton(_s('Backups (%1$s)', $data['backups']), $url('ep.clients.backups')));
+	}
+	$controls->addItem(new CRedirectButton(_('Roles'), $url('ep.clients.roles')))
+		->addItem(new CRedirectButton(_('Add client'), $url('ep.clients.edit')));
+}
 (new CHtmlPage())->setTitle(_('Cluster Management'))->setControls((new CTag('nav', true, $controls))->setAttribute('aria-label', _('Content controls')))
 	->addItem(new CObject(implode("\n", $html)))->show();
 ?>

@@ -44,11 +44,11 @@ namespace {
 	class CList extends CTag { public function __construct() { parent::__construct('ul'); } }
 	class CRedirectButton extends CTag { public function __construct($t, $u) { parent::__construct('button', true, $t); } }
 	class CHtmlPage {
-		private $i = [];
+		private $i = []; private $controls = null;
 		public function setTitle($t) { return $this; }
-		public function setControls($c) { return $this; }
+		public function setControls($c) { $this->controls = $c; return $this; }
 		public function addItem($i) { $this->i[] = $i; return $this; }
-		public function show() { foreach ($this->i as $i) { echo $i->toString(); } return $this; }
+		public function show() { if ($this->controls) { echo $this->controls->toString(); } foreach ($this->i as $i) { echo $i->toString(); } return $this; }
 	}
 	class CView {}
 	// For the import page, which is built from Zabbix's classes rather than an HTML string.
@@ -170,6 +170,20 @@ namespace Modules\EpClients\Test {
 	check('ElasticPro not answering: said, with why', str_contains(body($ro), 'ElasticPro could not be asked who may edit; only Super admins can edit until it answers.')
 		&& str_contains(body($ro), '<div class="ep-note">Why: ElasticPro did not answer at http://ep-core:8765: timeout.</div>'), body($ro));
 	check('no note when the page is writable', !str_contains(body($list), 'Editing needs'));
+	// The header buttons. Backups is a Super admin's only (BackupList), so the list offers it only
+	// when it was given a count — ClientList gives null to everyone else, an ElasticPro admin who is
+	// a Zabbix Admin included, who would otherwise press it into "Access denied".
+	$nav = fn(string $html) => preg_match('~<nav\b.*?</nav>~s', $html, $m) ? $m[0] : '';
+	check('a Super admin\'s list offers Import / export, Backups (count), Roles and Add client',
+		str_contains($nav($list), '<button>Import / export</button>') && str_contains($nav($list), '<button>Backups (3)</button>')
+		&& str_contains($nav($list), '<button>Roles</button>') && str_contains($nav($list), '<button>Add client</button>'), $nav($list));
+	$nb = render('ep.clients.list', ['backups' => null] + $listData(true));
+	check('an editor who is not a Super admin gets the same buttons but no Backups',
+		!str_contains($nav($nb), 'Backups') && str_contains($nav($nb), '<button>Import / export</button>')
+		&& str_contains($nav($nb), '<button>Roles</button>') && str_contains($nav($nb), '<button>Add client</button>'), $nav($nb));
+	check('an editor, Super admin or not, is offered Discover clusters first', str_contains($nav($list), '<button>Discover clusters</button>')
+		&& str_contains($nav($nb), '<button>Discover clusters</button>') && strpos($nav($nb), 'Discover clusters') < strpos($nav($nb), 'Import / export'));
+	check('a read-only list has no header buttons at all', !str_contains($nav(render('ep.clients.list', ['backups' => null] + $listData(false))), '<button'));
 
 	/* ---------------- the client page ---------------- */
 	$spec = new \Modules\EpClients\Lib\ClientSpec(\Modules\EpClients\Lib\Roles::defaults());
