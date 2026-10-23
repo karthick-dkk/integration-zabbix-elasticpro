@@ -77,6 +77,14 @@ alone, clients added since are removed (their page-made hosts), and the present 
 first, so a restore can be undone. Backups from before servers could hold several roles still
 restore. Each backup downloads as clients.csv and servers.csv.
 
+**Partial backups.** A backup reads the clients through Zabbix as the person making the change. A
+Super admin's holds every client; an ElasticPro admin who is a Zabbix Admin sees only the hosts
+their groups allow, so their backup is **partial**: it records the clients it covers, the list says
+*partial: N of M clients* (M counted from the newest full backup; "an unknown total" when there is
+none), and the newest three partial backups are kept apart from the three full ones, so Admins'
+saves never push a Super admin's backup out. Restoring a partial backup changes only the clients
+in it: every other client is neither removed nor overwritten.
+
 ## Status
 
 | Status | Hosts | Set by |
@@ -132,7 +140,7 @@ still owns the hosts and host groups):
 | Admin or User | `admin`, not blocked or locked, signed answer over https with verification, a loopback core or a `trusted_plain_hosts` host | edits — within their Zabbix rights (below); never Backups or Re-create |
 | Admin | `operator`, `user`, `guest`, blocked or locked | reads |
 | Admin | never seen them sign in (`role: null`) | reads — the Zabbix mapping makes a Zabbix Admin an operator |
-| Admin | could not be asked | reads, and the page says *"ElasticPro could not be asked who may edit; only Super admins can edit until it answers."* with the reason |
+| Admin | could not be asked | reads, and the page says *"ElasticPro could not be asked who may edit; only Super admins can edit until it answers."* (the reason goes to the server log) |
 | User | anything but `admin` | nothing (as before) |
 
 The question goes to the ElasticPro core with the **ElasticPro** module's pairing (`modules/elasticpro`,
@@ -157,12 +165,14 @@ id `elasticpro`), signed with the scheme and the code (`SsoClient::sign()`) of t
   (config.php, or Administration → ElasticPro; exact host names only, never IP addresses or
   wildcards; default `ep-core`, the core's name on the documented compose network). For any other
   core the lookup still runs — an operator is still told their role — but nobody is elevated, and
-  the page says *"ElasticPro's answer cannot be trusted over this connection"* with *"core_url is
-  plain HTTP / TLS verification is off; elevation needs https with verification, a loopback core, or
-  a host listed in trusted_plain_hosts"*. https with verification remains the recommendation.
+  the page says *"ElasticPro's answer cannot be trusted over this connection"*. https with
+  verification remains the recommendation.
 
 With that module not enabled, Zabbix not paired, the core not answering, or any check above failing,
-only Super admins edit, and the page says so with the reason. An ElasticPro admin sets someone's role on ElasticPro's Accounts page; for a
+only Super admins edit, and the page says so in one fixed line. The reason (core_url, the curl
+error, the core's own message, "core_url is plain HTTP / TLS verification is off …") is not shown to
+the person, who is not a Super admin; it is written to the web server's PHP error log, naming the
+Zabbix user. An ElasticPro admin sets someone's role on ElasticPro's Accounts page; for a
 Zabbix sign-in that pins it, so Zabbix sign-ins no longer change it.
 
 The answer is kept in the Zabbix session for 60 s. This module's pages ask again once it is older;
@@ -170,8 +180,8 @@ the sidebar on other Zabbix pages uses the last answer and asks only when there 
 ordinary browsing costs one question per session. Roles appears in the sidebar for exactly those
 who may edit.
 
-**Backups and the register stay Super admin, whatever ElasticPro's role.** A backup holds every
-client and host group, and the page's register of hosts (what was removed or changed outside, and
+**Backups and the register stay Super admin, whatever ElasticPro's role.** A Super admin's backup
+holds every client and host group, and the page's register of hosts (what was removed or changed outside, and
 Re-create / Put back / Accept removal) knows hosts beyond what anyone else may read in Zabbix. So
 Backups (list, download, restore) and Re-create refuse anyone but a Super admin, and only a Super
 admin's list and client pages compare with the register or record a client in it.

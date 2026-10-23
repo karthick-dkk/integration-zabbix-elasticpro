@@ -48,13 +48,15 @@ installing (ElasticPro: Config → Zabbix → Pair with Zabbix) so the sync role
   | Admin or User | `admin`, not blocked or locked, in a signed answer the page trusts (below) | edits, within their Zabbix rights; never Backups or Re-create |
   | Admin | `operator`, `user`, `guest`, blocked or locked | reads, and the page says why ("Your ElasticPro role: operator.") |
   | Admin | has never signed in to ElasticPro | reads |
-  | Admin | could not be asked (ElasticPro module not paired, core not answering) | reads, and the page says "ElasticPro could not be asked who may edit; only Super admins can edit until it answers", with the reason |
+  | Admin | could not be asked (ElasticPro module not paired, core not answering) | reads, and the page says "ElasticPro could not be asked who may edit; only Super admins can edit until it answers" |
   | User | anything but `admin` | nothing, as before |
 
   The question goes to the core over the ElasticPro module's pairing, signed like the sign-in, with
   a fresh nonce each time. Only a signed, fresh answer counts: an unsigned or wrongly signed answer,
   or a replayed one, is not acted on. The answer is kept 60 seconds in the Zabbix session. Roles
-  appears in the sidebar for exactly those who may edit.
+  appears in the sidebar for exactly those who may edit. When ElasticPro could not be asked, or its
+  answer cannot be trusted, the person sees only the fixed line; the reason (core_url, the
+  connection error, the core's message) goes to the web server's PHP error log, not to the page.
 - **Trusted plain-HTTP hosts.** An `admin` answer is acted on over https with TLS verification, from
   a loopback core, or over plain http to a host named in the ElasticPro module's new
   `trusted_plain_hosts` setting: *Administration → ElasticPro → Edit settings*, field "Trusted
@@ -65,6 +67,12 @@ installing (ElasticPro: Config → Zabbix → Pair with Zabbix) so the sync role
 - **Backups stay Super admin only**, whatever ElasticPro's role: Backups (list, download, restore)
   and Re-create / Put back / Accept refuse everyone else and are hidden from their sidebar, and only
   a Super admin's pages compare with the register of hosts or record a client in it.
+- **Partial backups.** A backup is read through Zabbix as the person saving, so an ElasticPro admin
+  who is a Zabbix Admin backs up only the clients they can see. Such a backup is marked partial:
+  it records the clients it covers, the Backups list says "partial: N of M clients", the newest
+  three partial backups are kept apart from the three full ones (so Admins' saves never push a Super
+  admin's backup out), and restoring it changes only the clients in it, never removing or
+  overwriting any other.
 - **Zabbix rights are checked before a change, not half way.** Someone who is not a Super admin
   gets a refusal naming the step before anything is written when the change needs a step Zabbix
   keeps for Super admins (creating a host group or template group; the cluster DL alert routing or
