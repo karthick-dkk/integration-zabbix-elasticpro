@@ -4,47 +4,78 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
-## Unreleased
+## 2.1.3
 
-- **One copy of the ElasticPro menu module.** `embed-module/` is now the only source of the
-  module Zabbix installs as `elasticpro`; ElasticPro stops shipping its own copy and takes this
-  folder at the commit it pins, like the other six. A normal install no longer shows "mixed" module
-  versions in ElasticPro → Settings.
-- **Error codes on the ElasticPro page** (ported from ElasticPro's old copy): not paired yet shows
-  EP-701, a refused sign-in EP-702 (the core's own code follows the reason), and losing the session
-  three times in a minute EP-703, whose message now names the server-log reasons by their codes
-  (EP-306 `not_configured`, EP-510 `bad_signature`, EP-511 `stale`). ElasticPro's
-  `docs/ERROR-CODES.md` lists them. Tests: `embed-module/test/`; the autoloader check now covers
-  the embed module too. Needs a version bump before release (the view is a shipped file).
-- **ElasticPro admins edit Cluster Management.** A Zabbix Admin (or User) whom ElasticPro calls an
-  admin may edit; one it calls an operator reads, and the page says why — "Editing needs an
-  ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator." Super admins edit
-  as before. The clients module asks the ElasticPro core over the ElasticPro module's pairing:
-  `GET /sso/zabbix/role?claim=<JSON>`, signed like the sign-in (HMAC-SHA256 of the exact JSON in
-  `X-Zabbix-Module-Signature`, ±60 s). The answer is kept 60 s in the Zabbix session. When the
-  ElasticPro module is not enabled or paired, or the core does not answer, only Super admins edit and
-  the page says "ElasticPro could not be asked who may edit; only Super admins can edit until it
-  answers", with the reason. Roles appears in the sidebar for exactly those who may edit.
-  Needs the ElasticPro core release that serves `/sso/zabbix/role`.
-- **Only a signed, fresh answer elevates.** Each question carries a fresh nonce; the core signs its
-  answer (`X-ElasticPro-Signature`, HMAC over ts, nonce and the exact body) and echoes the nonce and
-  ts. An unsigned or wrongly signed answer, an echo of another question, or a nonce the session has
-  consumed is not acted on ("the answer was not signed by ElasticPro", "replayed answer"). The
-  signature is what authenticates the answer; on top of it, an admin is acted on only over https
-  with verification, a loopback core, or plain http to a host in the ElasticPro module's new
-  `trusted_plain_hosts` setting (config.php or Administration → ElasticPro; exact host names, no IP
-  addresses or wildcards; default `ep-core`, the core on the documented compose network). Any other
-  plain-http host: "ElasticPro's answer cannot be trusted over this connection". https stays the
-  recommendation.
-- **Backups and the register stay with Super admins**, whatever ElasticPro's role: Backups (list,
-  download, restore) and Re-create refuse everyone else, and only a Super admin's pages compare with
-  the register of hosts or record a client in it.
-- **Zabbix rights are checked before a change, not discovered half way.** Someone who is not a Super
-  admin gets a refusal naming the step, before anything is written, when the change needs a step
-  Zabbix keeps for Super admins (creating a host group or template group; the cluster DL alert
-  routing or weekly report) or write permission they lack on a host group, a host or the
-  `Templates/Applications` template group. Every write action someone else can reach asks: save,
-  import, status changes, delete, remove from ElasticPro, roles and the master template.
+Cluster Management edit rights follow ElasticPro's role, the ElasticPro page shows error codes, and
+a new template receives ElasticPro's own request figures. Upgrade note: **re-pair once** after
+installing (ElasticPro: Config → Zabbix → Pair with Zabbix) so the sync role picks up
+`history.push`; the edit rights need the ElasticPro core release that serves `/sso/zabbix/role`
+(0.3.24).
+
+- **Snapshots, as in 2.1.2.** The page keeps the label "Snapshots" in the ElasticPro menu and page
+  list, matching ElasticPro 0.3.22. Nothing changed here since 2.1.2; it is listed because 2.1.3 is
+  the first build most installs will take with it.
+- **New template: ElasticPro request gate by Zabbix trapper**
+  (`templates/template-elasticpro-request-gate.yaml`). The ElasticPro core (0.3.24+) pushes what
+  its Request Centre shows, once a minute, to one trapper item when `ZABBIX_METRICS_HOST` names the
+  host: in flight and queued per class, the oldest wait, wait p95, grants, refusals by reason,
+  answers over the response cap, memory in use. Aggregates only, no cluster name or address.
+  Triggers: figures stopped arriving; requests queueing, refused, or people waiting too long
+  (warning and critical pairs); a pause left on; in-flight memory high; answers over the cap; the
+  version changed. Every threshold is a `{$ELASTICPRO.GATE.*}` macro. Setup is in
+  `templates/README.md`.
+- **The sync role may push history.** The role *ElasticPro sync* (`embed-module/sync-role.json`)
+  now includes `history.push`, so ElasticPro's paired token can feed the template above without a
+  second token. What that implies: the role is of the Super admin type, so that token can write a
+  value into **any trapper item** in this Zabbix, not only the request gate's. It still cannot
+  change any configuration. Re-pairing updates an existing role; or add `history.push` by hand
+  under *Users → User roles → ElasticPro sync*. A site that does not want this removes
+  `history.push` from the role and gives the core a push-only token instead
+  (`ELASTICPRO_ZABBIX_METRICS_TOKEN_FILE`).
+- **Error codes on the ElasticPro page.** Not paired yet shows EP-701; a sign-in ElasticPro refused
+  shows EP-702 with the core's own code after the reason; losing the session three times in a
+  minute shows EP-703, which names the server-log reasons by their codes (EP-306 `not_configured`,
+  EP-510 `bad_signature`, EP-511 `stale`). ElasticPro's `docs/ERROR-CODES.md` lists them all.
+- **One copy of the ElasticPro menu module.** `embed-module/` is the only source of the module
+  Zabbix installs as `elasticpro`; ElasticPro ships it from here with the other six, so a normal
+  install no longer shows "mixed" module versions in ElasticPro → Settings.
+- **Cluster Management: ElasticPro's role decides who edits.** Zabbix still owns hosts and host
+  groups; for edit rights on this page, ElasticPro's role is the authority:
+
+  | Zabbix user type | ElasticPro says | Cluster Management |
+  |---|---|---|
+  | Super admin | (not asked) | edits |
+  | Admin or User | `admin`, not blocked or locked, in a signed answer the page trusts (below) | edits, within their Zabbix rights; never Backups or Re-create |
+  | Admin | `operator`, `user`, `guest`, blocked or locked | reads, and the page says why ("Your ElasticPro role: operator.") |
+  | Admin | has never signed in to ElasticPro | reads |
+  | Admin | could not be asked (ElasticPro module not paired, core not answering) | reads, and the page says "ElasticPro could not be asked who may edit; only Super admins can edit until it answers", with the reason |
+  | User | anything but `admin` | nothing, as before |
+
+  The question goes to the core over the ElasticPro module's pairing, signed like the sign-in, with
+  a fresh nonce each time. Only a signed, fresh answer counts: an unsigned or wrongly signed answer,
+  or a replayed one, is not acted on. The answer is kept 60 seconds in the Zabbix session. Roles
+  appears in the sidebar for exactly those who may edit.
+- **Trusted plain-HTTP hosts.** An `admin` answer is acted on over https with TLS verification, from
+  a loopback core, or over plain http to a host named in the ElasticPro module's new
+  `trusted_plain_hosts` setting: *Administration → ElasticPro → Edit settings*, field "Trusted
+  plain-HTTP hosts", or `config.php`. Exact host names only; IP addresses and wildcards are refused.
+  The default is `ep-core`, the core's name on the documented compose network. An empty list trusts
+  no plain-http host. Any other plain-http core: nobody is elevated and the page says "ElasticPro's
+  answer cannot be trusted over this connection". https stays the recommendation.
+- **Backups stay Super admin only**, whatever ElasticPro's role: Backups (list, download, restore)
+  and Re-create / Put back / Accept refuse everyone else and are hidden from their sidebar, and only
+  a Super admin's pages compare with the register of hosts or record a client in it.
+- **Zabbix rights are checked before a change, not half way.** Someone who is not a Super admin
+  gets a refusal naming the step before anything is written when the change needs a step Zabbix
+  keeps for Super admins (creating a host group or template group; the cluster DL alert routing or
+  weekly report) or write permission they lack on a host group, a host or the
+  `Templates/Applications` template group.
+- **Template fixes** (request gate, found on a real Zabbix 7.0.31): "version has changed" no
+  longer stays UNKNOWN (the version is stored at every push, so `change()` has two values from the
+  second push on); and the "people wait for a request slot" triggers no longer stick in PROBLEM
+  after the slow minutes end (a new item, granted interactive requests, arrives every minute, and
+  both triggers require it, so they recover when nobody is asking).
+<!-- merge slot: fix/templates-audit — its template fixes go here -->
 
 ## 2.1.2
 
