@@ -39,6 +39,22 @@ jobs:
       - name: tests
         run: npm test
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Static only: there is no Zabbix in CI. The live checks — tools/test/template_live_test.py
+      # and tools/test/migrate_live_test.py — run against a test Zabbix given by ZABBIX_URL and
+      # ZABBIX_TOKEN (see their headers and docs/MIGRATION.md).
+      - name: templates (validator, generated templates, migration planner)
+        run: |
+          python -m pip install --quiet pyyaml
+          for f in templates/*.yaml; do python tools/test/validate_template.py "$f"; done
+          php tools/test/gen_templates.php "$RUNNER_TEMP/generated"
+          for f in "$RUNNER_TEMP"/generated/*.json; do python tools/test/validate_template.py "$f"; done
+          python tools/test/template_live_test.py --dry-run
+          python -m unittest tools/test/migrate_plan_test.py
+
       - name: version is bumped for a change to a module
         run: npm run version-check
 

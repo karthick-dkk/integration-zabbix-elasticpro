@@ -116,12 +116,21 @@ namespace {
 		public static $hideTemplates = false;
 		/** @var int */
 		public static $nextId = 1;
+		/**
+		 * @var string[] host groups the signed-in user may read but not write: absent from
+		 * hostgroup.get with editable, and their hosts absent from host.get with editable unless
+		 * another of their groups is writable — a Zabbix Admin's view of a group given read only.
+		 */
+		public static $readOnlyGroups = [];
+		/** @var string[] host groups the signed-in user has no permission on: absent from every hostgroup.get */
+		public static $hiddenGroups = [];
 
 		public static function reset(): void {
 			self::$hosts = []; self::$templates = []; self::$groups = []; self::$macros = [];
 			self::$proxies = []; self::$proxyGroups = [];
 			self::$calls = []; self::$wrote = []; self::$deny = []; self::$messages = [];
 			self::$readOnly = false; self::$hideTemplates = false; self::$nextId = 1;
+			self::$readOnlyGroups = []; self::$hiddenGroups = [];
 		}
 
 		private static function id(): string {
@@ -293,6 +302,9 @@ namespace {
 				if (isset($p['filter']) && !self::matchFilter($h, (array) $p['filter'])) { continue; }
 				if (isset($p['search']) && !self::matchSearch($h, (array) $p['search'], !empty($p['startSearch']))) { continue; }
 				if (isset($p['tags']) && !self::matchTags($h, (array) $p['tags'], (int) ($p['evaltype'] ?? TAG_EVAL_TYPE_AND_OR))) { continue; }
+				if (!empty($p['editable']) && !array_diff(array_column($h['hostgroups'], 'name'), self::$readOnlyGroups, self::$hiddenGroups)) { continue; }
+				// A host all of whose groups the user has no permission on: Zabbix does not show it at all.
+				if (self::$hiddenGroups && !array_diff(array_column($h['hostgroups'], 'name'), self::$hiddenGroups)) { continue; }
 				// Only what the call asked for: see the note on $hideTemplates.
 				$rec = ['hostid' => $h['hostid'], 'host' => $h['host'], 'name' => $h['name'], 'status' => $h['status'],
 					'monitored_by' => $h['monitored_by'], 'proxyid' => $h['proxyid'], 'proxy_groupid' => $h['proxy_groupid'],
@@ -390,6 +402,7 @@ namespace {
 		public static function groupGet(array $p): array {
 			$out = [];
 			foreach (self::$groups as $id => $name) {
+				if (in_array($name, self::$hiddenGroups, true) || (!empty($p['editable']) && in_array($name, self::$readOnlyGroups, true))) { continue; }
 				$rec = ['groupid' => (string) $id, 'name' => $name, 'hosts' => 0];
 				if (isset($p['filter']) && !self::matchFilter($rec, (array) $p['filter'])) { continue; }
 				if (isset($p['groupids']) && !in_array((string) $id, self::vals($p['groupids']), true)) { continue; }
@@ -560,10 +573,10 @@ namespace {
 	}
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
-	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate};
+	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate, WriteCheck};
 
 	$failed = 0; $passed = 0; $scene = '';
 	function check(string $what, bool $ok, $detail = null): void {
@@ -1450,6 +1463,66 @@ namespace Modules\EpClients\Test {
 		count(array_filter(Backups::list(), fn($b) => $b['clients'] > 0)) === 1, Backups::list());
 
 	/*
+	 * A backup taken by a Zabbix Admin whom ElasticPro calls an admin. Backups::take() reads the
+	 * clients through the Zabbix API as that person (ClientState, not a register of its own), so
+	 * it holds only the clients they can see: a partial backup. It must say so, never push a full
+	 * Super admin backup out, and a restore of it must leave every other client alone.
+	 */
+	$begin('a backup taken by someone who sees only some clients is partial');
+	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }
+	foreach (['north', 'south'] as $c) {
+		\Zbx::addHost(['host' => $c.'-Master', 'groups' => [$c, Reconciler::MASTERS_GROUP], 'templates' => [MasterTemplate::NAME],
+			'tags' => [Reconciler::MANAGED, ['tag' => 'ep-kind', 'value' => 'master']],
+			'macros' => ['{$GRP.CLIENT}' => $c, '{$EP.CLIENT.TYPE}' => 'DI', '{$EP.LEAD}' => 'Lead '.$c]]);
+	}
+	$full = Backups::take('a Super admin save', 'Admin', $state($rec()), $roles);
+	check('a Super admin\'s backup holds both clients and is full',
+		array_keys(Backups::get($full)['clients']) === ['north', 'south'] && !Backups::isPartial(Backups::get($full)));
+	// A Zabbix Admin with no permission on south's host group (nor the masters group).
+	\Zbx::$hiddenGroups = ['south', Reconciler::MASTERS_GROUP];
+	check('the Admin sees north only', array_keys($state($rec())->clients()) === ['north'], array_keys($state($rec())->clients()));
+	$part = Backups::take('an ElasticPro admin\'s save', 'ep-qa-admin', $state($rec()), $roles, false, false);
+	$pb = Backups::get($part);
+	check('their backup does not contain the client they cannot see — it is a view, not the full register',
+		array_keys($pb['clients']) === ['north'], array_keys($pb['clients']));
+	check('so it is recorded as partial, with its scope and the total known from the full backup',
+		Backups::isPartial($pb) && $pb['scope'] === ['north'] && $pb['scope_of'] === 2, [$pb['scope'] ?? null, $pb['scope_of'] ?? null]);
+	check('the Backups list labels it "partial: 1 of 2 clients"',
+		(array_values(array_filter(Backups::list(), fn($b) => $b['id'] === $part))[0]['scope_label'] ?? '') === 'partial: 1 of 2 clients', Backups::list());
+	check('a restore of it leaves the client outside its scope alone', Backups::outsideScope($pb, ['north', 'south']) === ['south']);
+	check('a restore of a full backup leaves nobody out', Backups::outsideScope(Backups::get($full), ['north', 'south']) === []);
+	for ($i = 0; $i < 4; $i++) {
+		Backups::take('another admin save '.$i, 'ep-qa-admin', $state($rec()), $roles, false, false);
+	}
+	$listed = Backups::list();
+	check('five partial backups never push the full Super admin backup out',
+		count(array_filter($listed, fn($b) => $b['id'] === $full)) === 1, $listed);
+	check('partial backups rotate among themselves: three kept',
+		count(array_filter($listed, fn($b) => $b['partial'])) === Backups::KEEP, $listed);
+	\Zbx::$hiddenGroups = [];
+	for ($i = 0; $i < 3; $i++) {
+		Backups::take('a Super admin save '.$i, 'Admin', $state($rec()), $roles);
+	}
+	$listed = Backups::list();
+	check('and full ones among themselves: three full and three partial',
+		count(array_filter($listed, fn($b) => !$b['partial'])) === Backups::KEEP && count(array_filter($listed, fn($b) => $b['partial'])) === Backups::KEEP, $listed);
+	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }
+	\Zbx::$hiddenGroups = ['south', Reconciler::MASTERS_GROUP];
+	$lone = Backups::get(Backups::take('an admin save, no full backup yet', 'ep-qa-admin', $state($rec()), $roles, false, false));
+	check('with no full backup to count from, the total is unknown, not a guess',
+		$lone['scope_of'] === null && Backups::scopeLabel($lone) === 'partial: 1 clients of an unknown total', $lone['scope_of'] ?? 'missing');
+	\Zbx::$hiddenGroups = [];
+	$base_src = file_get_contents(__DIR__.'/../actions/Base.php');
+	check('Base::backup() takes a full backup only for a Super admin',
+		str_contains($base_src, "Backups::take(\$before, \$this->user(), \$this->state(), \$this->roles(), false, \$this->superOnly())"));
+	$restore_src = file_get_contents(__DIR__.'/../actions/BackupRestore.php');
+	check('BackupRestore neither removes nor overwrites a client outside a partial backup\'s scope',
+		str_contains($restore_src, '$outside = Backups::outsideScope($b, array_keys($live));')
+		&& str_contains($restore_src, "array_diff(array_keys(\$live), array_keys(\$b['clients']), \$outside)")
+		&& substr_count($restore_src, 'if (in_array((string) $name, $outside, true)) {') === 2);
+	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }
+
+	/*
 	 * Restoring a backup from before the rename: schema 1, one disk per role, IPs held per role
 	 * rather than per server. It has to come back in today's terms or the restore writes a client
 	 * with no servers.
@@ -1780,6 +1853,89 @@ namespace Modules\EpClients\Test {
 	$written = array_keys($spec->masterMacros($spec->fromForm($form('acme'))['client']));
 	check('the macro names released are the ones the master macros write',
 		count($written) > 20 && array_diff($written, $spec->masterMacroNames()) === [], array_diff($written, $spec->masterMacroNames()));
+
+	/* ======================================================================================
+	 *  WHO MAY EDIT: THE PRE-CHECK BEFORE A SAVE BY SOMEONE WHO IS NOT A SUPER ADMIN
+	 * ====================================================================================== */
+
+	/*
+	 * An ElasticPro admin who is a Zabbix Admin may edit, but writes as themself: a save their
+	 * Zabbix rights do not cover is refused before anything is written, naming the step.
+	 */
+	$hasHostgroups = function () {
+		foreach (\Zbx::$hosts as $h) { foreach ($h['hostgroups'] as $g) { yield $g['name']; } }
+	};
+	$begin('the groups a save needs are the groups apply() puts hosts in');
+	$c = $client($form('acme', ['ulm_bucket' => 'acme-archive', 'ulm_region' => 'ap-south-1',
+		'servers' => json_encode([['ip' => '10.20.0.11', 'roles' => ['es_data_hot']], ['ip' => '10.20.0.12', 'roles' => ['es_master']]])]));
+	$r = $rec();
+	$listed = $r->groupsFor($c);
+	$r->apply($c);
+	$used = array_values(array_unique(iterator_to_array($hasHostgroups(), false)));
+	sort($listed); sort($used);
+	check('groupsFor() names exactly the host groups apply() used — one definition for the pre-check and the save', $listed === $used, ['groupsFor' => $listed, 'apply' => $used]);
+
+	$begin('a new client for a Zabbix Admin: its host group would have to be created');
+	$c = $client($form('newco'));
+	$r = $rec();
+	$now = $r->current('newco');
+	\Zbx::groupId(Reconciler::MASTERS_GROUP); \Zbx::groupId(Reconciler::CLUSTER_GROUP);
+	$needs = WriteCheck::forSave($r, $spec, $c, $now);
+	$refused = WriteCheck::refusals($needs, WriteCheck::rights($needs), false);
+	check('refused, naming the step a Super admin alone may take', (bool) preg_grep('/^Creating the host group "newco" for a new client needs a Zabbix Super admin/', $refused), $refused);
+	check('only that step: the groups that exist and are writable are not mentioned', count($refused) === 1, $refused);
+	check('nothing was written to find that out', \Zbx::$wrote === [], \Zbx::$wrote);
+	check('a Super admin is never refused, and so never asked about', WriteCheck::refusals($needs, [], true) === []);
+	check('the message says nothing was changed', strpos(WriteCheck::message($refused), 'Nothing was changed') === 0);
+
+	$begin('an existing client in a host group the Zabbix Admin may only read');
+	$masterid = \Zbx::addHost(['host' => 'acme-Master', 'groups' => ['acme', Reconciler::MASTERS_GROUP], 'templates' => [MasterTemplate::NAME],
+		'tags' => [Reconciler::MANAGED, ['tag' => 'ep-client', 'value' => 'acme'], ['tag' => 'ep-kind', 'value' => 'master']],
+		'macros' => ['{$GRP.CLIENT}' => 'acme', '{$EP.CLIENT.TYPE}' => 'On-Prem']]);
+	\Zbx::addHost(['host' => 'acme-ES-Cluster', 'groups' => ['acme', Reconciler::CLUSTER_GROUP],
+		'templates' => [Roles::clusterTemplate()], 'tags' => [Reconciler::MANAGED, ['tag' => 'ep-kind', 'value' => 'cluster']]]);
+	\Zbx::$readOnlyGroups = ['acme', Reconciler::MASTERS_GROUP];
+	$r = $rec();
+	$c = $client($form('acme'));
+	$needs = WriteCheck::forSave($r, $spec, $c, $r->current('acme'));
+	$refused = WriteCheck::refusals($needs, WriteCheck::rights($needs), false);
+	check('the read-only group is named', (bool) preg_grep('/^Putting hosts in host group "acme" needs write permission/', $refused), $refused);
+	check('and the host in no writable group', (bool) preg_grep('/^Changing the host "acme-Master" needs write permission/', $refused), $refused);
+	check('the cluster host, also in a writable group, is not', !preg_grep('/acme-ES-Cluster/', $refused), $refused);
+	\Zbx::$readOnlyGroups = [];
+	$needs = WriteCheck::forSave($r, $spec, $c, $r->current('acme'));
+	check('with write on every group, nothing is refused', WriteCheck::refusals($needs, WriteCheck::rights($needs), false) === [],
+		WriteCheck::refusals($needs, WriteCheck::rights($needs), false));
+	check('still nothing written', \Zbx::$wrote === [], \Zbx::$wrote);
+
+	$begin('a client with DL alert routing on');
+	$masterid = \Zbx::addHost(['host' => 'acme-Master', 'groups' => ['acme', Reconciler::MASTERS_GROUP], 'templates' => [MasterTemplate::NAME],
+		'tags' => [Reconciler::MANAGED, ['tag' => 'ep-client', 'value' => 'acme'], ['tag' => 'ep-kind', 'value' => 'master']],
+		'macros' => ['{$GRP.CLIENT}' => 'acme', '{$EP.ALERT.DL}' => '1', '{$EP.DL}' => 'dl@acme.example']]);
+	$r = $rec();
+	$c = $client($form('acme', ['alert_dl' => '1', 'cluster_dl' => 'dl@acme.example', 'es_url' => '']));
+	$needs = WriteCheck::forSave($r, $spec, $c, $r->current('acme'));
+	$refused = WriteCheck::refusals($needs, WriteCheck::rights($needs), false);
+	check('refused: keeping the routing writes a Zabbix user group, a Super admin\'s step', (bool) preg_grep('/^Keeping the cluster DL alert routing or weekly report of "acme" in step/', $refused), $refused);
+	check('routing on before is enough, even when the save turns it off', AlertRouting::needsAccounts('acme', true, ['{$EP.ALERT.DL}' => '1', '{$EP.DL}' => 'x@y'], []));
+	check('routing off before and after: no account is touched', !AlertRouting::needsAccounts('acme', true, [], ['{$EP.ALERT.DL}' => '0', '{$EP.DL}' => 'x@y']));
+	check('the weekly report counts too', AlertRouting::needsAccounts('acme', true, [], ['{$EP.REPORT.WEEKLY}' => '1', '{$EP.DL}' => 'x@y']));
+	check('no host group afterwards: sync() leaves everything alone, so nothing is needed', !AlertRouting::needsAccounts('acme', false, ['{$EP.ALERT.DL}' => '1', '{$EP.DL}' => 'x@y'], ['{$EP.ALERT.DL}' => '1', '{$EP.DL}' => 'x@y']));
+	check('a decommissioned client wants none, so turning it off from decommissioned needs nothing',
+		!AlertRouting::needsAccounts('acme', true, ['{$EP.ALERT.DL}' => '1', '{$EP.DL}' => 'x@y', '{$EP.CLIENT.STATUS}' => 'decommissioned'],
+			['{$EP.ALERT.DL}' => '1', '{$EP.DL}' => 'x@y', '{$EP.CLIENT.STATUS}' => 'decommissioned']));
+
+	$begin('templates a Zabbix Admin cannot see');
+	\Zbx::$hideTemplates = true;
+	$r = $rec();
+	$c = $client($form('acme'));
+	$needs = WriteCheck::forSave($r, $spec, $c, $r->current('acme'));
+	$refused = WriteCheck::refusals($needs, WriteCheck::rights($needs), false);
+	check('named as a read permission, not only as "import it"', (bool) preg_grep('/^These templates are not visible to your Zabbix user: .*'.preg_quote(MasterTemplate::NAME, '/').'/', $refused), $refused);
+
+	$begin('the master template install');
+	$groups = TemplateInstaller::templateGroups(Roles::defaults());
+	check('the template groups install() writes into are read from the exports', $groups === ['Templates/Applications'], $groups);
 
 	/* ---------------- tidy up ---------------- */
 	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }

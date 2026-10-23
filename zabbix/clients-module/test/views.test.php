@@ -32,6 +32,8 @@ namespace {
 		public function addItem($i) { if (is_array($i)) { foreach ($i as $x) { $this->addItem($x); } } else { $this->items[] = $i; } return $this; }
 		public function setAttribute($k, $v) { $this->at[$k] = $v; return $this; }
 		public function setId($v) { return $this->setAttribute('id', $v); }
+		public function setTitle($v) { return $this->setAttribute('title', $v); }
+		public function onClick($js) { return $this->setAttribute('onclick', $js); }
 		public function addClass($c) { $this->at['class'] = trim(($this->at['class'] ?? '').' '.$c); return $this; }
 		public function toString() {
 			$a = ''; foreach ($this->at as $k => $v) { $a .= ' '.$k.'="'.htmlspecialchars((string) $v).'"'; }
@@ -65,12 +67,13 @@ namespace {
 	}
 	class CTableInfo extends CTag {
 		public function __construct() { parent::__construct('table'); }
+		public function setNoDataMessage($m) { return $this; }
 		public function setHeader($h) { $tr = new CTag('tr'); foreach ($h as $c) { $tr->addItem(new CTag('th', true, $c)); } return $this->addItem($tr); }
 		public function addRow($cells) { $tr = new CTag('tr'); foreach ($cells as $c) { $tr->addItem((new CTag('td'))->addItem($c)); } return $this->addItem($tr); }
 	}
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions', 'EpRole'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	$dir = sys_get_temp_dir().'/ep-views-'.getmypid();
@@ -94,6 +97,15 @@ namespace Modules\EpClients\Test {
 	}
 	$out = getenv('EP_VIEWS_OUT');
 	$dump = function (string $name, string $html) use ($out) { if ($out) { file_put_contents($out.'/'.$name.'.html', $html); } };
+
+	/* ---------------- backups: a partial one says so ---------------- */
+	$bk = render('ep.clients.backups', ['store_ok' => true, 'store_dir' => '/var/lib/elasticpro-zabbix', 'backups' => [
+		['id' => '20261023-010000-aaaa', 'taken' => 1792717200, 'by' => 'Admin', 'before' => 'Save acme', 'clients' => 7, 'machines' => 30, 'partial' => false, 'scope_label' => null],
+		['id' => '20261023-020000-bbbb', 'taken' => 1792720800, 'by' => 'ep-qa-admin', 'before' => 'Save north', 'clients' => 3, 'machines' => 9, 'partial' => true, 'scope_label' => 'partial: 3 of 7 clients']]]);
+	check('backups: a partial backup is labelled "partial: N of M clients", a full one is not', substr_count(body($bk), 'partial: 3 of 7 clients') >= 1
+		&& substr_count(body($bk), 'class="ep-partial"') === 1, body($bk));
+	check('backups: restoring a partial one says every other client is left alone', str_contains($bk, 'Every other client is left alone')
+		&& str_contains($bk, 'Clients added since are removed'));
 
 	/* ---------------- the list ---------------- */
 	$client = fn(string $name, string $status, array $x = []) => $x + ['name' => $name, 'masterid' => '1'.crc32($name) % 90, 'status' => $status, 'maintenance' => null,
@@ -137,6 +149,13 @@ namespace Modules\EpClients\Test {
 	$dump('list-ro', $ro);
 	preg_match_all('~<tr data-tabs=.*?</tr>~s', body($ro), $rrows);
 	check('read only: one labelled "View" pencil per row, no dialogs', str_contains($acts($rrows[0][0]), 'aria-label="View acme"') && !str_contains(body($ro), 'id="ep-maint"'));
+	$ro = render('ep.clients.list', ['write_note' => ['Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.', null]] + $listData(false));
+	check('read only: the list says who may edit and this person\'s ElasticPro role',
+		str_contains(body($ro), '<div class="ep-note">Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator. You see the clients whose hosts you may read.</div>'), body($ro));
+	$ro = render('ep.clients.list', ['write_note' => ['ElasticPro could not be asked who may edit; only Super admins can edit until it answers.', 'ElasticPro did not answer at http://ep-core:8765: timeout']] + $listData(false));
+	check('ElasticPro not answering: said, with why', str_contains(body($ro), 'ElasticPro could not be asked who may edit; only Super admins can edit until it answers.')
+		&& str_contains(body($ro), '<div class="ep-note">Why: ElasticPro did not answer at http://ep-core:8765: timeout.</div>'), body($ro));
+	check('no note when the page is writable', !str_contains(body($list), 'Editing needs'));
 
 	/* ---------------- the client page ---------------- */
 	$spec = new \Modules\EpClients\Lib\ClientSpec(\Modules\EpClients\Lib\Roles::defaults());
@@ -187,7 +206,9 @@ namespace Modules\EpClients\Test {
 	check('changed outside: Put back is offered, with the list\'s confirmation', str_contains($changed, 'name="op" value="putback"') && str_contains($changed, 'changed outside this page, as the page last saw them'));
 	$removed = render('ep.clients.edit', $edit(['removed' => [['name' => 'acme-ES-1', 'ip' => '10.0.0.1']]]));
 	check('removed from Zabbix: Re-create and Accept removal are offered', str_contains($removed, 'name="op" value="recreate"') && str_contains($removed, 'name="op" value="accept"'));
-	$view = render('ep.clients.edit', $edit(['can_write' => false]));
+	$view = render('ep.clients.edit', $edit(['can_write' => false, 'write_note' => ['Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.', null]]));
+	check('read only: the client page says who may edit and this person\'s ElasticPro role',
+		str_contains(body($view), '<div class="ep-notes"><div class="ep-note">Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.</div></div>'));
 	$dump('edit-ro', $view);
 	$vb = body($view);
 	check('read only: the status and the dashboard, nothing that changes anything', str_contains($vb, 'ep-st-on') && str_contains($vb, 'host.dashboard.view')

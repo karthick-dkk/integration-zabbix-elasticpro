@@ -6,5 +6,6 @@
     "noFrontendGroup": "No access to the frontend",
     "scriptTokenName": "elasticpro",
     "pairedTokenPrefix": "elasticpro-paired-",
-    "methods": ["host.get", "template.get", "usergroup.get", "usermacro.get", "hostgroup.get", "item.get"]
+    "_methods_comment": "Read methods for the cluster sync, plus history.push for the core's own request figures (ZABBIX_METRICS_HOST, template ElasticPro request gate by Zabbix trapper). The role is Super admin type, so history.push lets this token write to any trapper item in Zabbix; it still cannot change configuration.",
+    "methods": ["host.get", "template.get", "usergroup.get", "usermacro.get", "hostgroup.get", "item.get", "history.push"]
 }

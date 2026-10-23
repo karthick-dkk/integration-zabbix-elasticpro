@@ -18,18 +18,8 @@ class ImportApply extends Base {
 			$this->toList(_('Nothing to apply'), [], true, _('This import is no longer pending — it was applied, cancelled, or another import replaced it.'));
 			return;
 		}
-		Store::delete('pending-import.json');
 		$chosen = array_filter((array) $this->getInput('apply', []), fn($v) => (string) $v === '1');
 		$lines = [];
-		if (array_intersect_key($chosen, array_flip(array_column($pending['rows'], 'name')))) {
-			try {
-				$this->backup('Import '.($pending['file'] ?? '').' — confirmed changes');
-			}
-			catch (Exception $e) {
-				$this->toList(_('Nothing applied'), [], true, $e->getMessage());
-				return;
-			}
-		}
 		$chosenRows = [];
 		foreach ($pending['rows'] as $row) {
 			if (!isset($chosen[$row['name']])) {
@@ -37,6 +27,23 @@ class ImportApply extends Base {
 				continue;
 			}
 			$chosenRows[] = $row;
+		}
+		// Asked before the pending import is used up, so a refusal leaves it to apply once a
+		// Super admin, or someone with the rights, is at the page.
+		$refused = $chosenRows ? $this->writeRefusals($this->needsForRows($chosenRows)) : [];
+		if ($refused) {
+			$this->toList(_('Nothing applied'), [], true, $refused[0]);
+			return;
+		}
+		Store::delete('pending-import.json');
+		if ($chosenRows) {
+			try {
+				$this->backup('Import '.($pending['file'] ?? '').' — confirmed changes');
+			}
+			catch (Exception $e) {
+				$this->toList(_('Nothing applied'), [], true, $e->getMessage());
+				return;
+			}
 		}
 		$importer = $this->importer();
 		$result = $importer->applyRows($chosenRows, fn() => $this->rec(), fn($name) => $this->noteChange($name, 'imported'));

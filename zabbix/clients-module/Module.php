@@ -7,7 +7,10 @@ use CController;
 use CMenuItem;
 use CViewHelper;
 use CWebUser;
+use Modules\EpClients\Lib\EpRole;
 use Zabbix\Core\CModule as CoreModule;
+
+require_once __DIR__.'/lib/EpRole.php';
 
 /**
  * Puts ElasticPro in the sidebar: Cluster Management, Roles, Settings and Backups.
@@ -32,29 +35,44 @@ class Module extends CoreModule {
 
 	/**
 	 * The section's entries: label, the action it opens, the other actions that draw a page under
-	 * it, and whether it is for Super admins alone.
+	 * it, and who sees it: 'show' (every Zabbix Admin), 'edit' (those who may edit) or 'super'.
 	 *
 	 * The aliases keep the right entry marked and the section open while one of those pages is on
-	 * screen; no action belongs to two entries. Roles and Backups change things and their actions
-	 * refuse anyone else, so an Admin is not offered a link that would only deny them — Settings
-	 * reads as the reports' legend and is shown to Admins as the client list is.
+	 * screen; no action belongs to two entries. Roles changes things and its actions refuse anyone
+	 * who may not edit, so it is offered to exactly those who may — a Super admin, or a Zabbix Admin
+	 * or User whom ElasticPro calls an admin (EpRole, the same decision the pages make). Backups
+	 * stays with Super admins whatever ElasticPro says (Base::superOnly): a backup holds every
+	 * client and host group. Nobody is offered a link that would only deny them. Settings reads as
+	 * the reports' legend and is shown to Admins as the client list is.
 	 *
 	 * A function rather than a constant so each label is a literal inside _(), where the
 	 * translations can be collected from.
 	 */
 	private static function entries(): array {
 		return [
-			[_('Cluster Management'), 'ep.clients.list', ['ep.clients.edit', 'ep.clients.save', 'ep.clients.import'], false],
-			[_('Roles'), 'ep.clients.roles', ['ep.clients.role.save', 'ep.clients.template.install'], true],
-			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save'], false],
-			[_('Backups'), 'ep.clients.backups', ['ep.clients.backup.restore', 'ep.clients.backup.download'], true]
+			[_('Cluster Management'), 'ep.clients.list', ['ep.clients.edit', 'ep.clients.save', 'ep.clients.import'], 'show'],
+			[_('Roles'), 'ep.clients.roles', ['ep.clients.role.save', 'ep.clients.template.install'], 'edit'],
+			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save'], 'show'],
+			[_('Backups'), 'ep.clients.backups', ['ep.clients.backup.restore', 'ep.clients.backup.download'], 'super']
 		];
 	}
 
 	public function onBeforeAction(CController $action): void {
-		// Admins see the pages that only show; the rest stay Super admin.
-		$type = CWebUser::getType();
-		if ($this->added || !in_array($type, [USER_TYPE_SUPER_ADMIN, USER_TYPE_ZABBIX_ADMIN])) {
+		if ($this->added) {
+			return;
+		}
+		$type = (int) CWebUser::getType();
+		// Super admins see everything without asking. Zabbix Admins see the pages that only show,
+		// and the rest when ElasticPro calls them an admin; a Zabbix User sees the section only then.
+		$may_edit = $type == USER_TYPE_SUPER_ADMIN;
+		if (!$may_edit && in_array($type, [USER_TYPE_ZABBIX_ADMIN, USER_TYPE_ZABBIX_USER], true)) {
+			// On this module's own pages the answer is fresh, as the page itself decides; on every
+			// other Zabbix page the last answer is used, and ElasticPro is asked only when there is
+			// none yet — so browsing Zabbix costs one question per session, not one a minute.
+			$own = strncmp($action->getAction(), 'ep.clients.', 11) === 0;
+			$may_edit = EpRole::current()->decision((string) (CWebUser::$data['username'] ?? ''), $type, $own)['write'];
+		}
+		if (!$may_edit && $type != USER_TYPE_ZABBIX_ADMIN) {
 			return;
 		}
 		$this->added = true;
@@ -70,8 +88,8 @@ class Module extends CoreModule {
 		// getSubMenu() makes the submenu when the section has not got one, and marks the section
 		// as having one — so a section this module just made renders as a section.
 		$sub = $home->getSubMenu();
-		foreach (self::entries() as [$label, $action_name, $aliases, $super_only]) {
-			if (($super_only && $type != USER_TYPE_SUPER_ADMIN) || $sub->find($label) !== null) {
+		foreach (self::entries() as [$label, $action_name, $aliases, $who]) {
+			if (($who === 'edit' && !$may_edit) || ($who === 'super' && $type != USER_TYPE_SUPER_ADMIN) || $sub->find($label) !== null) {
 				continue;
 			}
 			$sub->add((new CMenuItem($label))->setAction($action_name)->setAliases($aliases));

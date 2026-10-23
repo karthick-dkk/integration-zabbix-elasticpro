@@ -3,12 +3,12 @@
 namespace Modules\EpClients\Actions;
 
 use Exception;
-use Modules\EpClients\Lib\{History, Registry, Store};
+use Modules\EpClients\Lib\{History, Registry, Store, WriteCheck};
 
 /**
  * Remove a client from ElasticPro only: its master host leaves the master template and loses the
  * macros this module wrote on it (Reconciler::release), and the module's own records of it go.
- * No host is disabled, deleted or moved and monitoring carries on; Super admins only, like Delete
+ * No host is disabled, deleted or moved and monitoring carries on; for whoever may edit, like Delete
  * for good, and only with the client's name typed to confirm.
  *
  * Deliberately not noteChange(): that re-reads the client and syncs its alert routing, which
@@ -29,6 +29,10 @@ class ClientRelease extends Base {
 			if (trim((string) $this->getInput('confirm', '')) !== $client) {
 				throw new Exception(_s('Type the client\'s name, %1$s, to remove it from ElasticPro.', $client));
 			}
+			// Only the master host is written (unlinked, macros removed); no alert routing is synced.
+			$now = $rec->current($client);
+			$this->refuseUnlessAllowed(WriteCheck::forHosts($client, $now['master'] !== null
+				? [(string) $now['master']['hostid'] => (string) $now['master']['name']] : [], null, [], null));
 			$backup = $this->backup('Remove '.$client.' from ElasticPro');
 			$rec->release($client);
 			// The module's own records of the client. History is kept: it is the audit trail.

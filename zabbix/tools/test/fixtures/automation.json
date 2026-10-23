@@ -1,0 +1,27 @@
+{
+  "ok": false,
+  "generated": "2026-10-22T10:00:00.000Z",
+  "generatedEpoch": 0,
+  "durationMs": 812,
+  "source": "clusters.yaml",
+  "problems": ["cluster-b: overview failed — connect ECONNREFUSED"],
+  "totals": {"clusters": 2, "unreachable": 1, "proposed": 3, "held": 1, "freedBytes": 5368709120, "errors": 1, "rulesEvaluated": 2},
+  "clusters": [
+    {"id": "cluster-a", "name": "Cluster A", "reachable": true, "health": "green", "proposed": 3, "held": 1, "freedBytes": 5368709120, "errors": 0,
+     "rules": [
+       {"id": "retention", "title": "Retention", "action": "delete", "user": false, "state": "proposed", "proposed": 3, "held": 1, "freedBytes": 5368709120,
+        "detail": "3 indices past 30 days", "targets": ["logs-2026.09.01", "logs-2026.09.02", "logs-2026.09.03"], "heldBack": [{"name": "logs-2026.08.31", "reason": "no proved snapshot"}]},
+       {"id": "readonly", "title": "Read-only old", "action": "block", "user": true, "state": "error", "proposed": 0, "held": 0, "freedBytes": 0,
+        "detail": "rule threw: bad pattern", "targets": [], "heldBack": []}
+     ]},
+    {"id": "cluster-b", "name": "Cluster B", "reachable": false, "health": "red", "proposed": 0, "held": 0, "freedBytes": 0, "errors": 0, "rules": []}
+  ],
+  "plan": {},
+  "discovery": {
+    "clusters": [{"{#CLUSTER.ID}": "cluster-a", "{#CLUSTER.NAME}": "Cluster A"}, {"{#CLUSTER.ID}": "cluster-b", "{#CLUSTER.NAME}": "Cluster B"}],
+    "rules": [
+      {"{#CLUSTER.ID}": "cluster-a", "{#CLUSTER.NAME}": "Cluster A", "{#RULE.ID}": "retention", "{#RULE.TITLE}": "Retention", "{#RULE.ACTION}": "delete"},
+      {"{#CLUSTER.ID}": "cluster-a", "{#CLUSTER.NAME}": "Cluster A", "{#RULE.ID}": "readonly", "{#RULE.TITLE}": "Read-only old", "{#RULE.ACTION}": "block"}
+    ]
+  }
+}

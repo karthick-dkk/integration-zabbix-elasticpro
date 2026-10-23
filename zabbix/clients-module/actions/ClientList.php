@@ -59,7 +59,7 @@ class ClientList extends Base {
 			// has gone away between the check above and the write — a mount lost mid-request —
 			// and this loop runs for every client, so one failure used to take the whole Cluster
 			// Management page down with a fatal rather than showing the clients it had.
-			if (!isset($registry[$name]) && $writable && $this->canWrite()) {
+			if (!isset($registry[$name]) && $writable && $this->superOnly()) {
 				try {
 					$this->register($name);
 				}
@@ -119,8 +119,8 @@ class ClientList extends Base {
 			}
 			$status = Lifecycle::statusOf($m);
 			$bucket = $m['{$ULM.S3.BUCKET}'] ?? '';
-			// The register knows hosts beyond what a read-only viewer may see: only for Super admins.
-			$diff = $this->canWrite() ? Registry::compare($name, $now, $exists) : ['removed' => [], 'changed' => []];
+			// The register knows hosts beyond what anyone but a Super admin may see in Zabbix: theirs alone.
+			$diff = $this->superOnly() ? Registry::compare($name, $now, $exists) : ['removed' => [], 'changed' => []];
 			$fullIn = $figures[$c['masterid']][Forecast::KEY] ?? null;
 			$over = [];
 			foreach (MasterTemplate::OVER as $basis => $key) {
@@ -156,7 +156,7 @@ class ClientList extends Base {
 			];
 		}
 		// Recorded but its master host gone from Zabbix: still listed, with a way back.
-		foreach ($this->canWrite() ? $registry : [] as $name => $r) {
+		foreach ($this->superOnly() ? $registry : [] as $name => $r) {
 			if (isset($live[$name])) {
 				continue;
 			}
@@ -176,6 +176,7 @@ class ClientList extends Base {
 			'store_ok' => $writable,
 			'forecast' => Settings::forecast($cfg),
 			'can_write' => $this->canWrite(),
+			'write_note' => $this->writeNote(),
 			'store_dir' => Store::dir(),
 			'backups' => count(Store::listing('backups'))
 		]);

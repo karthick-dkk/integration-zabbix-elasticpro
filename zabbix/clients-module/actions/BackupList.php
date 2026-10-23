@@ -11,6 +11,11 @@ class BackupList extends Base {
 		$this->disableCsrfValidation();
 	}
 
+	/** Super admins only, whatever ElasticPro's role (Base::superOnly). */
+	protected function checkPermissions(): bool {
+		return $this->superOnly();
+	}
+
 	protected function checkInput(): bool {
 		return true;
 	}

@@ -35,6 +35,7 @@ class SettingsEdit extends Base {
 			'template_name' => Roles::templateName('master'),
 			'palette_labels' => self::paletteLabels(),
 			'can_write' => $this->canWrite(),
+			'write_note' => $this->writeNote(),
 			'store_ok' => Store::writable(),
 			'store_dir' => Store::dir()
 		]);

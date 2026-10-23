@@ -22,4 +22,13 @@ return [
 
 	// Only relevant when core_url is https. Turn off for a self-signed test certificate only.
 	'verify_tls' => true,
+
+	// Plain-http core_url hosts that Cluster Management (the clients module) trusts for ElasticPro's
+	// signed "admin" answer, besides https with verification and loopback. Exact host names only —
+	// IP addresses and wildcards are ignored. ElasticPro's signature (HMAC under module_secret, bound
+	// to the question's ts and nonce) is what authenticates the answer; this list only says which
+	// unencrypted connections are acceptable on top. https stays the recommendation.
+	// Default when this key is absent: ['ep-core'], the core on the documented compose network.
+	// Uncomment to manage it here (the settings page then shows it read-only):
+	// 'trusted_plain_hosts' => ['ep-core'],
 ];
