@@ -3,7 +3,7 @@
 namespace Modules\EpClients\Actions;
 
 use Exception;
-use Modules\EpClients\Lib\{Backups, ClientSpec, ClientState, Reconciler, Roles, TemplateInstaller};
+use Modules\EpClients\Lib\{Backups, ClientSpec, ClientState, Reconciler, Roles, TemplateInstaller, WriteCheck};
 
 /**
  * Bring every client back to a backup: roles, settings, machines. Hosts deleted since are made
@@ -29,6 +29,11 @@ use Modules\EpClients\Lib\{Backups, ClientSpec, ClientState, Reconciler, Roles, 
  * the hosts stay until a person says otherwise.
  */
 class BackupRestore extends Base {
+
+	/** Super admins only, whatever ElasticPro's role (Base::superOnly). */
+	protected function checkPermissions(): bool {
+		return $this->superOnly();
+	}
 
 	protected function checkInput(): bool {
 		return $this->validateInput(['id' => 'required|string', 'confirm_delete' => 'string']);
@@ -58,6 +63,10 @@ class BackupRestore extends Base {
 			$live = $state->clients();
 			$same_roles = Roles::hash($b['roles']) === Roles::hash($this->roles());
 			$unchanged = [];
+			// What the restore needs of the user's Zabbix rights, gathered with everything else
+			// while nothing has changed; asked before the backup when they are not a Super admin.
+			$needs = WriteCheck::none();
+			$super = $this->getUserType() == USER_TYPE_SUPER_ADMIN;
 			$deletes_of = [];
 			$deletes = [];
 			foreach ($b['clients'] as $name => $form) {
@@ -72,6 +81,9 @@ class BackupRestore extends Base {
 				}
 				$rec = new Reconciler($spec);
 				$deletes_of[$name] = self::deletesFor($rec, $client, $rec->current($name));
+				if (!$super) {
+					$needs = WriteCheck::merge($needs, $this->needsForSave($client, $rec, $spec));
+				}
 				$deletes += $deletes_of[$name];
 			}
 			// Clients added since the backup: a restore removes them, which means every host this
@@ -81,6 +93,7 @@ class BackupRestore extends Base {
 			$removes_of = [];
 			foreach (array_diff(array_keys($live), array_keys($b['clients'])) as $name) {
 				$removes_of[$name] = self::managedHostsOf((new Reconciler($spec))->current($name));
+				$needs = WriteCheck::merge($needs, WriteCheck::forHosts($name, $removes_of[$name], null, [], null));
 				$deletes += $removes_of[$name];
 			}
 			// A role the backup does not have loses its items, triggers and graphs from the master
@@ -101,6 +114,15 @@ class BackupRestore extends Base {
 				$lines[] = _('Nothing has been changed. Remove the roles you no longer want from the Roles page, which says what that costs, and restore again.');
 				$this->toList(_s('Restore of %1$s refused: it would delete history that cannot be brought back',
 					date('d M H:i', (int) $b['taken'])), $lines, true);
+				return;
+			}
+
+			if (!$same_roles) {
+				$needs['template_groups'] = array_fill_keys(TemplateInstaller::templateGroups($b['roles']), true);
+			}
+			$refused = $this->writeRefusals($needs);
+			if ($refused) {
+				$this->toList(_s('Restore of %1$s refused', date('d M H:i', (int) $b['taken'])), $lines, true, $refused[0]);
 				return;
 			}
 

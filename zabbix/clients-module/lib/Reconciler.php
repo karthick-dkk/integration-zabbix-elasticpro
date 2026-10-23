@@ -775,6 +775,29 @@ class Reconciler {
 		return $out;
 	}
 
+	/**
+	 * Every host group apply() puts a host in for this client, and so creates when it is missing:
+	 * the client's own, the masters group, the cluster group (with an ES URL), the log archive
+	 * group (with a bucket), and each server's role and family groups. WriteCheck asks the user's
+	 * rights on exactly these before a save by anyone but a Super admin — keep it beside apply()
+	 * and change both together.
+	 */
+	public function groupsFor(array $client): array {
+		$out = [$client['name'], self::MASTERS_GROUP];
+		if ($client['es'] !== null) {
+			$out[] = self::CLUSTER_GROUP;
+		}
+		if ($this->spec->wantsUlm($client)) {
+			$out[] = self::ULM_GROUP;
+		}
+		$byId = Roles::byId($this->roles);
+		foreach ($client['servers'] as $s) {
+			$out = array_merge($out, array_map(fn($rid) => $byId[$rid]['group'], array_filter($s['roles'], fn($rid) => isset($byId[$rid]))),
+				Roles::familyGroupsOf($this->roles, $s['roles']));
+		}
+		return array_values(array_unique(array_map('strval', $out)));
+	}
+
 	/** Make Zabbix match the client. Throws, with what Zabbix said, at the first refusal. */
 	public function apply(array $client): void {
 		$tpl = $this->templateIds(Roles::templatesOf($this->roles, self::rolesIn($client)), $this->spec->wantsUlm($client));

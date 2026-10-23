@@ -59,7 +59,8 @@ class ClientEdit extends Base {
 		if ($now !== null && $now['master'] !== null) {
 			$status = Lifecycle::statusOf((new Reconciler($c->specFor()))->macros($now['master']['hostid']));
 			$maintenance = Lifecycle::maintenances([$form['name']])[$form['name']] ?? null;
-			$diff = $c->canWrite() ? Registry::compare($form['name'], $now, $c->existingHosts()) : ['removed' => [], 'changed' => []];
+			// The register knows hosts beyond what anyone but a Super admin may see: theirs alone.
+			$diff = $c->superOnly() ? Registry::compare($form['name'], $now, $c->existingHosts()) : ['removed' => [], 'changed' => []];
 			$removed = array_values($diff['removed']);
 			$changed = array_values($diff['changed']);
 		}
@@ -89,6 +90,7 @@ class ClientEdit extends Base {
 			'errors' => $errors,
 			'cloned_from' => $clonedFrom,
 			'can_write' => $c->canWrite(),
+			'write_note' => $c->writeNote(),
 			'done' => $done
 		]);
 		$response->setTitle($mode === 'add' ? _('Add client') : _s('Client %1$s', $form['name']));

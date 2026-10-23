@@ -16,6 +16,35 @@ How a version is chosen and released is in [README.md](README.md#versions-and-re
   (EP-306 `not_configured`, EP-510 `bad_signature`, EP-511 `stale`). ElasticPro's
   `docs/ERROR-CODES.md` lists them. Tests: `embed-module/test/`; the autoloader check now covers
   the embed module too. Needs a version bump before release (the view is a shipped file).
+- **ElasticPro admins edit Cluster Management.** A Zabbix Admin (or User) whom ElasticPro calls an
+  admin may edit; one it calls an operator reads, and the page says why — "Editing needs an
+  ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator." Super admins edit
+  as before. The clients module asks the ElasticPro core over the ElasticPro module's pairing:
+  `GET /sso/zabbix/role?claim=<JSON>`, signed like the sign-in (HMAC-SHA256 of the exact JSON in
+  `X-Zabbix-Module-Signature`, ±60 s). The answer is kept 60 s in the Zabbix session. When the
+  ElasticPro module is not enabled or paired, or the core does not answer, only Super admins edit and
+  the page says "ElasticPro could not be asked who may edit; only Super admins can edit until it
+  answers", with the reason. Roles appears in the sidebar for exactly those who may edit.
+  Needs the ElasticPro core release that serves `/sso/zabbix/role`.
+- **Only a signed, fresh answer elevates.** Each question carries a fresh nonce; the core signs its
+  answer (`X-ElasticPro-Signature`, HMAC over ts, nonce and the exact body) and echoes the nonce and
+  ts. An unsigned or wrongly signed answer, an echo of another question, or a nonce the session has
+  consumed is not acted on ("the answer was not signed by ElasticPro", "replayed answer"). The
+  signature is what authenticates the answer; on top of it, an admin is acted on only over https
+  with verification, a loopback core, or plain http to a host in the ElasticPro module's new
+  `trusted_plain_hosts` setting (config.php or Administration → ElasticPro; exact host names, no IP
+  addresses or wildcards; default `ep-core`, the core on the documented compose network). Any other
+  plain-http host: "ElasticPro's answer cannot be trusted over this connection". https stays the
+  recommendation.
+- **Backups and the register stay with Super admins**, whatever ElasticPro's role: Backups (list,
+  download, restore) and Re-create refuse everyone else, and only a Super admin's pages compare with
+  the register of hosts or record a client in it.
+- **Zabbix rights are checked before a change, not discovered half way.** Someone who is not a Super
+  admin gets a refusal naming the step, before anything is written, when the change needs a step
+  Zabbix keeps for Super admins (creating a host group or template group; the cluster DL alert
+  routing or weekly report) or write permission they lack on a host group, a host or the
+  `Templates/Applications` template group. Every write action someone else can reach asks: save,
+  import, status changes, delete, remove from ElasticPro, roles and the master template.
 
 ## 2.1.2
 

@@ -229,6 +229,14 @@ class ImportUpload extends Base {
 		// A backup before what is added now; what waits for a tick gets its own when it is applied.
 		// Checking a file changes nothing, so it does not use up one of the three.
 		$work = array_filter($plan['rows'], fn($r) => $r['status'] === 'new' && !$r['warnings']);
+		// Someone who is not a Super admin: the whole file is refused, before the backup, when
+		// their Zabbix rights do not cover every client it adds.
+		$refused = $work ? $this->writeRefusals($this->needsForRows(array_values($work))) : [];
+		if ($refused) {
+			$data['stage'] = 'errors';
+			$data['plan']['errors'] = array_merge($data['plan']['errors'], $refused);
+			return $data;
+		}
 		if ($work) {
 			// Backups::take() refuses outright, by throwing, when it finds no clients while the
 			// backups already kept hold some: the clients are found by a template name and a host

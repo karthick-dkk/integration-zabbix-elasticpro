@@ -1,6 +1,6 @@
 # Cluster Management (Zabbix 7.0 module)
 
-**Cluster Management** (Super admins; Zabbix Admins read-only): every client, its status, whether
+**Cluster Management** (Super admins and ElasticPro admins; other Zabbix Admins read-only — see [Who may edit](#who-may-edit)): every client, its status, whether
 its monitoring is set up and working, open problems, when its storage fills, and the last change —
 add, edit, clone, disable, maintenance, decommission, bulk import, backups, roles.
 
@@ -24,7 +24,7 @@ cluster DL and contract end date), **Elasticsearch** (URL, user, password, monit
 | **Weekly report** | "Mail a PDF … to the cluster DL every Monday": see below. |
 | **Test connection** | On a saved client: asks Zabbix to run the cluster check (HTTP, or SSH through the jump host) and each server's agent check now, and shows what they found. |
 | **Delete for good** | Only for a decommissioned client, and only after its name is typed. Deletes the hosts this page made, with their history. Hosts made by hand and host groups stay. |
-| **Remove only in ElasticPro** | On the client's page, any status, Super admin only, name typed to confirm. The client leaves Cluster Management and the reports: its master host is unlinked from the master template (plain unlink; items and history stay) and loses its `{$EP.*}`, `{$EVP.*}`, `{$GRP.CLIENT}`, `{$ES.*}` and `{$ULM.*}` macros, and the page's records of it (registry, last change) go; the history entry and a backup stay. No host is disabled, deleted or moved, and monitoring continues. Its dashboard and weekly report, alert action and DL user group, and maintenance periods stay in Zabbix. |
+| **Remove only in ElasticPro** | On the client's page, any status, for whoever may edit, name typed to confirm. The client leaves Cluster Management and the reports: its master host is unlinked from the master template (plain unlink; items and history stay) and loses its `{$EP.*}`, `{$EVP.*}`, `{$GRP.CLIENT}`, `{$ES.*}` and `{$ULM.*}` macros, and the page's records of it (registry, last change) go; the history entry and a backup stay. No host is disabled, deleted or moved, and monitoring continues. Its dashboard and weekly report, alert action and DL user group, and maintenance periods stay in Zabbix. |
 
 A server joins the group of each of its roles and of each family they count in (a single node
 joins ESNodes, Parsers, Forwarders and Engines), so a shared server counts once per family and in
@@ -115,9 +115,86 @@ that still exists but was renamed or moved out of the client's group is **change
 "removed" (re-creating it would put a second host on its IP): **Put back** renames it and adds the
 group again.
 
-**Read-only for Zabbix Admins.** Admins see the list and client pages for the clients whose hosts
-they may read — no buttons, the form disabled, nothing from the page's own records (removed or
-changed hosts), which know about hosts beyond their permissions. Every change stays Super admin.
+**Read-only for Zabbix Admins who may not edit.** They see the list and client pages for the
+clients whose hosts they may read — no buttons, the form disabled, nothing from the page's own
+records (removed or changed hosts), which know about hosts beyond their permissions — and a line
+saying why: *"Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role:
+operator."*
+
+## Who may edit
+
+ElasticPro's role decides (decision of 2026-10-22, reversing "Zabbix wins" for roles only — Zabbix
+still owns the hosts and host groups):
+
+| Zabbix user type | ElasticPro says | Cluster Management |
+|---|---|---|
+| Super admin | (not asked) | edits |
+| Admin or User | `admin`, not blocked or locked, signed answer over https with verification (or loopback) | edits — within their Zabbix rights (below); never Backups or Re-create |
+| Admin | `operator`, `user`, `guest`, blocked or locked | reads |
+| Admin | never seen them sign in (`role: null`) | reads — the Zabbix mapping makes a Zabbix Admin an operator |
+| Admin | could not be asked | reads, and the page says *"ElasticPro could not be asked who may edit; only Super admins can edit until it answers."* with the reason |
+| User | anything but `admin` | nothing (as before) |
+
+The question goes to the ElasticPro core with the **ElasticPro** module's pairing (`modules/elasticpro`,
+id `elasticpro`), signed with the scheme and the code (`SsoClient::sign()`) of the sign-in:
+
+- **Request.** `GET {core_url}/sso/zabbix/role?claim=<rawurlencode(JSON)>`, the JSON being exactly
+  `{"zabbix_user":…,"zabbix_user_type":…,"ts":…,"nonce":"<32 hex>"}` (a fresh nonce per question),
+  with `X-Zabbix-Module-Signature: hex HMAC-SHA256(JSON, secret)`. The core checks the signature, the
+  clock (±60 s) and the nonce (16–128 characters, never used before — a reused one is 401 `replayed`)
+  and answers for `<user>@zabbix`; nothing is created by asking.
+- **Answer.** The core signs what it sends: `X-ElasticPro-Signature: hex HMAC-SHA256(ts + "\n" + nonce
+  + "\n" + body, secret)`, with this question's ts and nonce and the exact body bytes, and the 200 body
+  echoes `"nonce"` and `"ts"`.
+- **What is believed.** An answer counts only with status 200, the signature present and matching,
+  the echoed nonce and ts equal to the ones sent, and a nonce this Zabbix session has not consumed
+  before (the session keeps the last 64). Otherwise the page says *"the answer was not signed by
+  ElasticPro"* or *"replayed answer"*.
+- **Over what.** The signature is what authenticates the answer: somebody on the path can block it
+  (then only Super admins edit) but cannot forge or replay it. On top of that, an `admin` is acted on
+  only when `core_url` is https with TLS verification on, a loopback core (127.0.0.0/8, ::1,
+  localhost), or plain http to a host listed in the ElasticPro module's `trusted_plain_hosts`
+  (config.php, or Administration → ElasticPro; exact host names only, never IP addresses or
+  wildcards; default `ep-core`, the core's name on the documented compose network). For any other
+  core the lookup still runs — an operator is still told their role — but nobody is elevated, and
+  the page says *"ElasticPro's answer cannot be trusted over this connection"* with *"core_url is
+  plain HTTP / TLS verification is off; elevation needs https with verification, a loopback core, or
+  a host listed in trusted_plain_hosts"*. https with verification remains the recommendation.
+
+With that module not enabled, Zabbix not paired, the core not answering, or any check above failing,
+only Super admins edit, and the page says so with the reason. An ElasticPro admin sets someone's role on ElasticPro's Accounts page; for a
+Zabbix sign-in that pins it, so Zabbix sign-ins no longer change it.
+
+The answer is kept in the Zabbix session for 60 s. This module's pages ask again once it is older;
+the sidebar on other Zabbix pages uses the last answer and asks only when there is none, so
+ordinary browsing costs one question per session. Roles appears in the sidebar for exactly those
+who may edit.
+
+**Backups and the register stay Super admin, whatever ElasticPro's role.** A backup holds every
+client and host group, and the page's register of hosts (what was removed or changed outside, and
+Re-create / Put back / Accept removal) knows hosts beyond what anyone else may read in Zabbix. So
+Backups (list, download, restore) and Re-create refuse anyone but a Super admin, and only a Super
+admin's list and client pages compare with the register or record a client in it.
+
+**Zabbix rights still apply.** Someone who is not a Super admin writes to Zabbix as themself, and
+Zabbix keeps some steps for Super admins whatever their groups say. So before any change — save,
+import, status, delete, remove from ElasticPro, roles, writing the master template (and, for the
+record, re-create and restore, which only Super admins reach) — the page works out what the change needs and asks Zabbix about this user's rights
+(`hostgroup.get`/`host.get`/`templategroup.get` with `editable`). If any step is out of reach it
+refuses **before anything is written**, naming the step:
+
+- creating a host group — the client's own for a new client, or a role's — is a Super admin's;
+- the cluster DL alert routing or weekly report (its Zabbix user group and DL account) is a Super
+  admin's, so a client with either on — or being turned off — needs one;
+- creating a template group is a Super admin's; writing the master template needs write on
+  `Templates/Applications`;
+- every host group the save puts hosts in, and every host it changes, needs write permission;
+- templates the user cannot see are named (read permission on their template group).
+
+This is a deliberate ceiling: those Super-admin-only steps are refused, not performed, until the
+ElasticPro core has its own Zabbix write identity for them. The backup before every change, and
+what it lets you undo, is unchanged. ElasticPro → Settings writes only `settings.json` in the data
+folder, so it asks nothing of Zabbix.
 
 ## Alerts and the weekly report to the cluster DL
 
@@ -232,11 +309,13 @@ purchased and when the count halves in a day. Field, window and index are its ma
 The page appears in the sidebar under **ElasticPro** — the module makes that section itself when
 no other ElasticPro module has, and joins the existing one when something has, so it needs nothing
 but itself. Beside it sit **Roles**, **Settings** and **Backups**. Zabbix Admins see Cluster
-Management and Settings, read-only; the rest is Super admins.
+Management and Settings, read-only, unless ElasticPro calls them an admin; Roles is for those who
+may edit, Backups for Super admins alone ([Who may edit](#who-may-edit)). For an ElasticPro admin to edit, the
+**ElasticPro** module (`embed-module`, installed as `modules/elasticpro`) must be enabled and paired.
 
 ## Settings
 
-**ElasticPro → Settings** (Super admins) keeps the numbers the page and all three report widgets
+**ElasticPro → Settings** (whoever may edit) keeps the numbers the page and all three report widgets
 read, in `settings.json` in the data folder: where usage turns yellow and red, how figures are
 drawn and rounded, when a filling disk is called urgent, and which client types exist. A dashboard
 widget may override its thresholds and bar style for itself; a client's master host overrides the

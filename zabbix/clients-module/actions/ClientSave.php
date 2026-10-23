@@ -3,12 +3,15 @@
 namespace Modules\EpClients\Actions;
 
 use Exception;
+use Modules\EpClients\Lib\WriteCheck;
 
 /**
  * Add or edit a client. A form with mistakes comes back with them and nothing saved; a backup is
  * taken before anything changes; after saving, the client is read back and compared. A save that
  * would delete hosts comes back listing them, and goes ahead only once that is confirmed. A password
- * typed for a Zabbix secret goes to Zabbix only — never into the form, a backup or a log.
+ * typed for a Zabbix secret goes to Zabbix only — never into the form, a backup or a log. Someone
+ * who is not a Zabbix Super admin is refused before anything changes when their Zabbix rights do
+ * not cover the save (Base::writeRefusals).
  */
 class ClientSave extends Base {
 
@@ -38,7 +41,13 @@ class ClientSave extends Base {
 				$errors[] = _s('Client "%1$s" exists already — edit it from the list.', $client['name']);
 			}
 			else {
-				$errors = $rec->problems($client, $now);
+				// Before anything else is said about the form: for anyone but a Super admin, whether
+				// their Zabbix rights cover the save at all. A template they cannot see would
+				// otherwise read as "import it first".
+				$errors = $this->writeRefusals(WriteCheck::forSave($rec, $spec, $client, $now));
+				if (!$errors) {
+					$errors = $rec->problems($client, $now);
+				}
 			}
 		}
 		$deletes = [];

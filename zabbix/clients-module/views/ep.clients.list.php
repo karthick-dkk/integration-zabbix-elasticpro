@@ -38,7 +38,12 @@ $ro = !($data['can_write'] ?? true);
 $html = [];
 $html[] = '<div class="ep-l'.($ro ? ' ep-ro' : '').'">';
 if ($ro) {
-	$html[] = '<div class="ep-note">'.$e(_('Read only: only Super admins change clients. You see the clients whose hosts you may read.')).'</div>';
+	// Who may edit, and why this person may not — EpRole::noteLines(), the one wording.
+	$lines = \Modules\EpClients\Lib\EpRole::noteLines($data['write_note'] ?? null);
+	$lines[0] .= ' '._('You see the clients whose hosts you may read.');
+	foreach ($lines as $line) {
+		$html[] = '<div class="ep-note">'.$e($line).'</div>';
+	}
 }
 if (!$data['store_ok']) {
 	$html[] = '<div class="ep-note ep-bad">'.$e(_s('Backups cannot be kept: %1$s is missing or not writable, so every change is refused until it is there. See the Clients module README.', $data['store_dir'])).'</div>';

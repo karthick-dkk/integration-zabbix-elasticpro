@@ -33,7 +33,9 @@ if (!$data['store_ok']) {
 		->addClass('msg-bad')->addClass('ep-box');
 }
 if ($ro) {
-	$top[] = (new CDiv(_('You can read these; only a Super admin changes them.')))->addClass('ep-intro');
+	foreach (\Modules\EpClients\Lib\EpRole::noteLines($data['write_note'] ?? null) as $line) {
+		$top[] = (new CDiv($line))->addClass('ep-intro');
+	}
 }
 
 // The templates carry their own copy of the two usage thresholds, and it is those copies the

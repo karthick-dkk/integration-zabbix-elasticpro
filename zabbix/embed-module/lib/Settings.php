@@ -17,7 +17,14 @@ use CEncryptHelper;
  *    CModule::setConfig() by Administration → ElasticPro). Keys:
  *      epUrl, secret (sealed, see seal()), verifyTls, pairedAt, pairedBy, mode ('pair' or
  *      'manual'), tokenId (the API token the pairing made, so a re-pair can retire it),
- *      zabbixUrl (what the pairing told ElasticPro this Zabbix is).
+ *      zabbixUrl (what the pairing told ElasticPro this Zabbix is), trustedPlainHosts (see below).
+ *
+ * trusted_plain_hosts: host names whose plain-http core_url the clients module (Cluster
+ * Management) trusts for a signed "admin" answer, besides https with verification and loopback.
+ * Default ['ep-core'], the core's name on the documented compose network. Exact host names only:
+ * an IP address or a wildcard is dropped (plainHosts()). The core's signature over its answer is
+ * what authenticates it; this only decides which connections are good enough on top. https stays
+ * the recommendation.
  *
  * The secret is sealed before it goes to the database: module.get returns `config` to any
  * Super admin with API access, and module.update writes the whole config into the audit
@@ -35,7 +42,10 @@ final class Settings {
 		'public_url' => 'public_url',
 		'module_secret' => 'secret',
 		'verify_tls' => 'verify_tls',
+		'trusted_plain_hosts' => 'trusted_plain_hosts',
 	];
+
+	public const DEFAULT_PLAIN_HOSTS = ['ep-core'];
 
 	private const SEAL_PREFIX = 'v1:';
 
@@ -89,6 +99,8 @@ final class Settings {
 			'public_url' => $ep,
 			'secret' => $secret_db,
 			'verify_tls' => (bool) ($db['verifyTls'] ?? true),
+			'trusted_plain_hosts' => array_key_exists('trustedPlainHosts', $db)
+				? self::plainHosts($db['trustedPlainHosts']) : self::DEFAULT_PLAIN_HOSTS,
 			'from_file' => array_fill_keys(array_values(self::FILE_KEYS), false),
 			'file_present' => false,
 			'secret_unreadable' => ($db['secret'] ?? '') !== '' && $secret_db === '',
@@ -103,6 +115,10 @@ final class Settings {
 				}
 				if ($field === 'verify_tls') {
 					$out[$field] = (bool) $file[$key];
+				}
+				elseif ($field === 'trusted_plain_hosts') {
+					// An empty list in config.php is a decision too: no plain-http host is trusted.
+					$out[$field] = self::plainHosts($file[$key]);
 				}
 				else {
 					$value = trim((string) $file[$key]);
@@ -125,6 +141,7 @@ final class Settings {
 			'core_url' => $r['core_url'],
 			'public_url' => $r['public_url'],
 			'verify_tls' => $r['verify_tls'],
+			'trusted_plain_hosts' => $r['trusted_plain_hosts'],
 			'secret_set' => strlen($r['secret']) >= 32,
 			'secret_unreadable' => $r['secret_unreadable'],
 			'from_file' => $r['from_file'],
@@ -132,6 +149,8 @@ final class Settings {
 			'db' => [
 				'epUrl' => (string) ($db['epUrl'] ?? ''),
 				'verifyTls' => (bool) ($db['verifyTls'] ?? true),
+				'trustedPlainHosts' => array_key_exists('trustedPlainHosts', $db)
+					? self::plainHosts($db['trustedPlainHosts']) : self::DEFAULT_PLAIN_HOSTS,
 				'secret_set' => ($db['secret'] ?? '') !== '',
 				'pairedAt' => (int) ($db['pairedAt'] ?? 0),
 				'pairedBy' => (string) ($db['pairedBy'] ?? ''),
@@ -140,6 +159,43 @@ final class Settings {
 				'tokenId' => (string) ($db['tokenId'] ?? ''),
 			],
 		];
+	}
+
+	/**
+	 * The plain-http host names worth keeping: lower-cased, trimmed, and only real host names. An IP
+	 * address, a wildcard or anything that is not a DNS name is dropped. Accepts a list, or a string
+	 * separated by commas, spaces or new lines (the settings page's text field).
+	 *
+	 * @param mixed $raw
+	 * @return string[]
+	 */
+	public static function plainHosts($raw): array {
+		return self::splitPlainHosts($raw)[0];
+	}
+
+	/**
+	 * [kept, dropped]: what plainHosts() keeps, and what it would drop and why the page refuses it.
+	 *
+	 * @param mixed $raw
+	 * @return array{0: string[], 1: string[]}
+	 */
+	public static function splitPlainHosts($raw): array {
+		$items = is_array($raw) ? $raw : preg_split('/[\s,]+/', (string) $raw);
+		$kept = [];
+		$dropped = [];
+		foreach ($items as $h) {
+			$h = strtolower(trim((string) $h));
+			if ($h === '') {
+				continue;
+			}
+			if (filter_var(trim($h, '[]'), FILTER_VALIDATE_IP) !== false || preg_match('/^[0-9.]+$/', $h)
+					|| !preg_match('/^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*$/', $h)) {
+				$dropped[] = $h;
+				continue;
+			}
+			$kept[] = $h;
+		}
+		return [array_values(array_unique($kept)), $dropped];
 	}
 
 	private static function key(): string {

@@ -7,7 +7,7 @@ use CControllerResponseRedirect;
 use CMessageHelper;
 use CUrl;
 use Exception;
-use Modules\EpClients\Lib\{Roles, TemplateInstaller, TemplateMap};
+use Modules\EpClients\Lib\{Roles, TemplateInstaller, TemplateMap, WriteCheck};
 
 /**
  * Add, change, move or remove a family or a role. After a backup, the roles are saved and the
@@ -138,6 +138,9 @@ class RoleSave extends Base {
 			if ($errors) {
 				throw new Exception(implode(' ', $errors));
 			}
+			// The master template is rewritten for the new roles: refused first, when the user's
+			// Zabbix rights do not cover writing it.
+			$this->refuseUnlessAllowed(['template_groups' => array_fill_keys(TemplateInstaller::templateGroups($roles), true)] + WriteCheck::none());
 			$this->backup('Roles: '.$what);
 			Roles::save($roles);
 			TemplateInstaller::install($roles);

@@ -29,7 +29,7 @@ class HostSearch extends Base {
 	private const ANSWER = 20;
 
 	protected function init(): void {
-		// Reads only; the Clients pages' Super admin check still applies.
+		// Reads only; the Clients pages' write check (Base::canWrite) still applies.
 		$this->disableCsrfValidation();
 	}
 
