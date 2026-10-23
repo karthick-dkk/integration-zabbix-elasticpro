@@ -229,12 +229,14 @@ html[color-scheme="dark"] .ep-edit, [theme="dark-theme"] .ep-edit, [theme="hc-da
 .ep-f .ep-row > .ep-lab > label, .ep-f .ep-lab > label { font-size: 12.5px; line-height: 1.25; color: var(--ep-muted); margin: 0; padding: 0; float: none; width: auto; text-align: left; overflow-wrap: anywhere; }
 .ep-f .ep-lab .ep-i { width: 16px; height: 16px; font-size: 11px; flex: none; }
 .ep-f .ep-lab .ep-tip { left: -4px; right: auto; }
-.ep-f .ep-ctl { gap: 4px; align-content: center; }
-.ep-f .ep-ctl input[type=text], .ep-f .ep-ctl input[type=password], .ep-f .ep-ctl input[type=email], .ep-f .ep-ctl select,
+.ep-f .ep-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; align-content: center; justify-items: initial; min-width: 0; }
+.ep-f .ep-ctl > input[type=text], .ep-f .ep-ctl > input[type=password], .ep-f .ep-ctl > input[type=email], .ep-f .ep-ctl > input[type=url], .ep-f .ep-ctl > select, .ep-f .ep-ctl > div { flex: 1 1 100%; width: 100%; max-width: none; min-width: 0; }
+.ep-f .ep-ctl > .ep-seg { flex: none; width: auto; }
+.ep-f .ep-ctl > .ep-inline .ep-grow, .ep-f .ep-inline > input[type=text]:only-of-type { min-width: 0; }
+.ep-f .ep-ctl input[type=text], .ep-f .ep-ctl input[type=password], .ep-f .ep-ctl input[type=email], .ep-f .ep-ctl input[type=url], .ep-f .ep-ctl select,
 .ep-f .ep-inline input[type=text], .ep-f .ep-inline input[type=password], .ep-f .ep-inline select, .ep-f .ep-sheet-row input[type=text],
 .ep-f #client_notes { height: 28px; padding: 0 8px; font-size: 13px; line-height: 26px; }
 .ep-f .ep-ctl select, .ep-f .ep-inline select, .ep-f #servers_monitored_by { padding: 0 6px; min-height: 0; }
-.ep-f .ep-ctl > input[type=email] { width: 100%; max-width: none; }
 .ep-f .ep-seg { height: 28px; padding: 2px; align-items: stretch; flex-wrap: nowrap; }
 .ep-f .ep-seg label { padding: 0 10px; line-height: 24px; white-space: nowrap; }
 .ep-f .ep-ctl .ep-check { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-size: 12.5px; }
@@ -263,3 +265,7 @@ html[color-scheme="dark"] .ep-edit, [theme="dark-theme"] .ep-edit, [theme="hc-da
 .ep-f .ep-sheet { margin: 0 -12px; padding: 8px 12px; gap: 6px; }
 .ep-f .ep-foot { margin-top: 0; padding: 6px 12px; }
 .ep-edit .ep-panel[data-panel="form"] { gap: 12px; }
+.ep-f .ep-inline > input[type=text]:not(.ep-num):not(.ep-mono), .ep-f .ep-inline > input[type=password] { flex: 1 1 120px; min-width: 0; }
+/* Zabbix gives <main>, the title bar and the footer min-width: 1200px, so below a 1378px window every page scrolls sideways by itself. This page
+   does not need the 1200px: its columns stack and its rows wrap, so they shrink to the window here (this page only). */
+main:has(.ep-edit), .wrapper:has(.ep-edit) > header.header-title, .wrapper:has(.ep-edit) > footer { min-width: 0; }
