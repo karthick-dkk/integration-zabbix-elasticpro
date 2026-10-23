@@ -253,11 +253,74 @@ if (!$ro) {
 			->onClick('return confirm('.json_encode(_('Put every setting here back to the one ElasticPro ships?')).');')]))->addClass('ep-bar'));
 }
 
+/* ---------------- default Elasticsearch credential (board Settings-credential.dc.html) ---------------- */
+// A form of its own (ep.clients.credential.save), so saving the other settings can never post an
+// empty password over it. The password is never shown: "Set <date> by <user>" and Change, which
+// brings the field (and Keep current, which takes it away again); es_password_action is the
+// keep-marker the action reads.
+$credForm = null;
+if (isset($data['credential'])) {
+	$cr = $data['credential'];
+	$u = $cr['usage'];
+	$rec = $cr['record'];
+	$set = (bool) $cr['current']['password'];
+	$may = !$ro && $cr['can_set'];
+	$q = fn(string $text) => (new CSpan('?'))->addClass('ep-q')->setAttribute('tabindex', '0')->setAttribute('title', $text)->setAttribute('aria-label', $text);
+	$crow = fn($label, $value) => (new CDiv([$label, $value]))->addClass('ep-cr');
+	$said = $set
+		? ($rec !== null ? _s('Set %1$s by %2$s', date('Y-m-d', (int) $rec['at']), (string) $rec['by']) : _('Set outside this page'))
+		: _('Not set');
+	$pwShown = !$set && $may;
+	$pwCell = (new CDiv([
+		(new CDiv([(new CSpan(''))->addClass($set ? 'ep-dot' : 'ep-dot ep-dot-off'), new CSpan($said),
+			$may && $set ? (new CTag('button', true, _('Change')))->setAttribute('type', 'button')->addClass('ep-lnk')->setId('c-pw-change')
+				->setAttribute('onclick', "document.getElementById('c-pw-new').hidden=false;document.getElementById('c-pw-action').value='set';document.getElementById('c-pw-set').hidden=true;document.getElementById('c-pw').focus();") : ''
+		]))->addClass('ep-ln')->setId('c-pw-set'),
+		(new CDiv([
+			(new CTag('input', false))->setAttribute('type', 'password')->setAttribute('name', 'es_password')->setAttribute('value', '')->setId('c-pw')
+				->setAttribute('autocomplete', 'new-password')->setAttribute('placeholder', _('New password'))->setAttribute('aria-label', _('New default password'))->addClass('ep-in'),
+			$set ? (new CTag('button', true, _('Keep current')))->setAttribute('type', 'button')->addClass('ep-lnk')
+				->setAttribute('onclick', "document.getElementById('c-pw-new').hidden=true;document.getElementById('c-pw').value='';document.getElementById('c-pw-action').value='keep';document.getElementById('c-pw-set').hidden=false;") : ''
+		]))->addClass('ep-ln')->setId('c-pw-new')->setAttribute($pwShown ? 'data-open' : 'hidden', $pwShown ? '1' : 'hidden'),
+		(new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'es_password_action')->setAttribute('value', $pwShown ? 'set' : 'keep')->setId('c-pw-action')
+	]));
+	$user = (new CTag('input', false))->setAttribute('type', 'text')->setAttribute('name', 'es_user')->setAttribute('value', (string) ($cr['current']['user'] ?? ''))
+		->setId('c-user')->setAttribute('placeholder', 'elastic')->addClass('ep-in');
+	if (!$may) {
+		$user->setAttribute('readonly', 'readonly');
+	}
+	$names = $u['override_names'] ?? [];
+	$credCard = (new CDiv([
+		(new CDiv([new CTag('h4', true, _('Default credential')),
+			$q(_('Stored as a global Zabbix secret macro. Every cluster host inherits it unless it overrides it with its own.'))]))->addClass('ep-ln ep-cttl'),
+		$crow(new CLabel([_('User'), (new CSpan('*'))->addClass('ep-req')], 'c-user'), $user),
+		$crow((new CDiv([_('Password'), (new CSpan('*'))->addClass('ep-req')]))->addClass('ep-l'), $pwCell),
+		(new CDiv($set ? _('Change replaces it everywhere a cluster uses the default. Editing the user never touches the password.')
+			: _('Typed once; never shown again.')))->addClass('ep-chint'),
+		$crow((new CDiv(_('Kept in')))->addClass('ep-l'), (new CDiv([new CSpan(_('Zabbix secret + ElasticPro')),
+			$q(_('A global secret macro in Zabbix, and handed to the ElasticPro core encrypted. Neither can show it back.'))]))->addClass('ep-ln')),
+		$crow((new CDiv(_('Used by')))->addClass('ep-l'), (new CDiv(array_merge([new CTag('b', true, _s('%1$s of %2$s clusters', $u['default'], $u['clusters'])), ' · ',
+			new CSpan(_s('%1$s override', $u['override']))], $names ? [' ', (new CSpan('('.implode(', ', array_slice($names, 0, 8)).(count($names) > 8 ? ', …' : '').')'))->addClass('ep-muted')] : [],
+			$u['template'] ? [' · ', (new CSpan(_s('%1$s hidden by a template', $u['template'])))->setAttribute('title', implode(', ', $u['hidden_by']))] : [],
+			$u['none'] ? [' · ', new CSpan(_s('%1$s with no credential', $u['none']))] : [])))->addClass('ep-ln')),
+		$crow((new CDiv(_('Zabbix macro')))->addClass('ep-l'), (new CSpan(_('global secret macro, inherited by cluster hosts')))->addClass('ep-mono')),
+		$cr['can_set'] ? null : (new CDiv(_('Setting it writes global macros, which needs a Zabbix Super admin.')))->addClass('ep-chint')
+	]))->addClass('ep-card ep-cred');
+	$credForm = (new CForm('post', $url('ep.clients.credential.save')))
+		->addVar(CSRF_TOKEN_NAME, CCsrfTokenHelper::get('ep.clients.credential.save'))->setId('ep-credential-form')
+		->addItem(new CTag('h3', true, _('Default Elasticsearch credential')))
+		->addItem($credCard);
+	if ($may) {
+		$credForm->addItem((new CDiv([(new CSpan(_('A cluster set to "This cluster only" keeps its own credential.')))->addClass('ep-muted'),
+			new CRedirectButton(_('Cancel'), $url('ep.clients.settings')), new CSubmit('save_credential', _('Save'))]))->addClass('ep-bar ep-cbar'));
+	}
+}
+
 // Which build of the modules this is, read from the manifest and the BUILD file the release archive
 // carries (lib/Build.php). A plain string in a CDiv, so Zabbix escapes it.
 $build = (new CDiv(\Modules\EpClients\Lib\Build::line()))->addClass('ep-build');
 
-$page->addItem((new CDiv(array_merge($top, [$form, $build])))->addClass('ep-set'))->show();
+$page->addItem((new CDiv(array_merge($top, [$form], $credForm !== null ? [$credForm] : [], [$build])))->addClass('ep-set'))->show();
 ?>
 <style><?php readfile(__DIR__.'/css/ep.hint.css'); readfile(__DIR__.'/css/ep.clients.settings.css'); ?></style>
 <script><?php readfile(__DIR__.'/js/ep.clients.settings.js'); ?></script>

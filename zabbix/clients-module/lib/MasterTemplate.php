@@ -29,7 +29,7 @@ class MasterTemplate {
 	 * template's contents follow the site's roles rather than a fixed generation, so
 	 * TemplateInstaller compares {$EP.ROLES.HASH} for it instead.
 	 */
-	public const VERSION = '3';
+	public const VERSION = '4';
 
 	/**
 	 * The name this template is installed and linked under: the mapping on the Roles page, or
@@ -125,7 +125,8 @@ class MasterTemplate {
 			['{$ES.USERNAME}', 'elastic', 'Elasticsearch user for the cluster and log archive hosts.'],
 			['{$EP.ES.PASSWORD.MODE}', 'vault', 'Where the Elasticsearch password is kept: vault (a path:key) or zabbix (a secret macro on the cluster host).'],
 			['{$ES.PASSWORD.PATH}', '', 'Vault path:key of the Elasticsearch password.'],
-			['{$EP.MONITORED.BY}', '', 'The Zabbix proxy (proxy:<name>) or proxy group (group:<name>) monitoring the client\'s hosts, or jump (Elasticsearch through an SSH jump host). Empty: the Zabbix server.'],
+			['{$EP.MONITORED.BY}', '', 'The Zabbix proxy (proxy:<name>) or proxy group (group:<name>) monitoring the client\'s cluster host, or jump (Elasticsearch through an SSH jump host). Empty: the Zabbix server.'],
+			['{$EP.SERVERS.MONITORED.BY}', '', 'The one proxy (proxy:<name>), proxy group (group:<name>) or server monitoring all the client\'s Linux role hosts. Empty: as the cluster host (the Zabbix server through a jump host).'],
 			['{$EP.JUMP.HOST}', '', 'Jump host address, as the Zabbix server reaches it.'],
 			['{$EP.JUMP.PORT}', '22', 'Jump host SSH port.'],
 			['{$EP.JUMP.USER}', '', 'SSH user on the jump host.'],
@@ -137,6 +138,9 @@ class MasterTemplate {
 			['{$EP.ES.APIKEY.PATH}', '', 'Vault path:key of the read-only Elasticsearch API key used through the jump host.'],
 			['{$EP.CLIENT.STATUS}', 'active', 'active, disabled or decommissioned. Set by Cluster Management; maintenance is read from Zabbix.'],
 			['{$EP.LEAD}', '', 'SOC / Manager lead of this client.'],
+			['{$EP.NOTES}', '', 'Notes about this client. Set by Cluster Management.'],
+			['{$EP.RETENTION.DAYS}', '', 'Days of data the client keeps. Empty: not set. Shown by Cluster Management; nothing reads it yet.'],
+			['{$EP.BACKUP.GB}', '', 'Backup capacity the client bought, in GB. Empty: not set. Shown by Cluster Management; nothing reads it yet.'],
 			['{$EP.DL}', '', 'The cluster DL: the mailing list for this client.'],
 			['{$EP.CONTRACT.END}', '', 'Contract end date, YYYY-MM-DD.'],
 			['{$ULM.S3.BUCKET}', '(not set)', 'This client\'s archive bucket.'],

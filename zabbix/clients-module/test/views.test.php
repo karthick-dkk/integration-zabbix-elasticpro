@@ -6,7 +6,7 @@
  *   EP_VIEWS_OUT=/dir php test/views.test.php   also writes list.html, list-ro.html, edit.html, edit-ro.html, add.html,
  *                                                import.html, import-errors.html, import-done.html
  *
- * What it holds the pages to: the list's row is one pencil and no text links; the client page
+ * What it holds the pages to: the list's row has one Edit link and the board's columns; the client page
  * carries the status and the list's old actions for a client that exists and none for a new one;
  * and the form posts every field it did before, to the same action, with a token.
  */
@@ -73,7 +73,7 @@ namespace {
 	}
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions', 'EpRole'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions', 'EpRole', 'Reconciler', 'Discovery', 'ListColumns'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	$dir = sys_get_temp_dir().'/ep-views-'.getmypid();
@@ -111,9 +111,12 @@ namespace Modules\EpClients\Test {
 	$client = fn(string $name, string $status, array $x = []) => $x + ['name' => $name, 'masterid' => '1'.crc32($name) % 90, 'status' => $status, 'maintenance' => null,
 		'type' => 'CI', 'es_url' => 'https://es.'.$name.'.example:9200', 'jump' => '', 'archive' => '', 'lead' => 'Asha Rao', 'dl' => 'soc-'.$name.'@example.com',
 		'contract_end' => '', 'machines' => '3 ES · 1 Parser', 'unassigned' => 0, 'shared' => 0, 'removed' => [], 'changed' => [], 'checks' => [], 'problems' => [],
-		'full_in' => null, 'over' => [], 'change' => null, 'search' => $name, 'master_missing' => false];
+		'full_in' => null, 'over' => [], 'change' => null, 'search' => $name, 'master_missing' => false,
+		'cluster_host' => $name.'-ES-Cluster', 'beside' => [], 'password' => 'default', 'last_seen' => time() - 120, 'missing' => [],
+		'roles' => ['es_data_hot' => ['family' => 'es', 'n' => 3, 'requested' => 3, 'hosts' => ['10.0.0.1 · es-1', '10.0.0.2 · es-2', '10.0.0.3 · es-3'], 'shared' => 0],
+			'parser' => ['family' => 'parser', 'n' => 0, 'requested' => 1, 'hosts' => [], 'shared' => 0]]];
 	$clients = [
-		$client('acme', 'active'),
+		$client('acme', 'active', ['missing' => [['key' => 'password_core', 'text' => 'ElasticPro has not been given it', 'fix' => 'x']], 'beside' => ['Old ES template']]),
 		$client('globex', 'active', ['maintenance' => ['since' => time() - 600, 'till' => time() + 3600, 'collect' => true, 'reason' => 'ES upgrade'],
 			'changed' => [['name' => 'globex-ES-1', 'now' => 'old-name', 'why' => 'renamed']]]),
 		$client('initech', 'disabled'),
@@ -121,26 +124,36 @@ namespace Modules\EpClients\Test {
 		$client('lost', 'active', ['masterid' => null, 'master_missing' => true]),
 	];
 	$listData = fn(bool $write) => ['clients' => $clients, 'can_write' => $write, 'store_ok' => true, 'store_dir' => $dir, 'template' => 'current',
-		'candidates' => [], 'backups' => 3, 'forecast' => []];
+		'not_adopted' => 3, 'columns' => \Modules\EpClients\Lib\ListColumns::defaults(\Modules\EpClients\Lib\Roles::defaults()), 'backups' => 3, 'forecast' => []];
 	$list = render('ep.clients.list', $listData(true));
 	$dump('list', $list);
 	$lb = body($list);
 	preg_match_all('~<tr data-tabs=.*?</tr>~s', $lb, $rows);
 	check('the list has a row per client', count($rows[0]) === 5, count($rows[0]));
 	$acts = fn(string $row) => preg_match('~<div class="ep-acts">(.*?)</div></td></tr>~s', $row, $m) ? $m[1] : '';
-	foreach (['Edit', 'Maintenance…', 'Extend…', 'Disable', 'Enable', 'Dashboard', 'Clone', 'Put back', 'Decommission', 'Restore', 'Delete for good…', 'End maintenance'] as $text) {
+	foreach (['Maintenance…', 'Extend…', 'Disable', 'Enable', 'Dashboard', 'Clone', 'Put back', 'Decommission', 'Restore', 'Delete for good…', 'End maintenance'] as $text) {
 		foreach ($rows[0] as $i => $row) {
 			if ($i === 4) { continue; }
-			check("row $i has no \"$text\" text action", !preg_match('~>'.preg_quote($text, '~').'</(a|button)>~u', $acts($row)));
+			check("row $i has no \"$text\" action: those are on the client's page", !preg_match('~>'.preg_quote($text, '~').'</(a|button)>~u', $acts($row)));
 		}
 	}
 	foreach ($rows[0] as $i => $row) {
 		if ($i === 4) { continue; }
 		$a = $acts($row);
-		check("row $i has exactly one control, the edit pencil", substr_count($a, '<a ') + substr_count($a, '<button') + substr_count($a, '<form') === 1 && str_contains($a, 'class="ep-edit"'), $a);
-		check("row $i's pencil opens that client's page and is labelled", str_contains($a, 'action=ep.clients.edit&amp;client='.$clients[$i]['name'])
-			&& str_contains($a, 'aria-label="Edit '.$clients[$i]['name'].'"') && str_contains($a, 'title="Edit '.$clients[$i]['name'].'"'), $a);
+		check("row $i has exactly one control, Edit, opening that client's page", substr_count($a, '<a ') + substr_count($a, '<button') + substr_count($a, '<form') === 1
+			&& str_contains($a, 'class="ep-edit"') && str_contains($a, 'action=ep.clients.edit&amp;client='.$clients[$i]['name']) && str_contains($a, '>Edit</a>'), $a);
 	}
+	check('the board\'s columns: Client, a column per role family that has servers, Templates, Password, Last seen, Missing; no Problems, no Disk full in',
+		str_contains($lb, 'data-col="family:es">ES<') && !str_contains($lb, 'data-col="family:engine"') && str_contains($lb, '>Templates<') && str_contains($lb, '>Password<')
+		&& str_contains($lb, '>Last seen<') && str_contains($lb, '>Missing<') && !str_contains($lb, '>Problems<') && !str_contains($lb, '>Disk full in<'));
+	check('a family the plan asks for and no server holds: "0 of 1"', str_contains($lb, 'data-col="family:parser"') && str_contains($lb, '0 of 1'));
+	check('the role count lists IP · server name on hover', str_contains($lb, 'title="10.0.0.1 · es-1'));
+	check('the cluster host under the client, the older template beside, the Missing chip', str_contains($lb, 'acme-ES-Cluster') && str_contains($lb, '+ 1 older beside')
+		&& str_contains($lb, '>Missing 1</a>'));
+	check('the filters at the top, the summary line in the footer under the table', str_contains($lb, 'data-filter="missing"') && str_contains($lb, 'id="ep-status"')
+		&& strpos($lb, 'class="ep-sumline"') > strpos($lb, '</tbody></table></div>') && str_contains($lb, '3 hosts not adopted') && str_contains($lb, '1 with missing pieces'));
+	check('empty role columns are hidden and named in the footer', str_contains($lb, 'role columns hidden:') && str_contains($lb, 'Trino (ULM)'));
+	check('the Columns popover posts to its action with a token', str_contains($lb, 'action="zabbix.php?action=ep.clients.columns.save"') && str_contains($lb, 'value="tok-ep.clients.columns.save"'));
 	check('a client whose master host is gone keeps Re-create and Forget on the list, as it has no page to open',
 		str_contains($acts($rows[0][4]), '>Re-create</button>') && str_contains($acts($rows[0][4]), '>Forget</button>') && !str_contains($acts($rows[0][4]), 'ep-edit'));
 	check('the list still offers the bulk bar and the Maintenance and Delete dialogs', str_contains($lb, 'id="ep-bulk"') && str_contains($lb, 'id="ep-maint"') && str_contains($lb, 'id="ep-delete"'));
@@ -148,7 +161,8 @@ namespace Modules\EpClients\Test {
 	$ro = render('ep.clients.list', $listData(false));
 	$dump('list-ro', $ro);
 	preg_match_all('~<tr data-tabs=.*?</tr>~s', body($ro), $rrows);
-	check('read only: one labelled "View" pencil per row, no dialogs', str_contains($acts($rrows[0][0]), 'aria-label="View acme"') && !str_contains(body($ro), 'id="ep-maint"'));
+	check('read only: one "View" link per row, no dialogs, no Columns popover', str_contains($acts($rrows[0][0]), 'aria-label="View acme"') && !str_contains(body($ro), 'id="ep-maint"')
+		&& !str_contains(body($ro), 'id="ep-cols"'));
 	$ro = render('ep.clients.list', ['write_note' => ['Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.', null]] + $listData(false));
 	check('read only: the list says who may edit and this person\'s ElasticPro role',
 		str_contains(body($ro), '<div class="ep-note">Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator. You see the clients whose hosts you may read.</div>'), body($ro));
@@ -167,6 +181,8 @@ namespace Modules\EpClients\Test {
 	check('an editor who is not a Super admin gets the same buttons but no Backups',
 		!str_contains($nav($nb), 'Backups') && str_contains($nav($nb), '<button>Import / export</button>')
 		&& str_contains($nav($nb), '<button>Roles</button>') && str_contains($nav($nb), '<button>Add client</button>'), $nav($nb));
+	check('an editor, Super admin or not, is offered Discover clusters first', str_contains($nav($list), '<button>Discover clusters</button>')
+		&& str_contains($nav($nb), '<button>Discover clusters</button>') && strpos($nav($nb), 'Discover clusters') < strpos($nav($nb), 'Import / export'));
 	check('a read-only list has no header buttons at all', !str_contains($nav(render('ep.clients.list', ['backups' => null] + $listData(false))), '<button'));
 
 	/* ---------------- the client page ---------------- */
@@ -234,6 +250,123 @@ namespace Modules\EpClients\Test {
 		!str_contains($ab, 'class="ep-head"') && !str_contains($ab, 'ep-st ') && !str_contains($ab, 'name="op"') && !str_contains($ab, 'data-open-maint')
 		&& !str_contains($ab, 'id="ep-maint"') && !str_contains($ab, 'host.dashboard.view') && !str_contains($ab, 'data-open-release') && !str_contains($ab, 'id="ep-release"'));
 
+	/* ---------------- Discover clusters (the approved board) ---------------- */
+	$hostRow = fn(array $x) => $x + ['hostid' => '1', 'host' => 'h', 'name' => 'h', 'kind' => 'server', 'ip' => '10.0.0.1', 'proxy_label' => 'Zabbix server', 'monitored_by' => '',
+		'already' => null, 'roles' => [], 'role_source' => null, 'server_name' => '', 'gaps' => [], 'source' => 'group', 'source_detail' => 'host group "x"', 'generation' => null,
+		'es' => null, 'groups' => [], 'templates' => [], 'es_templates' => []];
+	$planOf = fn(array $x) => $x + ['blockers' => [], 'skipped' => [], 'adopting' => 0, 'moves' => [], 'writes' => [], 'cluster' => null, 'servers' => [], 'form' => []];
+	$scanData = ['at' => 1790000000, 'notes' => ['Not proposed — stray-es.'], 'proxies' => ['proxy-dc1', 'proxy-dc2'], 'proxy_groups' => [],
+		'unattached' => [$hostRow(['host' => 'lonely', 'source_detail' => 'nothing points at a cluster'])],
+		'proposals' => [
+			['id' => 'p1', 'name' => 'globex-prod', 'status' => 'new', 'source' => 'cluster', 'cluster' => 'globex-prod',
+				'hosts' => [
+					$hostRow(['hostid' => '10', 'host' => 'globex-prod', 'kind' => 'cluster', 'generation' => 'unrecognised', 'groups' => ['Prod Elasticsearch'],
+						'templates' => ['Old ES template'], 'es_templates' => ['Old ES template'], 'es' => ['password' => 'secret', 'url' => 'https://es.g:9200']]),
+					$hostRow(['hostid' => '11', 'host' => '10.3.0.1', 'ip' => '10.3.0.1', 'name' => 'gx-data-a', 'server_name' => 'gx-data-a', 'roles' => ['es_data_hot'], 'role_source' => 'group']),
+					$hostRow(['hostid' => '12', 'host' => 'kfk-1', 'ip' => '10.3.0.2', 'roles' => ['forwarder'], 'role_source' => 'kafka', 'gaps' => ['kafka: confirm Forwarder or Parser']])],
+				'choices' => ['selected' => true, 'name' => 'globex-prod', 'hosts' => ['10' => true, '11' => true, '12' => true], 'roles' => ['11' => ['es_data_hot'], '12' => ['forwarder']],
+					'move' => ['11' => true], 'es_url' => 'https://es.g:9200', 'password' => ''],
+				'missing' => [['key' => 'client_group', 'text' => 'No client group', 'fix' => 'Adopting creates it'], ['key' => 'password_core', 'text' => 'ElasticPro has not been given it', 'fix' => 'Change password']],
+				'plan' => $planOf(['adopting' => 3, 'cluster' => ['host' => 'globex-prod'], 'form' => ['monitored_by' => '', 'servers_monitored_by' => 'server'],
+					'servers' => ['11' => ['row' => ['host' => '10.3.0.1', 'monitored_by' => '']]],
+					'writes' => [['backup', 'Take a backup'], ['group', 'Create host group "globex-prod".'], ['link', 'Link to "globex-prod", directly and in one step (host.massadd): "Elasticsearch Cluster by HTTP EP".']]])],
+			['id' => 'p3', 'name' => 'blocked-es', 'status' => 'new', 'source' => 'cluster', 'cluster' => 'blocked-es',
+				'hosts' => [$hostRow(['hostid' => '30', 'host' => 'blocked-es', 'kind' => 'cluster', 'generation' => 'none', 'es' => ['password' => 'none', 'url' => '']])],
+				'choices' => ['selected' => false, 'name' => 'blocked-es', 'hosts' => [], 'roles' => [], 'move' => [], 'es_url' => '', 'password' => ''],
+				'missing' => [], 'plan' => $planOf(['blockers' => ['No host is ticked that can be adopted.']])],
+			['id' => 'p2', 'name' => 'acme', 'status' => 'client', 'source' => 'cluster', 'cluster' => 'acme-ES-Cluster',
+				'hosts' => [$hostRow(['hostid' => '20', 'host' => 'acme-ES-Cluster', 'kind' => 'cluster', 'already' => 'acme', 'generation' => 'current'])],
+				'choices' => ['selected' => false, 'name' => 'acme', 'hosts' => [], 'roles' => [], 'move' => [], 'es_url' => '', 'password' => ''], 'missing' => [], 'plan' => $planOf([])]
+		]];
+	$disc = render('ep.clients.discover', ['scan' => $scanData, 'token' => 'tk', 'error' => null, 'results' => null, 'store_ok' => true, 'store_dir' => $dir, 'can_write' => true,
+		'roles' => \Modules\EpClients\Lib\Roles::defaults()]);
+	$dump('discover', $disc);
+	$db = body($disc);
+	check('discover: the form posts to the apply action with its token and the scan token', str_contains($db, 'action="zabbix.php?action=ep.clients.discover.apply"')
+		&& str_contains($db, 'value="tok-ep.clients.discover.apply"') && str_contains($db, 'name="token" value="tk"'));
+	check('discover: the rule box, and one row per cluster', str_contains($db, 'is a cluster. Its host name becomes the cluster name') && substr_count($db, 'data-proposal=') === 3);
+	check('discover: the new cluster ticked, its name editable', str_contains($db, 'name="sel[p1]" value="1" checked="checked" id="sel_p1"') && str_contains($db, 'name="name[p1]" value="globex-prod"'));
+	check('discover: a refused row cannot be ticked, and says why', (bool) preg_match('~name="sel\[p3\]"[^>]*disabled~', $db) && str_contains($db, 'Refused until fixed'));
+	check('discover: already a client hidden by default behind its switch', (bool) preg_match('~<tr[^>]*class="ep-already"[^>]*hidden="hidden"~', $db) && str_contains($db, 'Show hosts that are already a client (1)'));
+	check('discover: host groups, "no client group: will create", templates with their generation', str_contains($db, 'Prod Elasticsearch') && str_contains($db, 'no client group: will create globex-prod')
+		&& str_contains($db, 'Old ES template') && str_contains($db, 'name not known here · kept beside'));
+	check('discover: role hosts as IP · server name, the kafka host with its dropdown and flag', str_contains($db, '10.3.0.1</span> · gx-data-a') && str_contains($db, 'name="role[p1][12][]"')
+		&& str_contains($db, 'value="kafka:forwarder" selected="selected"') && str_contains($db, 'kafka: confirm Forwarder or Parser'));
+	check('discover: Missing N with its reasons, and the kafka role to confirm', str_contains($db, 'Missing 2') && str_contains($db, 'no client group · password not given to ElasticPro')
+		&& str_contains($db, '1 role to confirm (kafka)'));
+	check('discover: the summary: two proxy choices, what it writes, the five templates by name, one confirm', str_contains($db, 'name="proxy_es"') && str_contains($db, 'name="proxy_linux"')
+		&& str_contains($db, 'Adopting 1 selected will:') && str_contains($db, 'delete nothing') && str_contains($db, 'linked directly to each cluster host')
+		&& str_contains($db, 'Adopt selected (1)') && str_contains($db, 'name="do" value="adopt"'));
+	check('discover: an optional password field in the details, always empty', str_contains($db, 'name="pw[p1]" value=""'));
+	check('discover: the unattached role host and the note are shown', str_contains($db, 'lonely') && str_contains($db, 'stray-es'));
+	$settingsView = (string) file_get_contents(__DIR__.'/../views/ep.clients.settings.php');
+	check('settings: the default credential has its own form, a keep-marker, and never a password value',
+		str_contains($settingsView, "ep.clients.credential.save") && str_contains($settingsView, "'es_password_action'") && !preg_match("~'es_password'\)->setAttribute\('value', \$~", $settingsView));
+
+	/* ---------------- the password: never shown, a keep-marker, "Change password" ---------------- */
+	preg_match('~<input type="password" id="es_password"[^>]*>~', $ab, $pwi);
+	check('a new client shows the password field, marked "set"', isset($pwi[0]) && !str_contains($pwi[0], 'hidden') && str_contains($ab, 'name="es_password_action" value="set"'), $pwi);
+	$kept = render('ep.clients.edit', $edit(['password' => ['stored' => true, 'record' => ['at' => 1790000000, 'by' => 'alice', 'core' => true, 'core_error' => null]]],
+		['es_password_mode' => 'zabbix']));
+	$kb = body($kept);
+	preg_match('~<input type="password" id="es_password"[^>]*>~', $kb, $pwi);
+	check('a kept password: no field until "Change", and the marker says keep', str_contains($kb, 'id="ep-pw-new" hidden')
+		&& str_contains($kb, 'name="es_password_action" value="keep"') && str_contains($kb, 'id="ep-pw-change"') && str_contains($kb, 'id="ep-pw-keep"'), $pwi);
+	check('…it says who set it and when, and nothing about ElasticPro lacking it', (bool) preg_match('~Set \d{4}-\d{2}-\d{2} by alice~', $kb) && !str_contains($kb, 'ElasticPro was not given it'));
+	check('…and never a value in the password field', !preg_match('~id="es_password"[^>]*value="[^"]+~', $kb));
+	$legacyPw = body(render('ep.clients.edit', $edit(['password' => ['stored' => true, 'record' => null]], ['es_password_mode' => 'zabbix'])));
+	check('a password kept from before this page recorded it says so, and that ElasticPro lacks it', str_contains($legacyPw, 'Set outside this page; ElasticPro was not given it'));
+	$roPw = body(render('ep.clients.edit', $edit(['can_write' => false, 'password' => ['stored' => true, 'record' => null]], ['es_password_mode' => 'zabbix'])));
+	check('read only: no "Change password"', !str_contains($roPw, 'id="ep-pw-change"'));
+	$miss = body(render('ep.clients.edit', $edit(['missing' => [['key' => 'password_core', 'text' => 'ElasticPro has not been given it', 'fix' => 'Press Change password']]])));
+	check('the Missing panel lists each item with what to do', str_contains($miss, 'ep-missing') && str_contains($miss, 'data-missing="password_core"')
+		&& str_contains($miss, 'Press Change password'));
+
+	/* ---------------- the client page (board Client-page) and the compact form (board Edit-after) ---------------- */
+	$cp = body(render('ep.clients.edit', $edit(['missing' => [
+			['key' => 'role_confirm', 'text' => 'Role to confirm: 10.0.0.9 · kfk is a Kafka server', 'fix' => 'Confirm Forwarder or Parser'],
+			['key' => 'old_generation', 'text' => 'An older template generation is still linked', 'fix' => 'It stays beside']],
+		'by_role' => ['es_data_hot' => [['ip' => '10.0.0.11', 'name' => 'es-hot-1', 'host' => '10.0.0.11', 'confirm' => ''], ['ip' => '10.0.0.12', 'name' => '', 'host' => '10.0.0.12', 'confirm' => '']],
+			'forwarder' => [['ip' => '10.0.0.9', 'name' => 'kfk', 'host' => '10.0.0.9', 'confirm' => 'kafka']]],
+		'cluster_info' => ['host' => 'acme-ES-Cluster', 'hostid' => '501', 'templates' => ['Elasticsearch Cluster by HTTP EP', 'Old ES template', 'Odd ES template', 'Linux extra'],
+			'beside' => ['known' => ['Old ES template'], 'unknown' => ['Odd ES template']]], 'master_host' => 'acme-Master',
+		'last_seen' => 0, 'full_in' => null, 'forecast' => [],
+		'default_credential' => ['set' => true, 'user' => 'svc', 'record' => ['at' => 1790000000, 'by' => 'alice']], 'proxy_groups' => []],
+		['servers_monitored_by' => 'server', 'retention_days' => '', 'backup_gb' => '250'])));
+	$dump('client-page', $cp);
+	check('client page: the five tabs, Overview first and open', str_contains($cp, 'data-tab="overview" aria-selected="true"') && str_contains($cp, 'data-tab="servers"')
+		&& str_contains($cp, 'data-tab="templates"') && str_contains($cp, 'data-tab="connection"') && str_contains($cp, 'data-tab="backups"')
+		&& str_contains($cp, 'data-panel="overview">') && str_contains($cp, 'data-panel="form" hidden'));
+	check('client page: the Missing panel at the top of Overview, each line with its Fix', strpos($cp, 'id="ep-missing"') < strpos($cp, 'Servers by role')
+		&& str_contains($cp, 'Missing: 2 things could not be determined or set') && str_contains($cp, 'data-goto="servers">Fix: Servers &amp; roles')
+		&& str_contains($cp, 'data-goto="templates">Fix: Templates'));
+	check('client page: Beside names the older generation and the template whose name is not known here, not "none"',
+		(bool) preg_match('~ep-k">Beside</div><div><span class="ep-flag">Old ES template</span>.*Odd ES template</span> <span class="ep-hint">name not known here~', $cp));
+	check('client page: the Templates tab says what each linked template is', str_contains($cp, 'Old ES template</td><td class="ep-hint">older generation, kept beside')
+		&& str_contains($cp, 'Odd ES template</td><td class="ep-hint">gives the Elasticsearch items under a name this module does not know')
+		&& str_contains($cp, 'Linux extra</td><td class="ep-hint">another template, left as it is'));
+	check('client page: servers by role as IP · server name, unknown said, kafka flagged, empty roles "none"', str_contains($cp, '10.0.0.11</span> · es-hot-1')
+		&& str_contains($cp, '10.0.0.12</span> · <span class="ep-hint">server name unknown') && str_contains($cp, 'kafka: confirm Forwarder or Parser')
+		&& (bool) preg_match('~ep-k">Parser</div><div><span class="ep-hint">none~', $cp));
+	check('client page: last seen never, disk full unknown, retention not set, backup 250 GB', str_contains($cp, 'Last seen</div><div><span class="ep-hint">never')
+		&& str_contains($cp, 'unknown: not measured yet') && str_contains($cp, 'Retention</div><div><span class="ep-hint">not set') && str_contains($cp, '250 GB'));
+	check('client page: the Templates tab names each template and what it is; the ones not linked yet', str_contains($cp, '<td>Linux extra</td><td class="ep-hint">another template, left as it is')
+		&& str_contains($cp, 'not linked yet: saving links it'));
+	check('form: Client | Connection, Servers & roles, Capacity | Log archive, and the action bar', strpos($cp, 'id="ep-card-client"') < strpos($cp, 'id="ep-card-connection"')
+		&& strpos($cp, 'id="ep-card-connection"') < strpos($cp, 'id="ep-card-servers"') && strpos($cp, 'id="ep-card-servers"') < strpos($cp, 'id="ep-card-capacity"')
+		&& strpos($cp, 'id="ep-card-capacity"') < strpos($cp, 'id="ep-archive"') && str_contains($cp, 'id="ep-dirty"'));
+	check('form: "This DL receives" alert e-mails and the weekly report; notes', str_contains($cp, 'This DL receives') && str_contains($cp, 'name="alert_dl"')
+		&& str_contains($cp, 'name="weekly_report"') && str_contains($cp, 'name="client_notes"'));
+	check('form: Credential Default / This cluster only, the default named with who set it', str_contains($cp, 'Default (svc, set ') && str_contains($cp, 'This cluster only')
+		&& str_contains($cp, 'name="es_password_mode"') && str_contains($cp, 'Change default in Settings'));
+	check('form: Route Direct / Jump host and the cluster host\'s Zabbix proxy, default the Zabbix server', str_contains($cp, 'name="ep_route"') && str_contains($cp, 'id="ep_es_proxy"')
+		&& str_contains($cp, 'Zabbix server (default)') && str_contains($cp, 'name="monitored_by"'));
+	check('form: Linux hosts monitored by, its own choice, set to the Zabbix server', (bool) preg_match('~<select aria-describedby="ep-tip-srv" id="servers_monitored_by" name="servers_monitored_by">.*?<option value="server" selected>Zabbix server \(default\)~s', $cp));
+	check('form: Retention and Backup capacity, empty shown as "not set"', str_contains($cp, 'name="retention_days" value="" placeholder="not set"') && str_contains($cp, 'name="backup_gb" value="250"'));
+	check('form: the contract end the compact form does not show is still posted, so a save never blanks it', str_contains($cp, 'type="hidden" name="contract_end" value="2027-03-31"'));
+	$addP = body(render('ep.clients.edit', ['mode' => 'add', 'has_cluster' => false, 'status' => 'active', 'masterid' => null, 'form' => $spec->newForm() + $form] + $base));
+	check('a new client: no tabs, the form shown at once', !str_contains($addP, 'role="tablist"') && str_contains($addP, 'data-panel="form">'));
+
 	// The form: the same action, token and fields as before.
 	foreach (['edit' => $pb, 'add' => $ab] as $which => $b) {
 		check("$which: the form posts to the save action with its token", str_contains($b, '<form method="post" action="zabbix.php?action=ep.clients.save"')
@@ -243,6 +376,7 @@ namespace Modules\EpClients\Test {
 		preg_match_all('~<(?:input|select|textarea)\b[^>]*\bname="([^"]+)"~', $f[0] ?? '', $m);
 		$names = array_unique($m[1]);
 		$want = ['mode', 'servers', 'name', 'type', 'purchased_by', 'purchased', 'purchased_devices', 'lead_name', 'cluster_dl', 'alert_dl', 'weekly_report', 'contract_end',
+			'client_notes', 'retention_days', 'backup_gb', 'servers_monitored_by', 'es_password_action',
 			'es_url', 'es_user', 'es_password_mode', 'es_password_path', 'es_password', 'monitored_by', 'jump_host', 'jump_port', 'jump_user', 'jump_key', 'jump_tls', 'jump_ca',
 			'es_apikey_path', 'ulm_bucket', 'ulm_region', 'ulm_auth', 'ulm_role_arn', 'ulm_external_id', 'ulm_access_key_id', 'ulm_secret_path', 'ulm_raw_prefix',
 			'ulm_enriched_prefix', 'agent_port', '_csrf_token'];

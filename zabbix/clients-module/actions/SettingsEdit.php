@@ -4,7 +4,7 @@ namespace Modules\EpClients\Actions;
 
 use API;
 use CControllerResponseData;
-use Modules\EpClients\Lib\{Bars, Roles, Settings, Store};
+use Modules\EpClients\Lib\{Bars, ClusterSecret, DefaultCredential, Roles, Settings, Store};
 
 /**
  * ElasticPro -> Settings: the site's own numbers, read by this page and all three report widgets.
@@ -36,6 +36,8 @@ class SettingsEdit extends Base {
 			'palette_labels' => self::paletteLabels(),
 			'can_write' => $this->canWrite(),
 			'write_note' => $this->writeNote(),
+			'credential' => ['current' => DefaultCredential::current(), 'usage' => DefaultCredential::usage(),
+				'record' => ClusterSecret::of(DefaultCredential::KEY), 'can_set' => $this->getUserType() == USER_TYPE_SUPER_ADMIN],
 			'store_ok' => Store::writable(),
 			'store_dir' => Store::dir()
 		]);

@@ -1,6 +1,6 @@
 /*
- * The client form's behaviour: the server list and its add/edit sheet, the name each server will
- * get, which requested-capacity rows show, and the segmented choices. The page itself is drawn
+ * The client form's behaviour: the server list and its add/edit sheet (IP = host name, server name =
+ * visible name), which requested-capacity rows show, and the segmented choices. The page itself is drawn
  * by ep.clients.edit.php; this only brings it to life and, on submit, writes the servers as JSON
  * into the form's `servers` field for ClientSpec to check.
  *
@@ -23,23 +23,17 @@
 			return parts.join('-');
 		},
 
-		/** Names in order: an existing host keeps a name that fits its roles; others take the next number. */
-		names(client, families, servers, existing) {
-			const taken = {};
-			const re = new RegExp('^' + client.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(.+)-(\\d+)$');
-			for (const n of Object.values(existing)) {
-				const m = re.exec(n);
-				if (m) (taken[m[1]] = taken[m[1]] || new Set()).add(Number(m[2]));
-			}
+		/**
+		 * What each server is called, in order: its host name is its IP (an existing host keeps the
+		 * host name it has, whatever it is), and its server name — the visible name — is the one
+		 * given, else the one it has, else none. Nothing is made up from the client and its roles.
+		 */
+		labels(servers, techNames, visibleNames) {
 			return servers.map((s) => {
-				const base = this.serverBase(families, s.roles);
-				const have = existing[s.ip];
-				const m = have ? re.exec(have) : null;
-				if (m && m[1] === base) return have;
-				const set = (taken[base] = taken[base] || new Set());
-				const n = set.size ? Math.max(...set) + 1 : 1;
-				set.add(n);
-				return client + '-' + base + '-' + n;
+				const tech = (techNames && techNames[s.ip]) || s.ip;
+				const visible = visibleNames && visibleNames[s.ip];
+				const name = s.host || (visible && visible !== tech && visible !== s.ip ? visible : '');
+				return { host: tech, name };
 			});
 		},
 
@@ -50,7 +44,7 @@
 			const byId = {};
 			families.forEach((f) => f.roles.forEach((r) => { byId[r.id] = Object.assign({ family: f.label }, r); }));
 			const order = Object.keys(byId);
-			let servers = (data.servers || []).map((s) => ({ ip: s.ip, roles: s.roles.slice(), services: (s.services || []).slice(), notes: s.notes || '', attrs: s.attrs || {} }));
+			let servers = (data.servers || []).map((s) => ({ ip: s.ip, roles: s.roles.slice(), services: (s.services || []).slice(), notes: s.notes || '', attrs: s.attrs || {}, host: s.host || '', confirm: s.confirm || '' }));
 			// Servers in Zabbix now that were removed here: shown until saved, and can be put back.
 			const removed = (data.current || []).filter((c) => !servers.some((s) => s.ip === c.ip))
 				.map((c) => ({ ip: c.ip, roles: c.roles.slice(), services: (c.services || []).slice(), notes: c.notes || '', attrs: c.attrs || {} }));
@@ -64,11 +58,12 @@
 			const segValue = (name) => (root.querySelector(`input[name="${name}"]:checked`) || {}).value;
 			const onSeg = (name, fn) => { $$(`input[name="${name}"]`).forEach((i) => i.addEventListener('change', fn)); fn(); };
 			onSeg('type', () => {
-				const di = segValue('type') === 'DI';
-				$('#ep-type-hint').textContent = di ? data.text.diHint : data.text.opHint;
-				const card = $('#ep-archive');
-				card.classList.toggle('ep-required', di);
-				if (di) openArchive(true);
+				const type = segValue('type');
+				$('#ep-type-hint').textContent = type === 'DI' ? data.text.diHint : data.text.opHint;
+				$('#ep-archive').classList.toggle('ep-required', type === 'DI');
+				// DI needs the archive, CI shows it; On-Prem keeps it folded unless a bucket is set.
+				$('#ep-archive-note').textContent = type === 'On-Prem' ? data.text.notOnPrem : '';
+				if (type !== 'On-Prem') openArchive(true);
 			});
 			onSeg('purchased_by', () => {
 				const dev = segValue('purchased_by') === 'devices';
@@ -76,15 +71,87 @@
 				$('#purchased_devices').hidden = !dev;
 				$('#ep-purchased-unit').textContent = dev ? data.text.devices : 'GB';
 			});
-			onSeg('es_password_mode', () => {
-				const z = segValue('es_password_mode') === 'zabbix';
-				$('#es_password_path').hidden = z;
-				$('#es_password').hidden = !z;
-				$('#ep-pw-hint').textContent = z ? data.text.pwZabbix : data.text.pwVault;
+
+			/* ---- credential: Default, or This cluster only (Zabbix + ElasticPro, or Vault) ---- */
+			const credMode = () => (segValue('ep_cred') === 'default' ? 'default' : ($('#ep_kept') ? $('#ep_kept').value : 'zabbix'));
+			function credential() {
+				const mode = credMode();
+				$('#es_password_mode').value = mode;
+				$('#ep-cred-default').hidden = mode !== 'default';
+				$('#ep-cred-own').hidden = mode === 'default';
+				$('#ep-pw-zabbix').hidden = mode !== 'zabbix';
+				$('#es_password_path').hidden = mode !== 'vault';
+				$('#ep-pw-hint').textContent = mode === 'default' ? data.text.pwDefault : (mode === 'vault' ? data.text.pwVault : data.text.pwZabbix);
+			}
+			$$('input[name="ep_cred"]').forEach((i) => i.addEventListener('change', credential));
+			if ($('#ep_kept')) $('#ep_kept').addEventListener('change', credential);
+			credential();
+			// "Change": the field, and the keep-marker turned to "set" — only then does a typed password
+			// count. "Keep current" takes both back.
+			const pwChange = $('#ep-pw-change');
+			if (pwChange) {
+				pwChange.addEventListener('click', () => {
+					$('#ep-pw-new').hidden = false;
+					$('#es_password_action').value = 'set';
+					$('#ep-pw-set').hidden = true;
+					$('#es_password').focus();
+				});
+			}
+			const pwKeep = $('#ep-pw-keep');
+			if (pwKeep) {
+				pwKeep.addEventListener('click', () => {
+					$('#es_password').value = '';
+					$('#ep-pw-new').hidden = true;
+					$('#es_password_action').value = 'keep';
+					$('#ep-pw-set').hidden = false;
+				});
+			}
+
+			/* ---- route and proxy: Direct through a Zabbix proxy (or the server), or a jump host ---- */
+			function route() {
+				const jump = segValue('ep_route') === 'jump';
+				$('#ep-jump-addr').hidden = !jump;
+				$('#ep-jump').hidden = !jump;
+				$('#ep-proxy-row').hidden = jump;
+				$('#monitored_by').value = jump ? 'jump' : $('#ep_es_proxy').value;
+			}
+			$$('input[name="ep_route"]').forEach((i) => i.addEventListener('change', route));
+			$('#ep_es_proxy').addEventListener('change', route);
+			route();
+			const tls = $('#jump_tls');
+			if (tls) { const paint = () => { $('#ep-jump-ca').hidden = tls.value !== 'ca'; }; tls.addEventListener('change', paint); paint(); }
+
+			/* ---- notes: one line, "more" opens a bigger box ---- */
+			const more = $('[data-ep-notes-more]');
+			if (more) more.addEventListener('click', () => {
+				const input = $('#client_notes');
+				const area = document.createElement('textarea');
+				area.id = input.id; area.name = input.name; area.value = input.value; area.maxLength = 2000; area.rows = 4;
+				input.replaceWith(area); more.hidden = true; area.focus();
 			});
+
+			/* ---- tabs (an existing client): Overview, the form, Templates, Backups ---- */
+			const panels = $$('.ep-panel');
+			function tab(name) {
+				const panel = name === 'servers' || name === 'connection' ? 'form' : name;
+				panels.forEach((p) => { p.hidden = p.dataset.panel !== panel; });
+				$$('[role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+				const card = name === 'servers' ? $('#ep-card-servers') : (name === 'connection' ? $('#ep-card-connection') : null);
+				if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
+			}
+			$$('[role="tab"]').forEach((b) => b.addEventListener('click', () => tab(b.dataset.tab)));
+			$$('[data-goto]').forEach((b) => b.addEventListener('click', () => tab(b.dataset.goto)));
+			// A save that came back with something to fix opens on the form, not on Overview.
+			if (data.openForm && panels.length) tab('connection');
+
+			/* ---- unsaved changes ---- */
+			const dirty = $('#ep-dirty');
+			const mark = () => { if (dirty) { dirty.textContent = data.text.unsaved; dirty.classList.add('ep-dirty'); } };
+			root.addEventListener('input', mark);
+			root.addEventListener('change', mark);
 			function openArchive(open) {
 				$('#ep-archive-body').hidden = !open;
-				$('#ep-archive-open').hidden = open;
+				$('#ep-archive-open-row').hidden = open;
 			}
 			$('#ep-archive-open').addEventListener('click', () => openArchive(true));
 			if ($('#ulm_bucket').value.trim() !== '') openArchive(true);
@@ -101,23 +168,29 @@
 			function draw() {
 				// Sorted as the page saves them, so the names previewed are the names given.
 				servers.sort((a, b) => ipNum(a.ip) - ipNum(b.ip));
-				const names = EpClientForm.names(client(), families, servers, data.names || {});
+				const names = EpClientForm.labels(servers, data.techNames || {}, data.names || {});
 				list.textContent = '';
 				if (!servers.length) list.appendChild(el('div', 'ep-empty', data.text.noServers));
 				servers.forEach((s, i) => {
 					const row = el('div', 'ep-server');
 					row.appendChild(el('span', 'ep-ip', s.ip));
+					const nm = el('div', 'ep-server-name', names[i].name || data.text.noServerName);
+					if (!names[i].name) nm.classList.add('ep-unknown');
+					if (names[i].host !== s.ip) nm.appendChild(el('span', 'ep-rename', ' · ' + data.text.hostName.replace('%h', names[i].host)));
+					row.appendChild(nm);
 					const mid = el('div', 'ep-server-main');
-					const nm = el('div', 'ep-server-name', names[i]);
-					if (data.names && data.names[s.ip] && data.names[s.ip] !== names[i]) {
-						nm.appendChild(el('span', 'ep-rename', ' ← ' + data.names[s.ip]));
-					}
-					mid.appendChild(nm);
 					const pills = el('div', 'ep-pills');
 					s.roles.forEach((r) => pills.appendChild(el('span', 'ep-pill', (byId[r] || { label: r }).label)));
 					s.services.forEach((v) => pills.appendChild(el('span', 'ep-pill ep-pill-svc', v)));
 					if (s.roles.length > 1) pills.appendChild(el('span', 'ep-pill ep-pill-mark', data.text.shared));
 					if (s.roles.some((r) => byId[r] && byId[r].exclusive)) pills.appendChild(el('span', 'ep-pill ep-pill-mark', data.text.single));
+					// A Kafka server Discover placed under Forwarder: said, until someone confirms its role.
+					if (s.confirm === 'kafka') {
+						pills.appendChild(el('span', 'ep-flag', data.text.kafka));
+						const ok = el('button', 'ep-lnk', data.text.confirm); ok.type = 'button';
+						ok.addEventListener('click', () => openSheet(i));
+						pills.appendChild(ok);
+					}
 					mid.appendChild(pills);
 					if (s.notes) mid.appendChild(el('div', 'ep-server-notes', s.notes));
 					row.appendChild(mid);
@@ -257,13 +330,12 @@
 				if (dup.length) { msg.textContent = data.text.dupIp.replace('%s', dup[0]); return; }
 				if (taken.length) { msg.textContent = data.text.takenBy.replace('%s', taken[0]).replace('%c', known[taken[0]].client); return; }
 				if (!ids.length) { msg.textContent = data.text.pickRoles; return; }
-				const trial = servers.slice();
-				const add1 = ips.map((ip) => ({ ip, roles: ids }));
-				if (editing >= 0) trial.splice(editing, 1, add1[0]); else trial.push(...add1);
-				const names = EpClientForm.names(client(), families, trial, data.names || {});
-				const first = editing >= 0 ? names[editing] : names[servers.length];
+				const given = $('#ep-s-name').value.trim();
+				const [first] = EpClientForm.labels([{ ip: ips[0], host: given }], data.techNames || {}, data.names || {});
 				const existing = ips.length === 1 && known[ips[0]] && !(data.names && data.names[ips[0]]) ? known[ips[0]] : null;
-				msg.textContent = (existing ? data.text.takeOn.replace('%h', existing.name) : (ips.length > 1 ? data.text.manyNamed.replace('%n', ips.length) : data.text.named)) + ' ' + first;
+				const said = ips.length > 1 ? data.text.manyNamed.replace('%n', ips.length)
+					: data.text.named.replace('%ip', existing ? existing.name : first.host).replace('%name', first.name || data.text.noServerName);
+				msg.textContent = existing ? data.text.takeOn.replace('%h', existing.name) + ' ' + said : said;
 				add.textContent = editing >= 0 ? data.text.update : (ips.length > 1 ? data.text.addMany.replace('%n', ips.length) : data.text.add);
 			}
 			function openSheet(i, prefill) {
@@ -274,6 +346,7 @@
 				if (prefill) prefill.suggest.forEach((r) => picked.add(r));
 				$('#ep-s-svc').value = s ? s.services.join(', ') : '';
 				$('#ep-s-notes').value = s ? s.notes : '';
+				$('#ep-s-name').value = s ? (s.host || '') : '';
 				if (s) s.roles.forEach((r) => picked.add(r));
 				chips(); preview();
 				sheet.hidden = false;
@@ -284,16 +357,20 @@
 			$('#ep-add-server').addEventListener('click', () => openSheet(-1));
 			$('#ep-s-cancel').addEventListener('click', closeSheet);
 			$('#ep-s-ip').addEventListener('input', preview);
+			$('#ep-s-name').addEventListener('input', preview);
 			$('#ep-s-ip').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!$('#ep-s-add').disabled) $('#ep-s-add').click(); } });
 			$('#ep-s-add').addEventListener('click', () => {
 				const ids = order.filter((id) => picked.has(id));
 				const services = $('#ep-s-svc').value.split(/[,;]+/).map((x) => x.trim()).filter(Boolean);
 				const notes = $('#ep-s-notes').value.trim();
+				// A server name names one server: several IPs pasted at once get none.
+				const host = ipsIn().length === 1 ? $('#ep-s-name').value.trim() : '';
 				if (editing >= 0) {
-					Object.assign(servers[editing], { ip: ipsIn()[0], roles: ids, services, notes });
+					// The roles are a person's choice now: nothing is left to confirm.
+					Object.assign(servers[editing], { ip: ipsIn()[0], roles: ids, services, notes, host, confirm: '' });
 				}
 				else {
-					ipsIn().forEach((ip) => servers.push({ ip, roles: ids, services, notes, attrs: {} }));
+					ipsIn().forEach((ip) => servers.push({ ip, roles: ids, services, notes, attrs: {}, host }));
 				}
 				closeSheet(); draw();
 			});

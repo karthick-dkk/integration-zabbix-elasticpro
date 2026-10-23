@@ -3,7 +3,7 @@
 namespace Modules\EpClients\Actions;
 
 use Exception;
-use Modules\EpClients\Lib\WriteCheck;
+use Modules\EpClients\Lib\{ClusterSecret, WriteCheck};
 
 /**
  * Add or edit a client. A form with mistakes comes back with them and nothing saved; a backup is
@@ -16,7 +16,8 @@ use Modules\EpClients\Lib\WriteCheck;
 class ClientSave extends Base {
 
 	protected function checkInput(): bool {
-		$fields = ['name' => 'required|string', 'mode' => 'required|in add,edit', 'es_password' => 'string', 'merge' => 'array', 'confirm_delete' => 'string'];
+		$fields = ['name' => 'required|string', 'mode' => 'required|in add,edit', 'es_password' => 'string', 'es_password_action' => 'string',
+			'merge' => 'array', 'confirm_delete' => 'string'];
 		foreach (array_keys($this->spec()->defaults()) as $field) {
 			$fields[$field] = $fields[$field] ?? 'string';
 		}
@@ -30,7 +31,8 @@ class ClientSave extends Base {
 			$input[$field] = (string) $this->getInput($field, '');
 		}
 		$mode = $this->getInput('mode');
-		$secret = ['es_password' => (string) $this->getInput('es_password', ''),
+		// The keep-marker: a password counts only when the form says it showed the field for one.
+		$secret = ['es_password' => ClusterSecret::fromPost((string) $this->getInput('es_password_action', ''), (string) $this->getInput('es_password', '')),
 			'merge' => implode(',', array_map('strval', (array) $this->getInput('merge', [])))];
 		['client' => $client, 'errors' => $errors] = $spec->fromForm($input + $secret);
 		$rec = $this->rec();
@@ -74,7 +76,8 @@ class ClientSave extends Base {
 				$this->noteChange($client['name'], $mode === 'add' ? 'added' : 'edited');
 				$problems = $this->importer()->verify($client);
 				$this->toList($mode === 'add' ? _s('Client "%1$s" added', $client['name']) : _s('Client "%1$s" saved', $client['name']),
-					array_merge($rec->done(), $problems ? [_('Read back from Zabbix, these differ: ').implode(' ', $problems)] : [_('Read back from Zabbix: everything matches.')]));
+					array_merge($rec->done(), $this->handOver($client),
+						$problems ? [_('Read back from Zabbix, these differ: ').implode(' ', $problems)] : [_('Read back from Zabbix: everything matches.')]));
 				return;
 			}
 			catch (Exception $e) {
@@ -87,5 +90,9 @@ class ClientSave extends Base {
 		$input['_unassigned'] = $current['_unassigned'] ?? [];
 		$input['_current_servers'] = $current['servers'] ?? '[]';
 		$this->setResponse(ClientEdit::page($this, $input, $mode, $errors, false, $rec->done()));
+	}
+
+	private function handOver(array $client): array {
+		return ClusterSecret::handOver($this->rec(), $client, $this->user());
 	}
 }

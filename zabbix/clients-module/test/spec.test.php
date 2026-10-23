@@ -23,7 +23,7 @@ namespace {
 	if (!function_exists('_n')) { function _n($a, $b, $n) { return str_replace('%1$s', (string) $n, $n == 1 ? $a : $b); } }
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'Columns', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'Columns', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Backups', 'Reconciler', 'DefaultCredential', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	use Modules\EpClients\Lib\{AlertRouting, Backups, Bars, ClientSpec, ClientTypes, ClusterTemplate, ColumnSettings, Csv, DevicesTemplate, Forecast, History, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Registry, Roles, Settings, SetupChecks, Store};
@@ -47,7 +47,8 @@ namespace Modules\EpClients\Test {
 	/* ---------------- roles ---------------- */
 	$defaults = Roles::defaults();
 	check('the default roles are valid', Roles::validate($defaults) === [], Roles::validate($defaults));
-	check('families: ES, Parser, Forwarder, Engine — a single node is a server with all four, not a role', array_column($defaults['families'], 'label') === ['ES', 'Parser', 'Forwarder', 'Engine']
+	check('families: ES, Parser, Forwarder, Engine, Trino (ULM), SOAR — a single node is a server with the first four, not a role; Kafka is not a role',
+		array_column($defaults['families'], 'label') === ['ES', 'Parser', 'Forwarder', 'Engine', 'Trino (ULM)', 'SOAR'] && !isset(Roles::byId($defaults)['kafka'])
 		&& !isset(Roles::byId($defaults)['single_node']));
 	// The rest of these cases describe a site whose roles.json still has the "Single node" family an
 	// earlier release shipped: it must keep working until the site removes it.
@@ -77,7 +78,15 @@ namespace Modules\EpClients\Test {
 	$v1['families'][1]['roles'][0]['label'] = 'Log parser';
 	$up = Roles::upgrade($v1);
 	check('upgrade adds ES Data and Engine, and no longer Single node', isset(Roles::byId($up)['es_data'], Roles::byId($up)['engine']) && !isset(Roles::byId($up)['single_node']));
-	check('upgrade keeps what was changed', Roles::byId($up)['parser']['label'] === 'Log parser' && $up['version'] === 2);
+	check('upgrade keeps what was changed', Roles::byId($up)['parser']['label'] === 'Log parser' && $up['version'] === 3);
+	check('…and adds Trino (ULM) and SOAR', isset(Roles::byId($up)['trino'], Roles::byId($up)['soar']));
+	$v2 = Roles::defaults(); $v2['version'] = 2;
+	$v2['families'] = array_values(array_filter($v2['families'], fn($f) => !in_array($f['id'], ['trino', 'soar'], true)));
+	$v2['families'][] = ['id' => 'sec', 'label' => 'Security', 'group' => 'SOAR', 'macroPrefix' => 'SEC', 'roles' => [['id' => 'sec', 'label' => 'Sec', 'short' => 'Sec', 'group' => 'SOAR']]];
+	$up3 = Roles::upgrade($v2);
+	check('2 → 3: Trino is added; SOAR is not, the site has a SOAR group of its own', $up3['version'] === 3 && isset(Roles::byId($up3)['trino'])
+		&& !isset(Roles::byId($up3)['soar']) && isset(Roles::byId($up3)['sec']));
+	check('a version 3 file is left alone', Roles::upgrade(Roles::defaults()) === Roles::defaults());
 	check('ES Data goes first in ES, as in the defaults', $up['families'][0]['roles'][0]['id'] === 'es_data');
 	$clash = $v1; $clash['families'][1]['roles'][] = ['id' => 'mine', 'label' => 'Mine', 'short' => 'Engine', 'group' => 'Mine'];
 	check('an upgrade that would clash leaves the roles as they were', Roles::upgrade($clash) === $clash);
@@ -264,8 +273,11 @@ namespace Modules\EpClients\Test {
 	$list_src = file_get_contents(__DIR__.'/../actions/ClientList.php');
 	$list_view = file_get_contents(__DIR__.'/../views/ep.clients.list.php');
 	check('the list is given the site\'s forecast windows', str_contains($list_src, "'forecast' => Settings::forecast("));
-	check('and the view reads them rather than the shipped ones',
-		str_contains($list_view, 'Forecast::fullIn($c[\'full_in\'], $data[\'forecast\']'));
+	// "Disk full in" left the list (board List-after) for the client's page, which reads the same
+	// site windows.
+	$edit_view_src = file_get_contents(__DIR__.'/../views/ep.clients.edit.php');
+	check('the list no longer draws "Disk full in"; the client page does, from the site\'s windows',
+		!str_contains($list_view, 'Disk full in') && str_contains($edit_view_src, 'Forecast::fullIn($data[\'full_in\'], $data[\'forecast\']'));
 	// The list hard-coded the default client type while the widgets read it from the settings.
 	check('the list takes the default client type from the settings', str_contains($list_src, 'Settings::defaultType(')
 		&& !str_contains($list_src, "?? 'On-Prem'"), 'ClientList still hard-codes On-Prem');
@@ -517,7 +529,7 @@ namespace Modules\EpClients\Test {
 	$srv = fn(array $list) => $spec->fromForm($form(['servers' => json_encode($list)]))['errors'];
 	check('an IP listed twice is refused', (bool) preg_grep('/listed twice/', $srv([['ip' => '10.0.0.1', 'roles' => ['parser']], ['ip' => '10.0.0.1', 'roles' => ['aiml']]])));
 	check('a server without a role is refused', (bool) preg_grep('/has no role/', $srv([['ip' => '10.0.0.1', 'roles' => []]])));
-	check('an unknown role is named', (bool) preg_grep('/no role "soar"/', $srv([['ip' => '10.0.0.1', 'roles' => ['soar']]])));
+	check('an unknown role is named', (bool) preg_grep('/no role "kafka"/', $srv([['ip' => '10.0.0.1', 'roles' => ['kafka']]])));
 	check('Single node cannot be combined', (bool) preg_grep('/stands for every role/', $srv([['ip' => '10.0.0.1', 'roles' => ['single_node', 'parser']]])));
 	check('a hostname is not an IP', (bool) preg_grep('/"parser01" is not an IPv4/', $srv([['ip' => 'parser01', 'roles' => ['parser']]])));
 	check('a bad service name is refused', (bool) preg_grep('/service "a b"/', $srv([['ip' => '10.0.0.1', 'roles' => ['parser'], 'services' => ['a b']]])));
@@ -753,7 +765,8 @@ namespace Modules\EpClients\Test {
 	check('servers.csv\'s name is read as the host name', in_array('karthi-ES-Data-Hot-Coord-1', array_column($sv['clients']['karthi'], 'host'), true));
 	check('a host name of its own is kept in the server list, and only then', str_contains($spec->canonServers([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => 'edge 01.x_y-z']]), '"host":"edge 01.x_y-z"')
 		&& !str_contains($spec->canonServers([['ip' => '10.9.9.9', 'roles' => ['parser']]]), '"host"'));
-	check('a host name Zabbix would refuse is an error', (bool) preg_grep('/host name "bad\/name" may hold only/', $spec->parseServers(json_encode([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => 'bad/name']]))['errors'])
+	check('a server name Zabbix would refuse is an error, a visible name it takes is not', (bool) preg_grep('/server name ".*" is longer than 128 characters/', $spec->parseServers(json_encode([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => "bad\tname"]]))['errors'])
+		&& $spec->parseServers(json_encode([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => 'ES hot node (rack 4)/a']]))['errors'] === []
 		&& (bool) preg_grep('/is already given to 10\.9\.9\.9/', $spec->parseServers(json_encode([['ip' => '10.9.9.9', 'roles' => ['parser'], 'host' => 'same'], ['ip' => '10.9.9.10', 'roles' => ['parser'], 'host' => 'SAME']]))['errors']));
 	check('servers.csv carries the host name, for reading', strpos(Csv::exportServers($roles, [$fm], ['karthi' => ['10.0.0.21' => 'karthi-ES-Data-Hot-Coord-1']]), 'karthi-ES-Data-Hot-Coord-1') !== false);
 	$byName = Csv::parseServers("client,ip,roles,services,owner\nacme,10.1.1.1,ES Data Hot; ES Coordination,kafka,team-a\n", $roles);
@@ -881,9 +894,9 @@ namespace Modules\EpClients\Test {
 	check('log-delay windows keep their keys', in_array('ep.delay.late.avg[1h]', $keys, true) && in_array('ep.delay.median.change[1d]', $keys, true));
 	check('the roles fingerprint is on the template', in_array(['macro' => '{$EP.ROLES.HASH}', 'value' => Roles::hash($roles), 'description' => 'Which roles this template was written for. Set by the Clients page.'], $t['macros'], true));
 	check('uuids are v4-shaped and stable', preg_match('/^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$/', MasterTemplate::uuid('x')) === 1 && MasterTemplate::uuid('x') === MasterTemplate::uuid('x'));
-	$more = $roles; $more['families'][3]['roles'][] = ['id' => 'soar', 'label' => 'SOAR', 'short' => 'SOAR', 'group' => 'SOAR'];
+	$more = $roles; $more['families'][3]['roles'][] = ['id' => 'xdr', 'label' => 'XDR', 'short' => 'XDR', 'group' => 'XDR'];
 	$k2 = array_column((new MasterTemplate($more))->export()['zabbix_export']['templates'][0]['items'], 'key');
-	check('a role added appears as its own items, family formulas unchanged', in_array('ep.role.cpu.usage[soar]', $k2, true) && count($k2) === count($keys) + 12);
+	check('a role added appears as its own items, family formulas unchanged', in_array('ep.role.cpu.usage[xdr]', $k2, true) && count($k2) === count($keys) + 12);
 
 	foreach (array_diff(scandir($dir), ['.', '..']) as $fn) { unlink($dir.'/'.$fn); }
 	rmdir($dir);

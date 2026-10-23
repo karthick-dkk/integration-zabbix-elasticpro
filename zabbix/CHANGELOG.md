@@ -4,6 +4,42 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## Unreleased
+
+- **Discover existing hosts** (Cluster Management → Discover): finds the Elasticsearch clusters
+  Zabbix holds (a host in a host group whose name contains "elasticsearch"; its host name is the
+  cluster's) and their role hosts, proposes each as a client with what is Missing and exactly what
+  adopting writes, and after "Adopt selected" makes the client through the same path every save
+  takes — five templates linked directly to the cluster host, older generations kept beside, items
+  adopted by key, nothing deleted, unlinked with clear or renamed. A role host on an old agent
+  template is moved as `tools/migrate-templates.py` moves one (`lib/TemplateMove.php`, one case
+  table shared with the script). See clients-module/README.md → Discover existing hosts.
+- **Host name = IP, visible name = server name** for role hosts. A host taken on keeps its host
+  name (never renamed, not even back from `<client>-<Role>-<n>`); only its visible name follows the
+  server name. The client form, the workbook and the CSV call the column "server name". New role
+  hosts are created with the IP as host name.
+- **Roles**: Trino (ULM) and SOAR families added (roles version 3); Kafka is not a role — a Kafka
+  server is a Forwarder or a Parser, flagged until confirmed.
+- **The password** is typed once and never shown ("set on … by …", Change / Keep current); a keep-
+  marker stops other edits and autofill from touching it; a password kept as a Zabbix secret is also
+  handed to the ElasticPro core over the signed pairing channel (needs ElasticPro with
+  `/sso/zabbix/cluster-secret`). A new client's password is the **default credential** (global
+  macros, set on Settings → Default Elasticsearch credential) unless "This cluster only".
+- **Two proxy choices**: the cluster host's, and one for all of a client's Linux role hosts; both
+  default to the Zabbix server.
+- **Cluster Management list, client page and form** redrawn to the approved boards: filters, role
+  columns with counts, Columns popover (hide / reorder / rename), the summary line under the table;
+  tabs with a Missing panel and servers by role; the compact form with Retention and Backup capacity
+  (new, displayed only).
+- The ElasticPro cluster template (version 2) no longer defines `{$ELASTICSEARCH.USERNAME}` or
+  `{$ELASTICSEARCH.PASSWORD}`, which hid the global default: **Write master template** once.
+  Until then the client's page names it under Missing and says so.
+- A cluster template under a name the module does not know (found by its Elasticsearch health
+  item) is named everywhere: Discover, the list's "+ N older beside", the client page's Beside and
+  Templates tab, and Missing. It was reported by Discover only.
+- `tools/migrate-templates.py`: an old item whose key the new template also has, with another value
+  type, is now refused (the link would adopt and convert it) instead of reported as kept apart.
+
 ## 2.1.5
 
 - Cluster Management: the **Backups (N)** button on the client list is shown to Zabbix Super admins only. Backups stay with Super admins whatever ElasticPro says, but a Zabbix Admin whom ElasticPro calls an admin was offered the button and pressed it into "Access denied" (the menu already hid it). The button and the backup count are no longer given to anyone else; Import / export, Roles and Add client are unchanged.

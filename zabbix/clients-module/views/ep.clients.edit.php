@@ -1,8 +1,10 @@
 <?php declare(strict_types = 0);
 /**
- * Add or edit a client: a header with the client's status and its actions (an existing client
- * only — ClientActions, what the list rows used to carry), then cards in a grid — Client,
- * Elasticsearch, Log archive, Servers, More — and the requested capacity across the full width.
+ * Add or edit a client (boards Client-page.dc.html and Edit-after.dc.html, approved 2026-10-23):
+ * a header with the client's status and its actions (an existing client only — ClientActions), the
+ * tabs Overview / Servers & roles / Templates / Connection / Backups — Overview carries the Missing
+ * panel, servers by role and the cluster, templates and contacts — and the compact form: Client |
+ * Connection, Servers & roles, Capacity | Log archive, and the action bar.
  * Servers are added one at a time in a sheet, each with one or more roles; the page's behaviour
  * is views/js/ep.clients.edit.js and its look views/css/ep.clients.edit.css. Follows Zabbix's
  * light or dark theme.
@@ -116,7 +118,7 @@ if (($data['cloned_from'] ?? '') !== '') {
 	$html[] = '<div class="ep-note ep-good">'.$e(_s('Started from "%1$s": roles, requested capacity and settings are copied. Give the new client its name, ES URL, password, contacts and servers.', $data['cloned_from'])).'</div>';
 }
 if ($data['adopting']) {
-	$html[] = '<div class="ep-note ep-good">'.$e(_('This client has hosts already. They are kept — history, passwords — renamed to the client\'s pattern, and only what is missing is added.')).'</div>';
+	$html[] = '<div class="ep-note ep-good">'.$e(_('This client has hosts already. They are kept — history, passwords, host names — and only what is missing is added.')).'</div>';
 }
 if ($data['unassigned']) {
 	$html[] = '<div class="ep-note ep-warn">'.$e(_n('%1$s host has no role yet. It is listed under Servers: give it a role to take it on; until then it is left exactly as it is.',
@@ -133,134 +135,276 @@ if ($data['shared']) {
 }
 
 $html[] = '</div>';
-$html[] = '<div class="ep-grid">';
+/* ==== Overview, and the tabs (board Client-page.dc.html) — an existing client only ==== */
+$tabs = $editing;
+$keyTab = ['role_confirm' => 'servers', 'role' => 'servers', 'role_hosts' => 'servers', 'server_name' => 'servers', 'ip' => 'servers',
+	'credential' => 'connection', 'credential_hidden' => 'connection', 'password' => 'connection', 'password_core' => 'connection', 'password_plain' => 'connection',
+	'jump' => 'connection', 'macros' => 'connection', 'proxy' => 'connection', 'cluster' => 'connection', 'client_group' => 'connection',
+	'old_generation' => 'templates', 'linked' => 'templates', 'templates' => 'templates'];
+$tabLabel = ['servers' => _('Servers & roles'), 'connection' => _('Connection'), 'templates' => _('Templates')];
+if ($tabs) {
+	$html[] = '<nav class="ep-tabs" role="tablist" aria-label="'.$e(_('Client sections')).'">'
+		.'<button type="button" role="tab" data-tab="overview" aria-selected="true">'.$e(_('Overview')).'</button>'
+		.'<button type="button" role="tab" data-tab="servers" aria-selected="false">'.$e(_('Servers & roles')).'</button>'
+		.'<button type="button" role="tab" data-tab="templates" aria-selected="false">'.$e(_('Templates')).'</button>'
+		.'<button type="button" role="tab" data-tab="connection" aria-selected="false">'.$e(_('Connection')).'</button>'
+		.'<button type="button" role="tab" data-tab="backups" aria-selected="false">'.$e(_('Backups')).'</button></nav>';
+
+	$ov = [];
+	$miss = $data['missing'] ?? [];
+	if ($miss) {
+		$items = '';
+		foreach ($miss as $m) {
+			$t = $keyTab[$m['key']] ?? 'connection';
+			$items .= '<li data-missing="'.$e($m['key']).'"><div><b>'.$e($m['text']).'</b> <span class="ep-hint">'.$e($m['fix']).'</span></div>'
+				.'<button type="button" class="ep-fix" data-goto="'.$e($t).'">'.$e(_s('Fix: %1$s', $tabLabel[$t])).'</button></li>';
+		}
+		$ov[] = '<section class="ep-missing" id="ep-missing" aria-labelledby="ep-miss-h"><div class="ep-miss-head"><h2 id="ep-miss-h">'
+			.$e(_n('Missing: %1$s thing could not be determined or set', 'Missing: %1$s things could not be determined or set', count($miss))).'</h2>'
+			.'<span class="ep-hint">'.$e(_('Nothing was guessed. Each line says what to do.')).'</span></div><ul class="ep-ml">'.$items.'</ul></section>';
+	}
+	// Servers by role: IP · server name, every role, "none" said.
+	$rolesHtml = '';
+	foreach ($data['roles']['families'] as $fam) {
+		foreach ($fam['roles'] as $r) {
+			$list = $data['by_role'][$r['id']] ?? [];
+			$req = (int) ((float) $field($r['id'].'_servers'));
+			$cell = $list ? implode('', array_map(fn($h) => '<div><span class="ep-mono">'.$e($h['ip']).'</span> · '.($h['name'] !== '' ? $e($h['name']) : '<span class="ep-hint">'.$e(_('server name unknown')).'</span>')
+				.($h['confirm'] === 'kafka' ? ' <span class="ep-flag">'.$e(_('kafka: confirm Forwarder or Parser')).'</span>' : '').'</div>', $list))
+				: '<span class="ep-hint">'.$e($req > 0 ? _s('none · the plan asks for %1$s', $req) : _('none')).'</span>';
+			if (!$list && $req === 0 && !in_array($r['id'], ['es_data', 'parser', 'forwarder', 'engine'], true)) {
+				continue;
+			}
+			$rolesHtml .= '<div class="ep-k">'.$e($r['label']).'</div><div>'.$cell.'</div>';
+		}
+	}
+	$px = fn(string $v) => $v === '' ? _('the Zabbix server') : (strpos($v, 'proxy:') === 0 ? substr($v, 6) : (strpos($v, 'group:') === 0 ? _s('proxy group %1$s', substr($v, 6)) : ($v === 'jump' ? _('the jump host') : $v)));
+	$lx = $field('servers_monitored_by');
+	$lxText = $lx === 'server' ? _('the Zabbix server') : ($lx === '' ? _s('%1$s (as the cluster host)', $px($field('monitored_by') === 'jump' ? '' : $field('monitored_by'))) : $px($lx));
+	$ov[] = '<div class="ep-card"><div class="ep-ct"><span>'.$e(_('Servers by role')).'</span><span class="ep-hint">'
+		.$e(_('IP · server name. The Zabbix host name is the IP; the visible name is the server name.')).' '
+		.$e(_s('Linux hosts monitored by %1$s; the cluster host by %2$s.', $lxText, $px($field('monitored_by')))).'</span></div><div class="ep-kv">'.$rolesHtml.'</div></div>';
+	$ci = $data['cluster_info'] ?? null;
+	$five = \Modules\EpClients\Lib\Reconciler::clusterTemplates();
+	$fc = $data['full_in'] !== null ? \Modules\EpClients\Lib\Forecast::fullIn($data['full_in'], $data['forecast'] ?? []) : null;
+	$notSet = '<span class="ep-hint">'.$e(_('not set')).'</span>';
+	$seenText = $ci === null ? '<span class="ep-hint">'.$e(_('unknown: no cluster host')).'</span>'
+		: ($field('es_url') === '' ? '<span class="ep-hint">'.$e(_('unknown: needs ES URL')).'</span>'
+		: ((int) $data['last_seen'] > 0 ? $e(date('Y-m-d H:i', (int) $data['last_seen'])) : '<span class="ep-hint">'.$e(_('never')).'</span>'));
+	$ov[] = '<div class="ep-ov3">'
+		.'<div class="ep-card"><div class="ep-ct">'.$e(_('Cluster')).'</div><div class="ep-kv">'
+		.'<div class="ep-k">'.$e(_('Cluster host')).'</div><div class="ep-mono">'.($ci !== null ? $e($ci['host']) : $e(_('none'))).'</div>'
+		.'<div class="ep-k">'.$e(_('ES URL')).'</div><div>'.($field('es_url') !== '' ? '<span class="ep-mono">'.$e($field('es_url')).'</span>' : $notSet).'</div>'
+		.'<div class="ep-k">'.$e(_('Last seen')).'</div><div>'.$seenText.'</div>'
+		.'<div class="ep-k">'.$e(_('Disk full in')).'</div><div>'.($fc === null ? '<span class="ep-hint">'.$e($field('es_url') === '' ? _('unknown: needs ES URL') : _('unknown: not measured yet')).'</span>' : $e($fc['text'])).'</div>'
+		.'<div class="ep-k">'.$e(_('Retention')).'</div><div>'.($field('retention_days') !== '' ? $e(_n('%1$s day', '%1$s days', (int) $field('retention_days'))) : $notSet).'</div>'
+		.'<div class="ep-k">'.$e(_('Backup')).'</div><div>'.($field('backup_gb') !== '' ? $e($field('backup_gb').' GB') : $notSet).'</div>'
+		.'</div></div>'
+		.'<div class="ep-card"><div class="ep-ct">'.$e(_('Templates')).'</div><div class="ep-kv">'
+		.'<div class="ep-k">'.$e(_('Current')).'</div><div><div class="ep-chips">'.implode('', array_map(fn($t) => '<span class="ep-chip'.($ci !== null && !in_array($t, $ci['templates'], true) ? ' ep-chip-miss' : '').'">'.$e($t).'</span>', $five)).'</div>'
+			.'<div class="ep-hint">'.$e(_('linked directly to the cluster host')).'</div></div>'
+		.'<div class="ep-k">'.$e(_('Beside')).'</div><div>'.(($ci !== null && ($ci['beside']['known'] || $ci['beside']['unknown']))
+			? implode(' ', array_map(fn($t) => '<span class="ep-flag">'.$e($t).'</span>', $ci['beside']['known']))
+				.implode(' ', array_map(fn($t) => ' <span class="ep-flag" title="'.$e(_('Gives the Elasticsearch items under a template name this module does not know.')).'">'.$e($t).'</span> <span class="ep-hint">'.$e(_('name not known here')).'</span>', $ci['beside']['unknown']))
+			: '<span class="ep-hint">'.$e(_('none')).'</span>').'</div>'
+		.'<div class="ep-k">'.$e(_('Master host')).'</div><div class="ep-mono">'.$e($data['master_host'] ?? _('none')).'</div>'
+		.'</div></div>'
+		.'<div class="ep-card"><div class="ep-ct">'.$e(_('Contacts')).'</div><div class="ep-kv">'
+		.'<div class="ep-k">'.$e(_('SOC / Manager lead')).'</div><div>'.($field('lead_name') !== '' ? $e($field('lead_name')) : $notSet).'</div>'
+		.'<div class="ep-k">'.$e(_('Cluster DL')).'</div><div>'.($field('cluster_dl') !== '' ? $e($field('cluster_dl')) : $notSet).'</div>'
+		.'<div class="ep-k">'.$e(_('Last change')).'</div><div>'.($data['history'] ? $e(date('Y-m-d H:i', $data['history'][0]['at']).' · '.$data['history'][0]['what'].' · '.$data['history'][0]['by']) : '<span class="ep-hint">'.$e(_('none recorded')).'</span>').'</div>'
+		.'</div></div></div>';
+	$acts = '';
+	foreach ($data['history'] as $h) {
+		$acts .= '<div><span class="ep-hint">'.$e(date('Y-m-d H:i', $h['at'])).'</span> · '.$e($h['by']).' '.$e($h['what']).'</div>';
+	}
+	$ov[] = '<div class="ep-card"><div class="ep-ct">'.$e(_('Activity')).'</div><div class="ep-activity">'.($acts !== '' ? $acts : '<span class="ep-hint">'.$e(_('No change recorded yet.')).'</span>').'</div></div>';
+	$html[] = '<div class="ep-panel" data-panel="overview">'.implode('', $ov).'</div>';
+
+	// Templates tab: what the cluster host carries, by name.
+	$tt = '';
+	foreach (($ci['templates'] ?? []) as $t) {
+		$kind = in_array($t, $five, true) ? _('ElasticPro, linked directly')
+			: (in_array($t, $ci['beside']['known'], true) ? _('older generation, kept beside with its history')
+			: (in_array($t, $ci['beside']['unknown'], true) ? _('gives the Elasticsearch items under a name this module does not know; kept beside with its history')
+			: _('another template, left as it is')));
+		$tt .= '<tr><td>'.$e($t).'</td><td class="ep-hint">'.$e($kind).'</td></tr>';
+	}
+	foreach (array_diff($five, $ci['templates'] ?? []) as $t) {
+		$tt .= '<tr><td>'.$e($t).'</td><td class="ep-bad-t">'.$e(_('not linked yet: saving links it')).'</td></tr>';
+	}
+	$html[] = '<div class="ep-panel" data-panel="templates" hidden><div class="ep-card"><div class="ep-ct">'.$e(_s('Templates on %1$s', $ci['host'] ?? _('the cluster host'))).'</div>'
+		.($ci === null ? '<div class="ep-hint">'.$e(_('No cluster host yet.')).'</div>' : '<table class="ep-tb"><tbody>'.$tt.'</tbody></table>'
+		.'<div class="ep-hint">'.$e(_('An older generation stays linked beside: unlinking it is tools/migrate-templates.py\'s job (docs/MIGRATION.md), never "unlink and clear".')).'</div>').'</div></div>';
+	// Backups tab: this client's changes, each with the backup taken before it.
+	$bk = '';
+	foreach ($data['history'] as $h) {
+		$bk .= '<tr><td class="ep-mono">'.$e(date('Y-m-d H:i', $h['at'])).'</td><td>'.$e($h['what']).'</td><td>'.$e($h['by']).'</td><td class="ep-mono">'.$e($h['backup'] ?? '—').'</td></tr>';
+	}
+	$html[] = '<div class="ep-panel" data-panel="backups" hidden><div class="ep-card"><div class="ep-ct">'.$e(_('Backups')).'</div>'
+		.($bk !== '' ? '<table class="ep-tb"><thead><tr><th>'.$e(_('When')).'</th><th>'.$e(_('Change')).'</th><th>'.$e(_('By')).'</th><th>'.$e(_('Backup taken before it')).'</th></tr></thead><tbody>'.$bk.'</tbody></table>'
+			: '<div class="ep-hint">'.$e(_('No change recorded yet.')).'</div>')
+		.'<div class="ep-hint">'.$e(_('A backup of every client is taken before each change; Backups (Super admins) restores one.')).'</div></div></div>';
+}
+
+/* ==== The form (board Edit-after.dc.html): Client | Connection, Servers & roles, Capacity | Log archive ==== */
+$html[] = '<div class="ep-panel" data-panel="form"'.($tabs ? ' hidden' : '').'>';
+$html[] = '<div class="ep-two">';
 
 /* ---- Client ---- */
-$html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('Client')).'</div><div class="ep-group">';
-$html[] = $row(_('Name'), $text('name', 'example', $editing ? 'readonly' : 'required'), 'name',
-	$editing ? '' : $e(_('Names its host group and hosts: example-Master, example-ES-Data-Hot-1 …')));
-// The types the site has, and its default, from ElasticPro -> Settings. A client already
-// carrying a type since taken off that list keeps it: ClientSpec::types() still accepts it, and
-// $seg marks whichever value is current.
 $epTypes = \Modules\EpClients\Lib\Settings::types();
 $epTypeNow = $field('type') !== '' ? $field('type') : $epTypes['default'];
 $epTypeList = in_array($epTypeNow, $epTypes['all'], true) ? $epTypes['all'] : array_merge($epTypes['all'], [$epTypeNow]);
-$html[] = $row(_('Type'), $seg('type', array_combine($epTypeList, $epTypeList), $epTypeNow)
-	.' <span class="ep-inline-hint" id="ep-type-hint"></span>');
-$html[] = $row(_('Purchased'), '<div class="ep-inline">'.$seg('purchased_by', ['storage' => _('Storage'), 'devices' => _('Devices')], $field('purchased_by') ?: 'storage')
-	.'<input type="text" inputmode="decimal" class="ep-num" id="purchased" name="purchased" value="'.$e($num('purchased')).'" placeholder="0">'
-	.'<input type="text" inputmode="numeric" class="ep-num" id="purchased_devices" name="purchased_devices" value="'.$e($num('purchased_devices')).'" placeholder="0">'
-	.'<span class="ep-inline-hint" id="ep-purchased-unit">GB</span></div>');
-$html[] = $row(_('SOC / Manager lead'), $text('lead_name', _('Name')), 'lead_name');
-$html[] = $row(_('Cluster DL'), $text('cluster_dl', 'soc-example@company.com'), 'cluster_dl', $e(_('The client\'s mailing list.')));
-$html[] = $row(_('Alerts'), '<label class="ep-check"><input type="checkbox" name="alert_dl" value="1"'.($field('alert_dl') === '1' ? ' checked' : '').'> '
-	.$e(_('Email this client\'s problems (warning and above) to the cluster DL')).'</label>', 'alert_dl',
-	$e(_('Only this client\'s problems; none during a maintenance. Zabbix needs an active Email media type.')));
-$html[] = $row(_('Weekly report'), '<label class="ep-check"><input type="checkbox" name="weekly_report" value="1"'.($field('weekly_report') === '1' ? ' checked' : '').'> '
-	.$e(_('Mail a PDF of the client\'s resources, capacity and volume to the cluster DL every Monday')).'</label>', 'weekly_report',
-	$e(_('A Zabbix scheduled report of the dashboard "ElasticPro: <client>", for the week before.')));
-$html[] = $row(_('Contract ends'), '<input type="date" id="contract_end" name="contract_end" value="'.$e($field('contract_end')).'" class="ep-date">', 'contract_end',
-	$e(_('Cluster Management flags a contract ending within 30 days.')));
-$html[] = '</div></div>';
+[$badgeClass, $badgeLabel] = $editing ? \Modules\EpClients\Lib\ClientActions::badge($data['status'], $data['maintenance']) : ['', ''];
+$html[] = '<section class="ep-card" id="ep-card-client" aria-labelledby="h-client"><h2 class="ep-ttl" id="h-client">'.$e(_('Client')).'</h2>';
+$html[] = $row(_('Name').' *', $text('name', 'example', $editing ? 'readonly' : 'required'), 'name',
+	$e($editing ? _('Fixed after creation: it names every host and group of this client.') : _('Names its host group and its master host (example-Master).')));
+$html[] = $row(_('Type').' *', $seg('type', array_combine($epTypeList, $epTypeList), $epTypeNow).' <span class="ep-inline-hint" id="ep-type-hint"></span>', '',
+	$e(_('DI needs a log archive (S3) and a URL; CI and On-Prem do not.')));
+if ($editing) {
+	$html[] = $row(_('Status'), '<span class="ep-st '.$e($badgeClass).'">'.$e($badgeLabel).'</span> <span class="ep-hint">'.$e(_('changed with Maintenance or Disable at the top')).'</span>');
+}
+$html[] = $row(_('Lead'), $text('lead_name', _('SOC / Manager lead')), 'lead_name');
+$html[] = $row(_('Cluster DL'), '<input type="email" id="cluster_dl" name="cluster_dl" value="'.$e($field('cluster_dl')).'" placeholder="soc-example@company.com">', 'cluster_dl');
+$html[] = '<fieldset class="ep-row ep-fs"><legend>'.$e(_('This DL receives')).'</legend><label>'.$e(_('This DL receives')).'</label><div class="ep-ctl ep-inline">'
+	.'<label class="ep-check"><input type="checkbox" name="alert_dl" value="1"'.($field('alert_dl') === '1' ? ' checked' : '').'> '.$e(_('Alert e-mails')).'</label>'
+	.'<label class="ep-check"><input type="checkbox" name="weekly_report" value="1"'.($field('weekly_report') === '1' ? ' checked' : '').'> '.$e(_('Weekly PDF report')).'</label></div><span></span></fieldset>';
+$html[] = $row(_('Notes'), '<div class="ep-inline ep-grow"><input type="text" id="client_notes" name="client_notes" value="'.$e($field('client_notes')).'" placeholder="'.$e(_('Notes')).'" maxlength="2000">'
+	.'<button type="button" class="ep-lnk" data-ep-notes-more aria-label="'.$e(_('Expand notes')).'">'.$e(_('more')).'</button></div>', 'client_notes');
+// Not on the compact form, kept as it is so a save never blanks it.
+$html[] = '<input type="hidden" name="contract_end" value="'.$e($field('contract_end')).'">';
+$html[] = '</section>';
 
-/* ---- Elasticsearch ---- */
-$monitor = '<select id="monitored_by" name="monitored_by"><option value="">'.$e(_('Zabbix server')).'</option>'
-	.'<option value="jump"'.($field('monitored_by') === 'jump' ? ' selected' : '').'>'.$e(_('Windows jump host (SSH), no proxy')).'</option>';
-foreach ($data['proxies'] as $p) {
-	$monitor .= '<option value="'.$e('proxy:'.$p).'"'.($field('monitored_by') === 'proxy:'.$p ? ' selected' : '').'>'.$e(_s('Proxy: %1$s', $p)).'</option>';
+/* ---- Connection ---- */
+$pw = $data['password'] ?? ['stored' => false, 'record' => null];
+$pwField = !$data['has_cluster'] || !$pw['stored'];
+$pwRec = $pw['record'] ?? null;
+$pwSaid = $pwRec !== null
+	? _s('Set %1$s by %2$s', date('Y-m-d', (int) $pwRec['at']), (string) $pwRec['by']).(!empty($pwRec['core']) ? '' : ' · '._('ElasticPro was not given it'))
+	: _('Set outside this page; ElasticPro was not given it');
+$dc = $data['default_credential'] ?? ['set' => false, 'user' => null, 'record' => null];
+$mode = $field('es_password_mode') ?: 'zabbix';
+$defLabel = $dc['set'] ? _s('Default (%1$s, set %2$s)', ($dc['user'] ?? '') !== '' ? $dc['user'] : 'elastic', $dc['record'] !== null ? date('Y-m-d', (int) $dc['record']['at']) : _('outside this page'))
+	: _('Default (not set)');
+$route = $field('monitored_by') === 'jump' ? 'jump' : 'direct';
+$proxyOpts = function (string $name, string $value, bool $follow = false) use ($e, $data): string {
+	$o = '<select id="'.$e($name).'" name="'.$e($name).'">';
+	if ($follow) {
+		$o .= '<option value=""'.($value === '' ? ' selected' : '').'>'.$e(_('Same as the cluster host')).'</option>';
+	}
+	$server = $follow ? 'server' : '';
+	$o .= '<option value="'.$server.'"'.($value === $server || (!$follow && $value === '') ? ' selected' : '').'>'.$e(_('Zabbix server (default)')).'</option>';
+	foreach ($data['proxies'] as $p) {
+		$o .= '<option value="'.$e('proxy:'.$p).'"'.($value === 'proxy:'.$p ? ' selected' : '').'>'.$e($p).'</option>';
+	}
+	foreach ($data['proxy_groups'] as $g) {
+		$o .= '<option value="'.$e('group:'.$g).'"'.($value === 'group:'.$g ? ' selected' : '').'>'.$e(_s('Proxy group: %1$s', $g)).'</option>';
+	}
+	$known = array_merge(['', 'server', 'jump'], array_map(fn($p) => 'proxy:'.$p, $data['proxies']), array_map(fn($g) => 'group:'.$g, $data['proxy_groups']));
+	if (!in_array($value, $known, true)) {
+		$o .= '<option value="'.$e($value).'" selected>'.$e($value.' — '._('not in Zabbix')).'</option>';
+	}
+	return $o.'</select>';
+};
+$ci = $data['cluster_info'] ?? null;
+$html[] = '<section class="ep-card" id="ep-card-connection" aria-labelledby="h-conn"><h2 class="ep-ttl" id="h-conn">'.$e(_('Connection')).'</h2>';
+if ($editing) {
+	$html[] = $row(_('Cluster host'), $ci !== null ? '<span class="ep-mono">'.$e($ci['host']).'</span> <a href="'.$e((new CUrl('zabbix.php'))->setArgument('action', 'host.edit')->setArgument('hostid', $ci['hostid'])->getUrl()).'">'.$e(_('open')).'</a>'
+		: '<span class="ep-hint">'.$e(_('none yet: saving with a URL makes it')).'</span>');
 }
-foreach ($data['proxy_groups'] as $g) {
-	$monitor .= '<option value="'.$e('group:'.$g).'"'.($field('monitored_by') === 'group:'.$g ? ' selected' : '').'>'.$e(_s('Proxy group: %1$s', $g)).'</option>';
-}
-if ($field('monitored_by') !== '' && $field('monitored_by') !== 'jump' && !in_array($field('monitored_by'), array_merge(array_map(fn($p) => 'proxy:'.$p, $data['proxies']), array_map(fn($g) => 'group:'.$g, $data['proxy_groups'])), true)) {
-	$monitor .= '<option value="'.$e($field('monitored_by')).'" selected>'.$e($field('monitored_by').' — '._('not in Zabbix')).'</option>';
-}
-$monitor .= '</select>';
-$html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('Elasticsearch')).'</div><div class="ep-group">';
-$html[] = $row(_('URL'), $text('es_url', 'https://es.example.local:9200'), 'es_url');
-$html[] = $row(_('User'), $text('es_user', 'elastic'), 'es_user');
-$html[] = $row(_('Password'), $seg('es_password_mode', ['vault' => 'Vault', 'zabbix' => _('Zabbix secret')], $field('es_password_mode') ?: 'vault')
-	.'<input type="text" id="es_password_path" name="es_password_path" value="'.$e($field('es_password_path')).'" placeholder="secret/elasticpro/example:password">'
-	.'<input type="password" id="es_password" name="es_password" value="" placeholder="'.$e($data['has_cluster'] ? _('Unchanged — type to replace') : _('Password')).'" autocomplete="new-password">'
-	.'<div class="ep-hint" id="ep-pw-hint"></div>');
-$html[] = $row(_('Monitored by'), $monitor, 'monitored_by', $e(_('A proxy or proxy group monitors every host of the client. Through a Windows jump host, the Zabbix server signs in over SSH and asks Elasticsearch with curl.exe; no proxy is needed.')));
-$html[] = '<div id="ep-jump" hidden>';
-$html[] = $row(_('Jump host'), '<div class="ep-inline">'.$text('jump_host', 'jump-windows.example.internal').'<span class="ep-inline-hint">:</span>'
-	.'<input type="text" id="jump_port" name="jump_port" value="'.$e($field('jump_port')).'" placeholder="22" class="ep-num" aria-label="'.$e(_('SSH port')).'"></div>', 'jump_host',
-	$e(_('Address and SSH port, as the Zabbix server reaches it. Windows 10 1803+ or Server 2019+ with OpenSSH and curl.exe.')));
+$html[] = $row(_('URL').' *', '<input type="url" id="es_url" name="es_url" value="'.$e($field('es_url')).'" placeholder="https://es.example.local:9200">', 'es_url');
+// Credential: Default, or This cluster only (kept in Zabbix + ElasticPro, or Vault). The mode
+// field es_password_mode carries the choice; the password is never shown (ClusterSecret).
+$html[] = $row(_('Credential'), '<div class="ep-seg" role="radiogroup" aria-label="'.$e(_('Credential')).'">'
+	.'<input type="radio" name="ep_cred" id="ep_cred_default" value="default"'.($mode === 'default' ? ' checked' : '').'><label for="ep_cred_default">'.$e($defLabel).'</label>'
+	.'<input type="radio" name="ep_cred" id="ep_cred_own" value="own"'.($mode !== 'default' ? ' checked' : '').'><label for="ep_cred_own">'.$e(_('This cluster only')).'</label></div>'
+	.'<input type="hidden" name="es_password_mode" id="es_password_mode" value="'.$e($mode).'">');
+$html[] = '<div id="ep-cred-default"'.($mode === 'default' ? '' : ' hidden').'>'.$row(_('Default'),
+	$dc['set'] ? '<span class="ep-dot"></span> '.$e(_s('user %1$s', ($dc['user'] ?? '') !== '' ? $dc['user'] : 'elastic')).($dc['record'] !== null ? ' · '.$e(_s('set %1$s by %2$s', date('Y-m-d', (int) $dc['record']['at']), (string) $dc['record']['by'])) : '')
+		.' <a href="'.$e($url('ep.clients.settings')).'">'.$e(_('Change default in Settings')).'</a>'
+		: '<span class="ep-bad-t">'.$e(_('No default credential is set.')).'</span> <a href="'.$e($url('ep.clients.settings')).'">'.$e(_('Set it in Settings')).'</a>').'</div>';
+$html[] = '<div id="ep-cred-own"'.($mode === 'default' ? ' hidden' : '').'>';
+$html[] = $row(_('User').' *', $text('es_user', 'elastic'), 'es_user');
+$html[] = $row(_('Kept in'), '<select id="ep_kept" aria-label="'.$e(_('Kept in')).'"><option value="zabbix"'.($mode === 'zabbix' ? ' selected' : '').'>'.$e(_('Zabbix + ElasticPro (default)')).'</option>'
+	.'<option value="vault"'.($mode === 'vault' ? ' selected' : '').'>'.$e(_('Vault (path:key)')).'</option></select>', 'ep_kept',
+	$e(_('Zabbix + ElasticPro: a secret macro on the cluster host, and handed to the ElasticPro core encrypted. Neither can show it back.')));
+$html[] = $row(_('Password').' *', '<div id="ep-pw-zabbix"'.($mode === 'vault' ? ' hidden' : '').'>'
+	.($pwField ? '' : '<div class="ep-inline" id="ep-pw-set"><span class="ep-dot"></span><span>'.$e($pwSaid).'</span>'.($ro ? '' : '<button type="button" class="ep-lnk" id="ep-pw-change">'.$e(_('Change')).'</button>').'</div>')
+	.'<div class="ep-inline" id="ep-pw-new"'.($pwField ? '' : ' hidden').'><input type="password" id="es_password" name="es_password" value="" placeholder="'.$e(_('New password')).'" autocomplete="new-password" aria-label="'.$e(_('New password')).'">'
+	.($pwField ? '' : '<button type="button" class="ep-lnk" id="ep-pw-keep">'.$e(_('Keep current')).'</button>').'</div>'
+	.'<input type="hidden" id="es_password_action" name="es_password_action" value="'.($pwField ? 'set' : 'keep').'"></div>'
+	.'<input type="text" id="es_password_path" name="es_password_path" value="'.$e($field('es_password_path')).'" placeholder="secret/elasticpro/example:password" aria-label="'.$e(_('Vault path and key')).'"'.($mode === 'vault' ? '' : ' hidden').'>');
+$html[] = '</div>';
+$html[] = '<div class="ep-hint ep-saveline" id="ep-pw-hint">'.$e($mode === 'default' ? _('Saving uses the default credential; the cluster host keeps no password of its own.')
+	: ($mode === 'vault' ? _('Saving writes the Vault reference on the cluster host; the core reads it from Vault.') : _('A password typed here goes to a Zabbix secret on the cluster host and to ElasticPro, once; editing anything else never touches it.'))).'</div>';
+$html[] = $row(_('Route'), '<div class="ep-seg" role="radiogroup" aria-label="'.$e(_('Route')).'">'
+	.'<input type="radio" name="ep_route" id="ep_route_direct" value="direct"'.($route === 'direct' ? ' checked' : '').'><label for="ep_route_direct">'.$e(_('Direct')).'</label>'
+	.'<input type="radio" name="ep_route" id="ep_route_jump" value="jump"'.($route === 'jump' ? ' checked' : '').'><label for="ep_route_jump">'.$e(_('Jump host')).'</label></div>'
+	.'<span class="ep-inline" id="ep-jump-addr"'.($route === 'jump' ? '' : ' hidden').'>'.$text('jump_host', 'jump-host', 'aria-label="'.$e(_('Jump host')).'"').'<span class="ep-hint">:</span>'
+	.'<input type="text" id="jump_port" name="jump_port" value="'.$e($field('jump_port')).'" placeholder="22" class="ep-num" aria-label="'.$e(_('SSH port')).'"></span>');
+$html[] = '<div id="ep-jump"'.($route === 'jump' ? '' : ' hidden').'>';
 $html[] = $row(_('SSH user'), $text('jump_user', 'elasticpro'), 'jump_user', $e(_('Signs in with the Zabbix server\'s key; add its public key to this user\'s authorized_keys.')));
 $html[] = $row(_('SSH key file'), $text('jump_key', 'id_ed25519'), 'jump_key', $e(_('In the Zabbix server\'s key folder, with its .pub beside it.')));
-$tlsOpt = ['verify' => _('Check it (Windows trust store)'), 'ca' => _('Check it against a CA file on the jump host'), 'none' => _('Do not check (self-signed, not recommended)')];
+$html[] = $row(_('ES API key'), $text('es_apikey_path', 'secret/elasticpro/example:apikey'), 'es_apikey_path',
+	$e(_('Vault path:key of a read-only API key. Through a jump host the URL is the address as the jump host sees it.')));
+$tlsOpt = ['verify' => _('Verify (Windows trust store)'), 'ca' => _('Verify against a CA file on the jump host'), 'none' => _('Do not verify (not recommended)')];
 $tls = '<select id="jump_tls" name="jump_tls">';
 foreach ($tlsOpt as $v => $label) {
 	$tls .= '<option value="'.$v.'"'.(($field('jump_tls') ?: 'verify') === $v ? ' selected' : '').'>'.$e($label).'</option>';
 }
-$html[] = $row(_('ES certificate'), $tls.'</select>', 'jump_tls',
-	$e(_('The API key goes to whatever answers at the ES URL; checking the certificate makes sure that is the cluster.')));
-$html[] = '<div id="ep-jump-ca"'.($field('jump_tls') === 'ca' ? '' : ' hidden').'>'.$row(_('CA file'), $text('jump_ca', 'C:\\certs\\es-ca.pem'), 'jump_ca',
-	$e(_('Path on the jump host to the CA that signed the cluster\'s certificate (PEM).'))).'</div>';
-$html[] = $row(_('ES API key'), $text('es_apikey_path', 'secret/elasticpro/example:apikey'), 'es_apikey_path',
-	$e(_('Vault path:key of a read-only API key (monitor, read_ilm, read_slm; read on the device index). The ES URL above is the address as the jump host sees it. The log archive check cannot run through a jump host yet.')));
+$html[] = $row(_('Verify TLS'), $tls.'</select>', 'jump_tls', $e(_('The API key goes to whatever answers at the URL; verifying makes sure that is the cluster.')));
+$html[] = '<div id="ep-jump-ca"'.($field('jump_tls') === 'ca' ? '' : ' hidden').'>'.$row(_('CA file'), $text('jump_ca', 'C:\\certs\\es-ca.pem'), 'jump_ca').'</div>';
 $html[] = '</div>';
-if ($data['mode'] === 'edit' && !$ro) {
-	$html[] = '<div class="ep-row"><label>'.$e(_('Test connection')).'</label><div class="ep-ctl"><button type="button" class="btn-alt" id="ep-test" data-csrf="'.$e(CCsrfTokenHelper::get('ep.clients.test')).'">'.$e(_('Test now')).'</button>'
-		.'<div id="ep-test-out" class="ep-test"></div></div></div>';
+$html[] = '<div id="ep-proxy-row"'.($route === 'jump' ? ' hidden' : '').'>'.$row(_('Zabbix proxy'), $proxyOpts('ep_es_proxy', $route === 'jump' ? '' : $field('monitored_by')), 'ep_es_proxy',
+	$e(_('Monitors the ES cluster host only. The Linux hosts have their own proxy under Servers & roles.'))).'</div>';
+$html[] = '<input type="hidden" name="monitored_by" id="monitored_by" value="'.$e($field('monitored_by')).'">';
+if ($editing && !$ro) {
+	$html[] = $row(_('Test'), '<button type="button" class="ep-lnk" id="ep-test" data-csrf="'.$e(CCsrfTokenHelper::get('ep.clients.test')).'">'.$e(_('Test now')).'</button><div id="ep-test-out" class="ep-test"></div>');
 }
-$html[] = '</div></div>';
-
-$html[] = '<div class="ep-stack">';
-
-/* ---- Log archive ---- */
-$html[] = '<div class="ep-card" id="ep-archive"><div class="ep-card-title">'.$e(_('Log archive (S3)')).'</div>';
-$html[] = '<button type="button" class="ep-link ep-open" id="ep-archive-open">'.$e(_('+ Add log archive')).'</button>';
-$html[] = '<div class="ep-group" id="ep-archive-body" hidden>';
-$html[] = $row(_('Bucket'), $text('ulm_bucket', 'example-archive'), 'ulm_bucket');
-$html[] = $row(_('Region'), $text('ulm_region', 'ap-south-1'), 'ulm_region');
-$html[] = $row(_('Access'), $seg('ulm_auth', ['role_base' => _('Zabbix server role'), 'access_key' => _('Access key')], $field('ulm_auth') ?: 'role_base'));
-$html[] = '<div id="ep-archive-more" hidden>';
-$html[] = $row(_('Role ARN'), $text('ulm_role_arn', 'arn:aws:iam::111122223333:role/example-archive'), 'ulm_role_arn', $e(_('Optional, per bucket: assumed from the access above.')));
-$html[] = $row(_('External ID'), $text('ulm_external_id'), 'ulm_external_id');
-$html[] = $row(_('Access key ID'), $text('ulm_access_key_id', _('access key only')), 'ulm_access_key_id');
-$html[] = $row(_('Secret (Vault)'), $text('ulm_secret_path', 'secret/elasticpro/example-s3:secret_access_key'), 'ulm_secret_path');
-$html[] = $row(_('Folders'), '<div class="ep-inline">'.$text('ulm_raw_prefix', 'rawlog', 'aria-label="'.$e(_('Raw folder')).'"')
-	.$text('ulm_enriched_prefix', 'enrichedlog', 'aria-label="'.$e(_('Enriched folder')).'"').'</div>', '', $e(_('Raw and enriched copies, in the same bucket.')));
+$html[] = '</section>';
 $html[] = '</div>';
-$html[] = '<button type="button" class="ep-more" data-ep-disclose="ep-archive-more" data-more="'.$e(_('Role ARN, keys, folders…')).'" data-less="'.$e(_('Fewer options')).'" aria-expanded="false">'
-	.$e(_('Role ARN, keys, folders…')).'</button>';
-$html[] = '</div></div>';
 
-/* ---- Servers ---- */
-$html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('Servers')).' <span class="ep-count" id="ep-server-count"></span></div><div class="ep-group">';
+/* ---- Servers & roles ---- */
+$html[] = '<section class="ep-card" id="ep-card-servers" aria-labelledby="h-srv"><div class="ep-srv-head"><h2 class="ep-ttl" id="h-srv">'.$e(_('Servers & roles')).' <span class="ep-count" id="ep-server-count"></span></h2>'
+	.'<span class="ep-grow"></span><label for="servers_monitored_by">'.$e(_('Linux hosts monitored by')).'</label>'
+	.str_replace('<select ', '<select aria-describedby="ep-tip-srv" ', $proxyOpts('servers_monitored_by', $field('servers_monitored_by'), true))
+	.'<span class="ep-tipw"><span class="ep-i" tabindex="0" role="img" aria-label="'.$e(_('Details')).'">?</span><span class="ep-tip" role="tooltip" id="ep-tip-srv">'.$e(_('Sets the proxy on every Linux host of this client at once. The ES cluster host has its own, under Connection. The Zabbix host name is the IP; the visible name is the server name. Roles: ES, Parser, Forwarder, Engine, AIML, Trino (ULM), SOAR.')).'</span></span></div>';
+$html[] = '<div class="ep-srv-cols" aria-hidden="true"><span>'.$e(_('IP')).'</span><span>'.$e(_('Server name')).'</span><span>'.$e(_('Roles')).'</span><span>'.$e(_('Remove')).'</span></div>';
 $html[] = '<div id="ep-server-list"></div>';
 $html[] = '<div class="ep-sheet" id="ep-sheet" hidden>'
 	.'<div class="ep-sheet-row ep-ip-row"><div class="ep-ip-wrap"><input type="text" id="ep-s-ip" class="ep-mono" placeholder="10.0.0.21 or a host name" aria-label="'.$e(_('Server IP')).'" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="ep-s-suggest">'
 	.'<div id="ep-s-suggest" class="ep-suggest" role="listbox" hidden></div></div>'
 	.'<span class="ep-hint">'.$e(_('Type an IP or a host name to pick a host already in Zabbix, or a new IP to create one. Paste several IPs to give them all the same roles.')).'</span></div>'
 	.'<div id="ep-chips"></div>'
-	.'<div class="ep-sheet-row"><input type="text" id="ep-s-svc" placeholder="nginx, kafka" aria-label="'.$e(_('Other services')).'">'
+	.'<div class="ep-sheet-row"><input type="text" id="ep-s-name" placeholder="'.$e(_('Server name, e.g. es-hot-01')).'" aria-label="'.$e(_('Server name')).'" maxlength="128">'
+	.'<span class="ep-hint">'.$e(_('The host\'s visible name in Zabbix. Its host name is the IP, and never changes.')).'</span></div>'
+	.'<div class="ep-sheet-row"><input type="text" id="ep-s-svc" placeholder="nginx" aria-label="'.$e(_('Other services')).'">'
 	.'<span class="ep-hint">'.$e(_('Other services, optional. Every role is a service already.')).'</span></div>'
 	.'<div class="ep-sheet-row"><input type="text" id="ep-s-notes" placeholder="'.$e(_('Notes, optional — rack, owner, anything to remember')).'" aria-label="'.$e(_('Notes')).'"></div>'
 	.'<div class="ep-sheet-foot"><span id="ep-s-msg" class="ep-hint"></span>'
 	.'<button type="button" class="btn-alt" id="ep-s-cancel">'.$e(_('Cancel')).'</button>'
 	.'<button type="button" id="ep-s-add" disabled>'.$e(_('Add server')).'</button></div></div>';
-$html[] = '<div class="ep-group-foot"><button type="button" class="ep-link" id="ep-add-server">'.$e(_('+ Add server')).'</button></div>';
-$html[] = '</div></div>';
+$html[] = '<div class="ep-group-foot"><button type="button" class="ep-lnk" id="ep-add-server">'.$e(_('+ Add server')).'</button>'
+	.'<span class="ep-grow"></span><label for="agent_port" class="ep-hint">'.$e(_('Agent port')).'</label> '.$text('agent_port', '10050', 'class="ep-num"').'</div>';
+$html[] = '</section>';
 
-/* ---- More ---- */
-$html[] = '<div class="ep-card"><div class="ep-card-title">'.$e(_('More')).'</div><div class="ep-group">';
-$html[] = $row(_('Agent port'), $text('agent_port', '10050', 'class="ep-num"'), 'agent_port');
-$html[] = '</div></div>';
-$html[] = '</div></div>';
-
-/* ---- Requested capacity ---- */
-$html[] = '<div class="ep-card ep-wide"><div class="ep-card-title">'.$e(_('Requested capacity')).' <span class="ep-count">'.$e(_('empty = not set')).'</span></div><div class="ep-group">';
-$html[] = '<div class="ep-table-wrap"><table class="ep-req"><thead><tr><th>'.$e(_('Role')).'</th><th>'.$e(_('Servers')).'</th><th>'.$e(_('CPU cores')).'</th>'
+$html[] = '<div class="ep-two">';
+/* ---- Capacity ---- */
+$html[] = '<section class="ep-card" id="ep-card-capacity" aria-labelledby="h-cap"><h2 class="ep-ttl" id="h-cap">'.$e(_('Capacity')).'</h2>';
+$html[] = $row(_('Purchased').' *', '<div class="ep-inline">'.$seg('purchased_by', ['storage' => _('Storage'), 'devices' => _('Devices')], $field('purchased_by') ?: 'storage')
+	.'<input type="text" inputmode="decimal" class="ep-num" id="purchased" name="purchased" value="'.$e($num('purchased')).'" placeholder="0" aria-label="'.$e(_('Purchased storage')).'">'
+	.'<input type="text" inputmode="numeric" class="ep-num" id="purchased_devices" name="purchased_devices" value="'.$e($num('purchased_devices')).'" placeholder="0" aria-label="'.$e(_('Purchased devices')).'">'
+	.'<span class="ep-inline-hint" id="ep-purchased-unit">GB</span></div>');
+$html[] = $row(_('Retention'), '<div class="ep-inline"><input type="text" inputmode="numeric" class="ep-num" id="retention_days" name="retention_days" value="'.$e($field('retention_days')).'" placeholder="'.$e(_('not set')).'"><span class="ep-hint">'.$e(_('days')).'</span></div>', 'retention_days');
+$html[] = $row(_('Backup'), '<div class="ep-inline"><input type="text" inputmode="decimal" class="ep-num" id="backup_gb" name="backup_gb" value="'.$e($field('backup_gb')).'" placeholder="'.$e(_('not set')).'"><span class="ep-hint">GB</span></div>', 'backup_gb',
+	$e(_('Empty means not set; reports say not set, never 0.')));
+// Requested capacity per role: kept from the full form, folded under Capacity.
+$req = '<div class="ep-table-wrap"><table class="ep-req"><thead><tr><th>'.$e(_('Role')).'</th><th>'.$e(_('Servers')).'</th><th>'.$e(_('CPU cores')).'</th>'
 	.'<th>'.$e(_('Memory GB')).'</th><th class="ep-disks-h">'.$e(_('Disks, GB')).'</th></tr></thead><tbody>';
 foreach ($data['roles']['families'] as $fam) {
 	foreach ($fam['roles'] as $r) {
 		$in = fn(string $suffix, string $ph = '') => '<input type="text" inputmode="decimal" data-ep-num name="'.$e($r['id'].'_'.$suffix).'" value="'
 			.$e($num($r['id'].'_'.$suffix)).'" placeholder="'.$e($ph).'" aria-label="'.$e($r['label'].' '.$suffix).'">';
-		// / always; up to four more disks, each a mount and a size, shown once one is added.
 		$disks = '<div class="ep-disk"><span class="ep-mono ep-mount">/</span>'.$in('disk', '—').'</div>';
 		for ($n = 2; $n <= \Modules\EpClients\Lib\Roles::DISK_SLOTS; $n++) {
 			$fs = $r['id'].'_disk'.$n.'_fs';
@@ -269,35 +413,38 @@ foreach ($data['roles']['families'] as $fam) {
 				.'<button type="button" class="ep-icon" data-ep-disk-remove aria-label="'.$e(_s('Remove %1$s disk %2$s', $r['label'], $n)).'">×</button></div>';
 		}
 		$disks .= '<button type="button" class="ep-link ep-add-disk" data-ep-disk-add>'.$e(_('+ disk')).'</button>';
-		$html[] = '<tr data-ep-role="'.$e($r['id']).'"><td><span class="ep-req-role">'.$e($r['label']).'</span> <span class="ep-built"></span></td>'
+		$req .= '<tr data-ep-role="'.$e($r['id']).'"><td><span class="ep-req-role">'.$e($r['label']).'</span> <span class="ep-built"></span></td>'
 			.'<td>'.$in('servers', '—').'</td><td>'.$in('cpu', '—').'</td><td>'.$in('mem', '—').'</td><td class="ep-disks">'.$disks.'</td></tr>';
 	}
 }
-$html[] = '</tbody></table></div>';
-$html[] = '<div class="ep-group-foot"><span class="ep-hint" id="ep-req-empty">'.$e(_('Rows appear for the roles your servers have.')).'</span> <select id="ep-request-role" aria-label="'.$e(_('Request another role')).'"></select></div>';
-$html[] = '</div></div>';
+$req .= '</tbody></table></div><div class="ep-group-foot"><span class="ep-hint" id="ep-req-empty">'.$e(_('Rows appear for the roles your servers have.')).'</span> <select id="ep-request-role" aria-label="'.$e(_('Request another role')).'"></select></div>';
+$html[] = '<details class="ep-reqd"><summary>'.$e(_('Requested per role (servers, CPU, memory, disks)')).'</summary>'.$req.'</details>';
+$html[] = '</section>';
 
-if ($data['existing']) {
-	$items = '';
-	foreach ($data['existing'] as $h) {
-		$items .= '<li><span>'.$e($h['name']).'</span><span class="ep-mono">'.$e($h['ip'] ?? '').'</span><span>'.$e($h['role']).'</span><span class="ep-hint">'
-			.$e($h['managed'] ? _('made here') : _('made by hand — kept')).'</span></li>';
-	}
-	$html[] = '<details class="ep-hosts"><summary>'.$e(_n('%1$s host in Zabbix now', '%1$s hosts in Zabbix now', count($data['existing']))).'</summary><ul>'.$items.'</ul></details>';
-}
+/* ---- Log archive ---- */
+$html[] = '<section class="ep-card" id="ep-archive" aria-labelledby="h-arch"><h2 class="ep-ttl" id="h-arch">'.$e(_('Log archive (S3)')).'</h2>';
+$html[] = '<div class="ep-inline" id="ep-archive-open-row"><span class="ep-hint" id="ep-archive-note">'.$e(_('Not needed for On-Prem.')).'</span><button type="button" class="ep-lnk ep-open" id="ep-archive-open">'.$e(_('Add one anyway')).'</button></div>';
+$html[] = '<div class="ep-group" id="ep-archive-body" hidden>';
+$html[] = $row(_('Bucket'), $text('ulm_bucket', 'example-archive'), 'ulm_bucket');
+$html[] = $row(_('Region'), '<div class="ep-inline">'.$text('ulm_region', 'us-east-1').$seg('ulm_auth', ['role_base' => _('Server role'), 'access_key' => _('Access key')], $field('ulm_auth') ?: 'role_base').'</div>', 'ulm_region');
+$html[] = '<div id="ep-archive-more" hidden>';
+$html[] = $row(_('Role ARN'), $text('ulm_role_arn', 'arn:aws:iam::111122223333:role/example-archive'), 'ulm_role_arn');
+$html[] = $row(_('External ID'), $text('ulm_external_id'), 'ulm_external_id');
+$html[] = $row(_('Access key ID'), $text('ulm_access_key_id', _('access key only')), 'ulm_access_key_id');
+$html[] = $row(_('Secret (Vault)'), $text('ulm_secret_path', 'secret/elasticpro/example-s3:secret_access_key'), 'ulm_secret_path');
+$html[] = $row(_('Folders'), '<div class="ep-inline">'.$text('ulm_raw_prefix', 'rawlog', 'aria-label="'.$e(_('Raw folder')).'"')
+	.$text('ulm_enriched_prefix', 'enrichedlog', 'aria-label="'.$e(_('Enriched folder')).'"').'</div>');
+$html[] = '</div>';
+$html[] = '<button type="button" class="ep-more" data-ep-disclose="ep-archive-more" data-more="'.$e(_('Role ARN, keys, folders…')).'" data-less="'.$e(_('Fewer options')).'" aria-expanded="false">'
+	.$e(_('Role ARN, keys, folders…')).'</button>';
+$html[] = '</div></section>';
+$html[] = '</div>';
 
-if ($data['history']) {
-	$items = '';
-	foreach ($data['history'] as $h) {
-		$items .= '<li><span class="ep-mono">'.$e(date('d M Y H:i', $h['at'])).'</span><span>'.$e($h['what']).'</span><span class="ep-hint">'.$e($h['by'])
-			.($h['backup'] ? ' · '._s('backup %1$s', $h['backup']) : '').'</span></li>';
-	}
-	$html[] = '<details class="ep-hosts"><summary>'.$e(_n('Activity: %1$s change', 'Activity: %1$s changes', count($data['history']))).'</summary><ul class="ep-history">'.$items.'</ul></details>';
-}
-
-$html[] = '<div class="ep-foot"><span class="ep-hint">'.$e(_('A backup of every client is taken before saving.')).'</span>'
+/* ---- the action bar ---- */
+$html[] = '<div class="ep-foot"><span class="ep-hint" id="ep-dirty">'.$e(_('No changes · a backup is taken before saving')).'</span><span class="ep-grow"></span>'
 	.'<a class="btn-alt ep-btn" href="'.$e($url('ep.clients.list')).'">'.$e(_('Cancel')).'</a>'
 	.($ro ? '' : '<button type="submit">'.$e($editing ? _('Save') : _('Add client')).'</button>').'</div>';
+$html[] = '</div>';
 $html[] = ($ro ? '</fieldset>' : '').'</form>';
 // The Maintenance and Delete dialogs the header's buttons open, outside the form: a dialog of its own, posting for itself.
 if ($editing && !$ro) {
@@ -313,7 +460,9 @@ $js = [
 	'roles' => $data['roles'],
 	'servers' => $byIp,
 	'names' => (object) $data['host_names'],
+	'techNames' => (object) ($data['tech_names'] ?? []),
 	'client' => $field('name'),
+	'openForm' => (bool) ($data['errors'] || $data['deletes'] || $data['done']),
 	'testUrl' => $url('ep.clients.test'),
 	'current' => $data['current'],
 	'unassigned' => array_values(array_map(function ($u) use ($data) {
@@ -323,18 +472,22 @@ $js = [
 	}, array_filter($data['unassigned'], fn($u) => $u['ip'] !== null))),
 	'text' => [
 		'diHint' => _('Log archive required'), 'opHint' => _('Log archive optional'), 'devices' => _('devices'),
-		'pwVault' => _('A Vault path:key. Empty: a new cluster host reads secret/elasticpro/<client>:password.'),
-		'pwZabbix' => _('Kept as a secret macro on the cluster host; never shown again.'),
+		'pwVault' => _('Saving writes the Vault reference on the cluster host; the core reads it from Vault. Empty: a new cluster host reads secret/elasticpro/<client>:password.'),
+		'pwZabbix' => _('A password typed here goes to a Zabbix secret on the cluster host and to ElasticPro, once; editing anything else never touches it.'),
+		'pwDefault' => _('Saving uses the default credential; the cluster host keeps no password of its own.'),
+		'notOnPrem' => _('Not needed for On-Prem.'), 'unsaved' => _('Unsaved changes'),
+		'kafka' => _('kafka: confirm Forwarder or Parser'), 'confirm' => _('Confirm'),
 		'noServers' => _('No servers yet.'), 'oneServer' => _('1 server'), 'nServers' => _('%n servers'),
 		'shared' => _('shared'), 'single' => _('single node'), 'allInOne' => _('all-in-one'), 'edit' => _('Edit'), 'remove' => _('Remove'),
 		'badIp' => _('"%s" is not an IPv4 address.'), 'dupIp' => _('%s is already a server. Edit it to change its roles.'),
-		'pickRoles' => _('Pick one or more roles.'), 'named' => _('Will be named'), 'manyNamed' => _('%n servers, the first named'),
+		'pickRoles' => _('Pick one or more roles.'), 'named' => _('Host name %ip, server name %name.'), 'manyNamed' => _('%n servers: each one\'s host name is its IP.'),
+		'noServerName' => _('server name unknown'), 'hostName' => _('host name %h'),
 		'add' => _('Add server'), 'addMany' => _('Add %n servers'), 'update' => _('Update server'),
 		'built' => _('%n built'), 'requestRole' => _('+ Request another role'),
 		'willDelete' => _('will be deleted on save — its history too'), 'undo' => _('Undo'), 'noRole' => _('no role yet — left as it is'),
 		'giveRole' => _('Give a role'),
 		'takenBy' => _('%s is already a server of client %c. An IP belongs to one client only.'),
-		'takeOn' => _('In Zabbix as "%h" — it is taken on, with its history, and named'),
+		'takeOn' => _('In Zabbix as "%h" — it is taken on, with its history; its host name stays.'),
 		'serverOf' => _('server of %c'), 'inZabbix' => _('in Zabbix'), 'noMatch' => _('Not in Zabbix — it will be created.'),
 		'notMonitored' => _('not monitored')
 	]
@@ -353,13 +506,6 @@ $js = [
 </script>
 <script>
 	(function () {
-		// Monitored by: the jump host fields only for a jump host.
-		const sel = document.getElementById('monitored_by'), box = document.getElementById('ep-jump');
-		const paint = () => { box.hidden = sel.value !== 'jump'; };
-		sel.addEventListener('change', paint); paint();
-		const tls = document.getElementById('jump_tls'), ca = document.getElementById('ep-jump-ca');
-		const paintTls = () => { ca.hidden = tls.value !== 'ca'; };
-		tls.addEventListener('change', paintTls); paintTls();
 		// Test connection: ask Zabbix to run the checks now, then read what they found.
 		const btn = document.getElementById('ep-test'), out = document.getElementById('ep-test-out');
 		if (!btn) return;

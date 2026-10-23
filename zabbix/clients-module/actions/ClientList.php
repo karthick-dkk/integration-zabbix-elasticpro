@@ -5,7 +5,7 @@ namespace Modules\EpClients\Actions;
 use API;
 use CControllerResponseData;
 use Exception;
-use Modules\EpClients\Lib\{ClientSpec, Forecast, History, MasterTemplate, Lifecycle, Registry, Roles, Settings, SetupChecks, Store, TemplateInstaller};
+use Modules\EpClients\Lib\{ClientSpec, ClientState, ClusterSecret, DefaultCredential, Discovery, Forecast, History, JumpTemplate, ListColumns, MasterTemplate, Lifecycle, Missing, Reconciler, Registry, Roles, Settings, SetupChecks, Store, TemplateInstaller};
 
 /**
  * The clients, by status: each with its type, ES URL, contacts, servers per family, setup checks,
@@ -80,17 +80,22 @@ class ClientList extends Base {
 				'filter' => ['key_' => array_merge([Forecast::KEY], array_values(MasterTemplate::OVER))]]) : [] as $it) {
 			$figures[$it['hostid']][$it['key_']] = $it['state'] == ITEM_STATE_NORMAL && (int) $it['lastclock'] > 0 ? (float) $it['lastvalue'] : null;
 		}
-		foreach ($nows as $name => $now) {
-			if ($now['groupid'] === null) {
-				continue;
-			}
-			$sev = [];
-			foreach (API::Trigger()->get(['output' => ['priority'], 'groupids' => [$now['groupid']], 'filter' => ['value' => TRIGGER_VALUE_TRUE],
-					'monitored' => true, 'skipDependent' => true]) as $t) {
-				$sev[(int) $t['priority']] = ($sev[(int) $t['priority']] ?? 0) + 1;
-			}
-			$problems[$name] = $sev;
+		// No Problems column any more (board List-after): open problems are Zabbix's own page.
+
+		// Last seen: when the cluster host last answered its Elasticsearch check, over HTTP or
+		// through the jump host. One item.get for every cluster host.
+		$clusterIds = array_values(array_filter(array_map(fn($n) => $n['cluster']['hostid'] ?? null, $nows)));
+		$seen = [];
+		foreach ($clusterIds ? (API::Item()->get(['output' => ['hostid', 'lastclock'], 'hostids' => $clusterIds,
+				'filter' => ['key_' => [SetupChecks::ES_HEALTH_KEY, JumpTemplate::FAST]]]) ?: []) : [] as $it) {
+			$seen[(string) $it['hostid']] = max($seen[(string) $it['hostid']] ?? 0, (int) $it['lastclock']);
 		}
+		// Where each cluster's credential comes from, and what Missing would list.
+		$default = DefaultCredential::current();
+		$defaultRecord = ClusterSecret::of(DefaultCredential::KEY);
+		$tm = DefaultCredential::templateMacros(array_merge([], ...array_map(fn($n) => array_column($n['cluster']['parentTemplates'] ?? [], 'templateid'), array_values($nows))));
+		// A cluster template under a name no setting knows, found by its health check (one lookup).
+		$signature = Discovery::signatureTemplates($clusterIds)['templates'];
 
 		$clients = [];
 		foreach ($live as $name => $c) {
@@ -129,7 +134,35 @@ class ClientList extends Base {
 					$over[$basis] = $pct;
 				}
 			}
+			// Per role: the servers that hold it (IP · server name), and what the plan asks for.
+			$perRole = [];
+			foreach (Roles::allRoles($roles) as $r) {
+				$held = array_values(array_filter($now['machines'], fn($h) => in_array($r['id'], $h['_roles'], true)));
+				$perRole[$r['id']] = ['family' => $r['family'], 'n' => count($held), 'requested' => (int) ((float) (Roles::macroValue($m, $r['id'], 'SERVER.COUNT.REQUESTED') ?? 0)),
+					'hosts' => array_map(fn($h) => ($h['_ip'] ?? $h['host']).' · '.(($h['_server_name'] ?? '') !== '' ? $h['_server_name'] : _('server name unknown'))
+						.(count($h['_roles']) > 1 ? ' ('._('shared').')' : ''), $held),
+					'shared' => count(array_filter($held, fn($h) => count($h['_roles']) > 1))];
+			}
+			$cl = $now['cluster'];
+			$beside = $cl !== null ? array_merge(...array_values(Reconciler::besideTemplates(array_column($cl['parentTemplates'] ?? [], 'host'), $signature[(string) $cl['hostid']] ?? null))) : [];
+			$source = $cl !== null ? DefaultCredential::sourceOf($cl, $tm, $default['password']) : 'none';
+			$missing = [];
+			try {
+				['client' => $parsed, 'errors' => $bad] = $this->spec()->fromForm(ClientState::plain($state->formFor($name)));
+				$missing = Missing::forClient($now, $cl !== null ? $rec->macros((string) $cl['hostid']) : [], $bad ? [] : $rec->missingTemplates($parsed),
+					$cl !== null ? ClusterSecret::of((string) $cl['host']) : null, ($m['{$EP.MONITORED.BY}'] ?? '') === 'jump',
+					['source' => $source, 'default_record' => $defaultRecord], $cl !== null ? ($signature[(string) $cl['hostid']] ?? null) : null);
+			}
+			catch (Exception $e) {
+				$missing = [['key' => 'read', 'text' => _s('Could not be read: %1$s', $e->getMessage()), 'fix' => '']];
+			}
 			$clients[] = [
+				'cluster_host' => $cl['host'] ?? null,
+				'roles' => $perRole,
+				'beside' => $beside,
+				'password' => ['override' => 'own', 'default' => 'default', 'template' => 'hidden', 'none' => 'not set'][$source],
+				'last_seen' => $cl !== null ? ($seen[(string) $cl['hostid']] ?? 0) : null,
+				'missing' => $missing,
 				'name' => $name,
 				'masterid' => $c['masterid'],
 				'status' => $status,
@@ -165,13 +198,20 @@ class ClientList extends Base {
 				'type' => ($f['type'] ?? '') !== '' ? $f['type'] : Settings::defaultType($cfg),
 				'es_url' => $f['es_url'] ?? '', 'jump' => '', 'archive' => '', 'lead' => $f['lead_name'] ?? '', 'dl' => $f['cluster_dl'] ?? '',
 				'contract_end' => $f['contract_end'] ?? '', 'machines' => '—', 'unassigned' => 0, 'shared' => 0, 'removed' => array_values(array_diff_key($r['hosts'] ?? [], $exists)), 'changed' => array_values(array_intersect_key($r['hosts'] ?? [], $exists)),
-				'checks' => [], 'problems' => [], 'full_in' => null, 'over' => [], 'change' => $changes[$name] ?? null, 'search' => strtolower($name), 'master_missing' => true];
+				'checks' => [], 'problems' => [], 'full_in' => null, 'over' => [], 'change' => $changes[$name] ?? null, 'search' => strtolower($name), 'master_missing' => true,
+				'cluster_host' => null, 'roles' => [], 'beside' => [], 'password' => 'not set', 'last_seen' => null,
+				'missing' => [['key' => 'master', 'text' => _('The master host was removed from Zabbix.'), 'fix' => _('Re-create it, or forget the client.')]]];
 		}
 		usort($clients, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
 
 		$response = new CControllerResponseData([
 			'clients' => $clients,
-			'candidates' => $state->candidates($live),
+			// Not adopted yet: from this session's Discover scan when there is one (a scan here
+			// would walk Zabbix on every list load); null when none was made.
+			'not_adopted' => ($scan = $this->cachedScan()) !== null
+				? count(array_filter($scan['scan']['proposals'], fn($p) => $p['status'] !== 'client')) : null,
+			'columns' => ListColumns::load($roles),
+			'roles_config' => $roles,
 			'template' => TemplateInstaller::status($roles),
 			'store_ok' => $writable,
 			'forecast' => Settings::forecast($cfg),

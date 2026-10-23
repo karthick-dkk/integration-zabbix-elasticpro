@@ -91,3 +91,22 @@
 .ep-set .ep-pv-warn { background: var(--pv-warn); color: var(--pv-warn-fg); }
 .ep-set .ep-pv-high { background: var(--pv-high); color: var(--pv-high-fg); }
 .ep-set .ep-pv-nc { color: var(--pv-unknown); font-style: italic; font-size: 12px; }
+
+/* ---- default Elasticsearch credential (board Settings-credential.dc.html) ---- */
+#ep-credential-form { margin-top: 16px; display: grid; gap: 8px; max-width: 640px; }
+#ep-credential-form h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.ep-set .ep-cred { padding: 12px; display: grid; gap: 4px; }
+.ep-set .ep-cttl { display: flex; align-items: center; gap: 8px; }
+.ep-set .ep-cttl h4 { margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ep-muted, #5f6670); }
+.ep-set .ep-cr { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; align-items: center; min-height: 32px; }
+.ep-set .ep-cr > label, .ep-set .ep-cr > .ep-l { font-size: 12.5px; display: flex; align-items: center; gap: 4px; margin: 0; padding: 0; float: none; width: auto; }
+.ep-set .ep-req { color: #c0352c; }
+.ep-set .ep-in { height: 28px; padding: 0 8px; width: 100%; max-width: 320px; }
+.ep-set .ep-ln { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.ep-set .ep-q { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 7px; border: 1px solid #9aa1aa; font-size: 9px; font-weight: 700; cursor: help; }
+.ep-set .ep-dot { width: 7px; height: 7px; border-radius: 4px; background: #1f7a36; display: inline-block; }
+.ep-set .ep-dot-off { background: #9aa1aa; }
+.ep-set .ep-lnk { background: none; border: 0; padding: 0 4px; color: #0275b8; font: inherit; cursor: pointer; min-height: 28px; }
+.ep-set .ep-chint { font-size: 11.5px; padding-left: 128px; opacity: .8; }
+.ep-set .ep-cbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+@media (max-width: 560px) { .ep-set .ep-cr { grid-template-columns: minmax(0, 1fr); } .ep-set .ep-chint { padding-left: 0; } }

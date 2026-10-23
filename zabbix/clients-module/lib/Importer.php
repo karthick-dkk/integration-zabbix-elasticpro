@@ -91,10 +91,12 @@ class Importer {
 			foreach ($r['servers'] ?? [] as $k => $sv) {
 				$h = $hostAt[trim((string) ($sv['ip'] ?? ''))] ?? null;
 				$given = trim((string) ($sv['host'] ?? ''));
-				if ($h !== null && $given === '' && !empty($h['_own_name'])) {
-					$r['servers'][$k]['host'] = $h['host'];
+				// The Server name column: empty keeps the server name the host has; its host name (an IP,
+				// or a <client>-<Role>-<n> from an earlier release) is never taken as a server name.
+				if ($h !== null && $given === '' && ($h['_server_name'] ?? '') !== '') {
+					$r['servers'][$k]['host'] = $h['_server_name'];
 				}
-				elseif ($h !== null && $given === $h['host'] && empty($h['_own_name'])) {
+				elseif ($h !== null && $given === $h['host'] && ($h['_server_name'] ?? '') === '') {
 					$r['servers'][$k]['host'] = '';
 				}
 			}
@@ -161,7 +163,7 @@ class Importer {
 	private function hostNameClashes(string $client, array $c, array $hostAt, array &$nameOwner): array {
 		$want = [];
 		foreach ($c['servers'] as $ip => $s) {
-			if (($s['host'] ?? '') !== '' && ($hostAt[$ip]['host'] ?? null) !== $s['host']) {
+			if (($s['host'] ?? '') !== '' && ($hostAt[$ip]['name'] ?? null) !== $s['host']) {
 				$want[$s['host']] = $ip;
 			}
 		}
@@ -172,7 +174,7 @@ class Importer {
 			}
 			$key = strtolower($s['host']);
 			if (isset($nameOwner[$key]) && $nameOwner[$key] !== $client) {
-				$out[] = _s('host name "%1$s" (%2$s) is also given to a server of %3$s. Host names are unique in Zabbix.', $s['host'], $ip, $nameOwner[$key]);
+				$out[] = _s('server name "%1$s" (%2$s) is also given to a server of %3$s. Visible names are unique in Zabbix.', $s['host'], $ip, $nameOwner[$key]);
 			}
 			$nameOwner[$key] = $client;
 		}
@@ -189,7 +191,7 @@ class Importer {
 			foreach ([$h['host'], $h['name']] as $taken) {
 				$ip = $want[$taken] ?? null;
 				if ($ip !== null && ($hostAt[$ip]['hostid'] ?? null) !== $h['hostid']) {
-					$out[] = _s('host name "%1$s" for %2$s is already taken in Zabbix (by host "%3$s"). Host names are unique: give another, or leave it empty.', $taken, $ip, $h['host']);
+					$out[] = _s('server name "%1$s" for %2$s is already taken in Zabbix (by host "%3$s"). Visible names are unique: give another, or leave it empty.', $taken, $ip, $h['host']);
 					unset($want[$taken]);
 				}
 			}

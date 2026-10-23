@@ -12,6 +12,13 @@ use API;
 class SetupChecks {
 
 	/**
+	 * The item that asks Elasticsearch over HTTP — the master item of every generation of the
+	 * Elasticsearch cluster template, whatever the template is called. Discovery also uses it to
+	 * find a cluster host whose template has a name no setting here knows.
+	 */
+	public const ES_HEALTH_KEY = 'es.cluster.get_health';
+
+	/**
 	 * @param array $nows client name => Reconciler::current() of it
 	 * @param array $macros client name => its master host's macros
 	 * @return array client name => [[label, ok (bool|null = not yet known), detail]]
@@ -25,7 +32,7 @@ class SetupChecks {
 				}
 			}
 		}
-		$keys = ['es.cluster.get_health', JumpTemplate::FAST, 'ep.wj.problem[fast]', DevicesTemplate::KEY, 'ulm.check', 'ulm.error'];
+		$keys = [self::ES_HEALTH_KEY, JumpTemplate::FAST, 'ep.wj.problem[fast]', DevicesTemplate::KEY, 'ulm.check', 'ulm.error'];
 		$items = [];
 		$tags1 = [];
 		if ($hostids) {
@@ -58,7 +65,7 @@ class SetupChecks {
 						$p !== null && $p['lastvalue'] !== '' ? $p['lastvalue'] : ''];
 				}
 				else {
-					$h = $c['es.cluster.get_health'] ?? null;
+					$h = $c[self::ES_HEALTH_KEY] ?? null;
 					$check = self::item($h, _('Elasticsearch answers'));
 					if ($check[1] === false && preg_match('/\b(401|403)\b/', $check[2])) {
 						$check[2] = _('password rejected').' ('.$check[2].')';

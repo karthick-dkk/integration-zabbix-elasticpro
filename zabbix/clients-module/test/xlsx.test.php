@@ -192,7 +192,7 @@ namespace Modules\EpClients\Test {
 	$s2 = $tf['xl/worksheets/sheet2.xml'];
 	check('Servers Client reads the Clients sheet, as a warning (a client already in Zabbix needs no Clients row)',
 		(bool) preg_match('/errorStyle="warning"[^>]*sqref="A2:A2000"><formula1>Clients!\$A\$2:\$A\$2000<\/formula1>/', $s2));
-	check('Role 1–4 are role lists', substr_count($s2, '<formula1>&quot;ES Data,ES Data Hot,ES Data Warm,ES Coordination,ES Master,Parser,S3 Parser,Forwarder,Engine,UEBA,AIML&quot;</formula1>') === 4);
+	check('Role 1–4 are role lists', substr_count($s2, '<formula1>&quot;ES Data,ES Data Hot,ES Data Warm,ES Coordination,ES Master,Parser,S3 Parser,Forwarder,Engine,UEBA,AIML,Trino (ULM),SOAR&quot;</formula1>') === 4);
 	$p = Workbook::parse($template, $roles, $lists);
 	check('the untouched template imports as nothing, with no error, and the Sample is skipped', $p['errors'] === [] && $p['clients']['rows'] === [] && $p['servers']['clients'] === []
 		&& $p['skipped'] === ['Sample'], $p);
@@ -366,7 +366,12 @@ namespace Modules\EpClients\Test {
 			$notes += str_contains($k, 'comments') ? substr_count($v, '<comment ') : 0;
 			$dvs += str_contains($k, 'worksheets/sheet') ? substr_count($v, '<dataValidation ') : 0;
 		}
-		check('LibreOffice kept every note: Clients, Servers (with its two attribute columns) and Sample', $notes === count($clientHeaders) + 11 + 6, [$notes, count($clientHeaders) + 11 + 6]);
+		// The fixture was written before the roles of version 3 (Trino, SOAR): its Clients sheet has
+		// the headers of the roles it was made with, not today's.
+		$fixtureRoles = $roles;
+		$fixtureRoles['families'] = array_values(array_filter($roles['families'], fn($f) => !in_array($f['id'], Roles::ADDED_IN[3], true)));
+		$fixtureHeaders = array_values(array_filter(Xlsx::read(Workbook::build($fixtureRoles, $lists))['Clients'][1], fn($h) => strpos($h, Workbook::CHOICES) !== 0));
+		check('LibreOffice kept every note: Clients, Servers (with its two attribute columns) and Sample', $notes === count($fixtureHeaders) + 11 + 6, [$notes, count($fixtureHeaders) + 11 + 6]);
 		check('and all 13 dropdowns', $dvs === 13, $dvs);
 		$p = Workbook::parse(file_get_contents($lo), $roles, $lists);
 		check('the LibreOffice-saved export reads back with no errors, the same clients and servers', $p['errors'] === [] && $p['counts'] === ['Clients' => 2, 'Servers' => 3]

@@ -1,0 +1,63 @@
+/*
+ * Cluster Management -> Discover clusters, as the approved board (Discover.dc.html) draws it: the
+ * rule box, the "show already a client" switch, one table, and the summary box with one confirm.
+ *
+ * Colour tokens on .ep-disc, light by default and dark under the Zabbix dark themes, the same
+ * selectors as the import page. Inputs and buttons stay Zabbix's own.
+ */
+.ep-disc { --ep-card: #ffffff; --ep-line: #dfe4e7; --ep-line-2: #e8eaee; --ep-fg: #24292e; --ep-muted: #646a73; --ep-chip: #eef1f5;
+	--ep-old-bg: #fff4e0; --ep-old-fg: #8a5a00; --ep-ok-bg: #e3f4e6; --ep-ok-fg: #1f7a36; --ep-bad-bg: #fbe9e7; --ep-bad-fg: #b12f26;
+	--ep-accent: #0275b8; --ep-sum-line: #b7d4ea; --ep-mono: #454b52;
+	font-size: 13px; line-height: 1.4; color: var(--ep-fg); display: grid; gap: 12px; max-width: 1400px; }
+html[color-scheme="dark"] .ep-disc, [theme="dark-theme"] .ep-disc, [theme="hc-dark"] .ep-disc {
+	--ep-card: #1f2227; --ep-line: #383c42; --ep-line-2: #2c3035; --ep-fg: #ccccdc; --ep-muted: #9aa1ab; --ep-chip: #2c3035;
+	--ep-old-bg: #3a2f17; --ep-old-fg: #f0b04a; --ep-ok-bg: #1d3324; --ep-ok-fg: #5cc97a; --ep-bad-bg: #3b1f1d; --ep-bad-fg: #ff7a70;
+	--ep-accent: #6e9fff; --ep-sum-line: #2f4a63; --ep-mono: #b7bdc6; }
+.ep-disc *, .ep-disc *::before, .ep-disc *::after { box-sizing: border-box; }
+.ep-disc .ep-box { margin: 0; padding: 8px 12px; }
+.ep-disc .ep-box ul { margin: 6px 0 0 18px; list-style: disc; }
+.ep-disc .ep-muted { color: var(--ep-muted); font-size: 12px; }
+.ep-disc .ep-mono { font-family: Menlo, Consolas, monospace; font-size: 12px; color: var(--ep-mono); }
+.ep-disc .ep-mono-chip { font-family: Menlo, Consolas, monospace; font-size: 12px; background: var(--ep-chip); padding: 1px 5px; border-radius: 3px; }
+.ep-disc form { display: grid; gap: 12px; }
+
+/* the rule */
+.ep-disc .ep-rule { background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 4px; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.ep-disc .ep-rule-text { flex: 1 1 520px; line-height: 1.5; }
+.ep-disc .ep-rule-roles { flex: 1 1 100%; order: 3; }
+.ep-disc .ep-show { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.ep-disc .ep-show label { margin: 0; padding: 0; float: none; width: auto; display: inline-flex; gap: 6px; align-items: center; }
+
+/* the table */
+.ep-disc .ep-table-wrap { background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 4px; overflow-x: auto; max-width: 100%; }
+.ep-disc .ep-lt { width: 100%; border-collapse: collapse; min-width: 1080px; }
+.ep-disc .ep-lt th { text-align: left; font-weight: 400; color: var(--ep-muted); font-size: 12px; padding: 10px; border-bottom: 1px solid var(--ep-line); white-space: nowrap; }
+.ep-disc .ep-lt td { padding: 10px; border-bottom: 1px solid var(--ep-line-2); vertical-align: top; line-height: 1.45; }
+.ep-disc .ep-nm { height: 28px; padding: 0 8px; width: 160px; max-width: 100%; }
+.ep-disc .ep-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ep-disc .ep-chip { display: inline-block; padding: 2px 7px; border-radius: 3px; background: var(--ep-chip); color: var(--ep-fg); font-size: 12px; line-height: 16px; white-space: nowrap; }
+.ep-disc .ep-chip-old { background: var(--ep-old-bg); color: var(--ep-old-fg); }
+.ep-disc .ep-ok { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 3px; background: var(--ep-ok-bg); color: var(--ep-ok-fg); font-size: 12px; font-weight: 700; line-height: 16px; }
+.ep-disc .ep-bad { display: inline-block; padding: 2px 8px; border-radius: 3px; background: var(--ep-bad-bg); color: var(--ep-bad-fg); font-size: 12px; font-weight: 700; line-height: 16px; }
+.ep-disc .ep-rhs { display: flex; flex-direction: column; gap: 4px; }
+.ep-disc .ep-rh select { max-width: 220px; height: 24px; }
+.ep-disc .ep-plain { margin: 0; padding: 0; list-style: none; }
+.ep-disc .ep-plain li + li { margin-top: 2px; }
+.ep-disc .ep-small { font-size: 12px; }
+.ep-disc details { margin-top: 6px; }
+.ep-disc details summary { cursor: pointer; color: var(--ep-accent); font-size: 12px; }
+.ep-disc .ep-det { display: grid; gap: 6px; margin-top: 6px; max-width: 520px; }
+.ep-disc .ep-det label, .ep-disc .ep-lt label { margin: 0; padding: 0; float: none; width: auto; display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ep-disc .ep-writes { margin: 0; padding-left: 18px; }
+
+/* the summary */
+.ep-disc .ep-summary { background: var(--ep-card); border: 1px solid var(--ep-sum-line); border-radius: 4px; padding: 14px; display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-start; }
+.ep-disc .ep-sum-main { flex: 1 1 560px; display: flex; flex-direction: column; gap: 8px; }
+.ep-disc .ep-proxies { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.ep-disc .ep-proxies label { margin: 0; padding: 0; float: none; width: auto; display: inline-flex; gap: 6px; align-items: center; }
+.ep-disc .ep-sum-h, .ep-disc .ep-sum-line { font-size: 15px; line-height: 1.5; }
+.ep-disc .ep-wl { margin: 0; padding-left: 18px; color: var(--ep-muted); line-height: 1.45; }
+.ep-disc .ep-wl b { color: var(--ep-fg); }
+.ep-disc .ep-sum-side { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; flex: 0 1 auto; }
+.ep-disc .ep-adopt { min-height: 36px; font-size: 14px; }
+.ep-disc h4 { margin: 4px 0 0; font-size: 13px; }

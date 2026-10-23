@@ -4,6 +4,11 @@
 Elasticsearch, Linux or earlier ElasticPro templates, and keeps every value those hosts have
 stored. It is a dry run unless you add `--commit`, and it never deletes anything.
 
+Adopting clusters from Cluster Management (**Discover existing hosts**, clients-module/README.md)
+performs this same replace move for role hosts on an old agent template — exact keys only, unlink
+without clear, link, adopt — and keeps an older cluster template linked beside; anything that needs
+key renames or would convert a value type is left to this script.
+
 ## How history survives
 
 A stored value belongs to an **item id**, not to a key or a template. Three things Zabbix 7.0
@@ -34,7 +39,7 @@ instead of failing with "Trigger … already exists" or creating empty second it
 
 | Situation | What happens |
 |---|---|
-| The new key has a different value type (e.g. FLOAT → UNSIGNED) | The item is **kept apart** under its old key. Zabbix would adopt it and convert it, and the values stored under the old type would stop being visible (checked on 7.0.31: 1 value before, 0 after). The new template's item starts empty beside it. |
+| The new key has a different value type (e.g. FLOAT → UNSIGNED) | A renamed key: the item is **kept apart** under its old key. Zabbix would adopt it and convert it, and the values stored under the old type would stop being visible (checked on 7.0.31: 1 value before, 0 after). The new template's item starts empty beside it. The **same** key with another type cannot be kept apart — after the unlink the link would adopt it anyway — so the host is **refused**. |
 | The key already comes from a third template on the host | The host is **refused** — the link would fail. |
 | A host item of your own has the new key but another value type | The host is **refused** — the link would convert it. |
 | A discovery rule key is in both the old and the new template | The host is **refused**. |

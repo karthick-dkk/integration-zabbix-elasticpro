@@ -7,12 +7,15 @@ use Exception;
 
 /**
  * Makes Zabbix match a client: its host group, master host, cluster host, log archive host and
- * one Linux host per server, named after its roles: <client>-ES-Data-Parser-Engine-<n>.
+ * one Linux host per server. A server's (role host's) Zabbix host name is its IP and its visible
+ * name is the server's name: a new one is created so, and an existing one keeps the host name it
+ * has — never renamed, not even back from the <client>-<Role>-<n> an earlier release gave it —
+ * while its visible name follows the server name when one is known.
  *
  * Hosts already in the client's group are taken on as they are — the cluster host by its
- * Elasticsearch template, a server by its IP — keeping their history and passwords, and are
- * renamed to the client's pattern. So is a host elsewhere in Zabbix with a server's IP, when it
- * belongs to no other client: an IP is one client's only. A server not in Zabbix is created,
+ * Elasticsearch template, a server by its IP — keeping their history and passwords. So is a host
+ * elsewhere in Zabbix with a server's IP, when it belongs to no other client: an IP is one
+ * client's only. A server not in Zabbix is created,
  * linked to its roles' templates (the Linux agent template unless a role names others). A server
  * joins the group of each of its roles and of each family they count in (the groups the cluster
  * and Linux templates count); changing its roles moves it between those groups, and no group the
@@ -44,7 +47,9 @@ class Reconciler {
 	public const JUMP_CLUSTER_SLOTS = ['jump', 'plan', 'alerts', 'delay'];
 	public const ULM_TEMPLATE = Roles::TEMPLATE_SLOTS['ulm'][0];
 	/** Tags this page writes; everything else on a host is left as it is. */
-	private const OWN_TAGS = ['ep-client', 'ep-kind', 'ep-role', 'ep-service', 'ep-status', 'client', 'role', self::OWN_NAME_TAG];
+	private const OWN_TAGS = ['ep-client', 'ep-kind', 'ep-role', 'ep-service', 'ep-status', 'client', 'role', self::OWN_NAME_TAG, self::CONFIRM_TAG];
+	/** On a server whose role a person still has to confirm (a Kafka server placed under Forwarder): ep-confirm=kafka. */
+	public const CONFIRM_TAG = 'ep-confirm';
 	/**
 	 * On a server whose host name the operator chose (the import's Host name): ep-name=own. Such a
 	 * host is never renamed to the <client>-<roles>-<n> pattern, whatever its roles become.
@@ -203,6 +208,24 @@ class Reconciler {
 	}
 
 	/**
+	 * What a cluster host carries beside the current cluster template: older generations by name,
+	 * and a template this module does not know by name that gives it the Elasticsearch items
+	 * ($signature, from Discovery::signatureTemplates). One definition for the list's "+ N older
+	 * beside", the client page's Beside and Missing.
+	 *
+	 * @param string[] $templates  names of the templates linked to the host
+	 * @param string|null $signature  the template giving it the health check, if any
+	 * @return array{known: string[], unknown: string[]}
+	 */
+	public static function besideTemplates(array $templates, ?string $signature = null): array {
+		$current = [Roles::clusterTemplate(), Roles::templateName('jump')];
+		$known = array_values(array_diff(array_intersect($templates, self::clusterHostTemplates()), $current));
+		$unknown = $signature !== null && in_array($signature, $templates, true) && !in_array($signature, $current, true)
+			&& !in_array($signature, $known, true) ? [$signature] : [];
+		return ['known' => $known, 'unknown' => $unknown];
+	}
+
+	/**
 	 * Every template name that marks a host as a client's cluster host, in both generations:
 	 * the Elasticsearch template for a cluster asked over HTTP, the jump host template for one
 	 * asked through SSH. current() recognises a cluster host by any of them.
@@ -351,6 +374,26 @@ class Reconciler {
 		return false;
 	}
 
+	/**
+	 * A role host's server name: its visible name when that is a name — not its host name, not its
+	 * IP — or, for a host an operator named on this page before (ep-name=own), that name. '' when
+	 * no server name is known: the host name is never taken for one.
+	 */
+	public static function serverName(array $host): string {
+		$name = (string) ($host['name'] ?? '');
+		$tech = (string) ($host['host'] ?? '');
+		$ip = self::agentIp($host) ?? '';
+		if ($name !== '' && $name !== $tech && $name !== $ip && ClientSpec::isServerName($name)) {
+			return $name;
+		}
+		return in_array('own', self::tagValues($host, self::OWN_NAME_TAG), true) && $tech !== $ip ? $tech : '';
+	}
+
+	/** Whether a host keeps a name of its own (ep-name=own): no save renames it to the client's pattern. */
+	public static function hasOwnName(array $host): bool {
+		return in_array('own', self::tagValues($host, self::OWN_NAME_TAG), true);
+	}
+
 	public static function hasTemplate(array $host, string $template): bool {
 		return in_array($template, array_column($host['parentTemplates'] ?? [], 'host'), true);
 	}
@@ -473,6 +516,8 @@ class Reconciler {
 			$host['_families'] = array_values(array_map(fn($f) => $f['id'], array_filter($this->roles['families'], fn($f) => in_array($f['group'], $groups, true))));
 			$host['_attrs'] = [];
 			$host['_own_name'] = in_array('own', self::tagValues($host, self::OWN_NAME_TAG), true);
+			$host['_server_name'] = self::serverName($host);
+			$host['_confirm'] = self::tagValues($host, self::CONFIRM_TAG)[0] ?? '';
 			foreach ($host['tags'] ?? [] as $t) {
 				if (strpos($t['tag'], 'inv:') === 0) {
 					$host['_attrs'][substr($t['tag'], 4)] = $t['value'];
@@ -625,6 +670,14 @@ class Reconciler {
 					count($legacy) > count($shown) ? _s(' and %1$d more', count($legacy) - count($shown)) : '');
 			}
 		}
+		// Switching a cluster that has its own password to the default would take that password off
+		// the host; with no default to inherit, the cluster would be left with none. A cluster with
+		// no password of its own loses nothing, and its page says the credential is missing.
+		if ($client['es'] !== null && $client['fields']['es_password_mode'] === 'default'
+				&& in_array(self::ES_PASSWORD_MACRO, array_column($now['cluster']['macros'] ?? [], 'macro'), true)
+				&& !DefaultCredential::current()['password']) {
+			$out[] = _('Nothing was saved. This cluster has its own password, and the default Elasticsearch credential is not set: switching to the default would leave it with none. Set the default on ElasticPro → Settings first.');
+		}
 		if ($client['es'] !== null && $client['fields']['es_password_mode'] === 'zabbix' && $client['es_password'] === '') {
 			foreach ([['cluster', _('cluster')], ['ulm', _('log archive')]] as [$k, $label]) {
 				if ($k === 'ulm' && !$this->spec->wantsUlm($client)) {
@@ -656,6 +709,7 @@ class Reconciler {
 		}
 		try {
 			$this->monitoredBy($client);
+			$this->serversMonitoredBy($client);
 		}
 		catch (Exception $e) {
 			$out[] = $e->getMessage();
@@ -681,10 +735,26 @@ class Reconciler {
 	 * Both the technical and the visible name are asked for, because create() gives a new host
 	 * the same string for both and Zabbix refuses a collision on either.
 	 *
-	 * The servers are not covered: their names carry a number this page hands out
-	 * (ClientSpec::machineName), and the number is chosen while applying.
+	 * A new server's host name is its IP, so an IP that is already some host's host name — a host
+	 * with no agent interface on it, which the IP match above therefore did not find — would be
+	 * refused the same way; it is asked here too.
 	 */
 	private function nameClashes(array $client, array $now): array {
+		$out = [];
+		$inClient = array_filter(array_map(fn($h) => $h['_ip'], $now['machines'] ?? []));
+		$new = array_values(array_diff(array_keys($client['servers']), $inClient));
+		if ($new) {
+			$byIf = array_column(API::HostInterface()->get(['output' => ['hostid', 'ip'], 'filter' => ['ip' => $new, 'type' => INTERFACE_TYPE_AGENT]]) ?: [], 'ip', 'ip');
+			$named = array_values(array_diff($new, array_keys($byIf)));
+			foreach ($named ? (API::Host()->get(['output' => ['hostid', 'host', 'name'], 'filter' => ['host' => $named]]) ?: []) : [] as $h) {
+				$out[] = _s('Nothing was saved. A host whose host name is %1$s already exists ("%2$s") without an agent interface on that IP, so a server host cannot be created under it. Give "%2$s" an agent interface with %1$s to have it taken on, or rename it.', $h['host'], $h['name']);
+			}
+		}
+		return array_merge($out, $this->clusterNameClashes($client, $now));
+	}
+
+	/** The master, cluster and log archive host names apply() would create that a host already has. */
+	private function clusterNameClashes(array $client, array $now): array {
 		$wanted = [];
 		if ($now['master'] === null) {
 			$wanted[ClientSpec::masterName($client['name'])] = [_('master'), 'master'];
@@ -848,7 +918,13 @@ class Reconciler {
 				$this->done[] = _s('Created "%1$s".', ClientSpec::clusterName($name));
 			}
 			else {
-				$this->rename($now['cluster'], ClientSpec::clusterName($name));
+				// A cluster host that keeps its own name (ep-name=own, or adopted by Discover existing
+				// hosts without "Rename" ticked) is never renamed to <client>-ES-Cluster, as a server
+				// with a name of its own is not; the tag is written back so later saves keep it too.
+				$ownName = self::hasOwnName($now['cluster']) || !empty($client['keep_cluster_name']);
+				if (!$ownName) {
+					$this->rename($now['cluster'], ClientSpec::clusterName($name));
+				}
 				$linked = array_column($now['cluster']['parentTemplates'] ?? [], 'templateid');
 				$drop = array_values(array_intersect($other, $linked));
 				if ($drop) {
@@ -857,8 +933,15 @@ class Reconciler {
 				}
 				$this->link($now['cluster']['hostid'], $templates, $groups);
 				$this->monitor($now['cluster'], $monitor);
-				$this->retag($now['cluster'], $this->tags($now['cluster']['tags'] ?? [], $name, 'cluster', self::isManaged($now['cluster'])));
+				$clusterTags = $this->tags($now['cluster']['tags'] ?? [], $name, 'cluster', self::isManaged($now['cluster']));
+				if ($ownName) {
+					$clusterTags[] = ['tag' => self::OWN_NAME_TAG, 'value' => 'own'];
+				}
+				$this->retag($now['cluster'], $clusterTags);
 				$this->setMacros($now['cluster']['hostid'], $this->spec->clusterMacros($client, false));
+				if ($client['fields']['es_password_mode'] === 'default') {
+					$this->useDefaultCredential($now['cluster']);
+				}
 			}
 		}
 
@@ -889,7 +972,7 @@ class Reconciler {
 			$this->delete([$now['ulm']]);
 		}
 
-		$this->servers($client, $now, $gid, $tpl, $monitor);
+		$this->servers($client, $now, $gid, $tpl, $this->serversMonitoredBy($client));
 	}
 
 	/** The servers, matched by IP across the whole client. */
@@ -922,29 +1005,10 @@ class Reconciler {
 			$byIp[$ip] = reset($list);
 			$adopted[$byIp[$ip]['hostid']] = true;
 		}
-		// Numbers already in use per name pattern — names that follow it keep theirs.
-		$taken = [];
-		foreach ($now['machines'] as $host) {
-			if (preg_match('/^'.preg_quote($name, '/').'-(.+)-(\d+)$/', $host['host'], $m) && (int) $m[2] > 0) {
-				$taken[$m[1]][(int) $m[2]] = true;
-			}
-		}
-		// A name of the operator's own that happens to follow the pattern takes its number too.
-		foreach ($client['servers'] as $s) {
-			if (($s['host'] ?? '') !== '' && preg_match('/^'.preg_quote($name, '/').'-(.+)-(\d+)$/', $s['host'], $m) && (int) $m[2] > 0) {
-				$taken[$m[1]][(int) $m[2]] = true;
-			}
-		}
-		$next = function(string $base) use (&$taken): int {
-			$n = !empty($taken[$base]) ? max(array_keys($taken[$base])) + 1 : 1;
-			$taken[$base][$n] = true;
-			return $n;
-		};
 		$port = $client['fields']['agent_port'] !== '' ? $client['fields']['agent_port'] : '10050';
 
 		$kept = [];
 		foreach ($client['servers'] as $ip => $s) {
-			$base = Roles::serverBase($this->roles, $s['roles']);
 			$want = array_merge(array_map(fn($rid) => $byId[$rid]['group'], $s['roles']), Roles::familyGroupsOf($this->roles, $s['roles']));
 			$want_ids = array_merge([$gid], array_map(fn($g) => $this->groupId($g, true), array_unique($want)));
 			$want_tpl = array_map(fn($t) => $tpl[$t], Roles::templatesOf($this->roles, $s['roles']));
@@ -955,15 +1019,12 @@ class Reconciler {
 				if (isset($adopted[$host['hostid']])) {
 					$this->done[] = _s('Took on the existing host "%1$s" (%2$s): its history and templates stay.', $host['name'], $ip);
 				}
-				// A name of its own: the one asked for, or the one it already keeps (ep-name=own), which no
-				// save takes away. Otherwise the pattern, as before.
-				$own = ($s['host'] ?? '') !== '' ? $s['host'] : (!empty($host['_own_name']) ? $host['host'] : '');
-				$s['host'] = $own;
-				if ($own !== '') {
-					$this->rename($host, $own);
-				}
-				elseif (ClientSpec::slotOf($host['host'], $name, $base) === null) {
-					$this->rename($host, ClientSpec::machineName($name, $base, $next($base)));
+				// A role host's host name is its IP, and its visible name the server's name. The host
+				// name is never changed — not to the IP, not to a server name, not back from the
+				// <client>-<Role>-<n> an earlier release gave it. Only the visible name follows the
+				// server name, when one is known; without one the visible name is left as it is.
+				if (($s['host'] ?? '') !== '') {
+					$this->visibleName($host, $s['host']);
 				}
 				// Out of the groups of roles and families it no longer has; into the ones it has.
 				$drop = [];
@@ -982,9 +1043,10 @@ class Reconciler {
 				$this->setMacros($host['hostid'], ['{$GRP.CLIENT}' => [$name, 0]]);
 				continue;
 			}
-			$host_name = ($s['host'] ?? '') !== '' ? $s['host'] : ClientSpec::machineName($name, $base, $next($base));
+			// A new role host: host name = its IP, visible name = the server name (the IP when none is known).
+			$visible = ($s['host'] ?? '') !== '' ? $s['host'] : $ip;
 			$new = [
-				'host' => $host_name, 'groups' => $this->g($want_ids), 'templates' => $this->t($want_tpl),
+				'host' => $ip, 'name' => $visible, 'groups' => $this->g($want_ids), 'templates' => $this->t($want_tpl),
 				'interfaces' => [['type' => INTERFACE_TYPE_AGENT, 'main' => INTERFACE_PRIMARY, 'useip' => INTERFACE_USE_IP,
 					'ip' => $ip, 'dns' => '', 'port' => $port]],
 				'tags' => $this->serverTags([], $name, $s, true),
@@ -996,7 +1058,7 @@ class Reconciler {
 			$hostid = $this->create($new);
 			$this->setMacros($hostid, ['{$GRP.CLIENT}' => [$name, 0]]);
 			$kept[$hostid] = true;
-			$this->done[] = _s('Created "%1$s" (%2$s).', $host_name, $ip);
+			$this->done[] = $visible !== $ip ? _s('Created "%1$s" (host name %2$s).', $visible, $ip) : _s('Created host %1$s (no server name yet).', $ip);
 		}
 		if ($merged) {
 			$this->delete($merged);
@@ -1071,9 +1133,28 @@ class Reconciler {
 
 	/* ------------------------------------ helpers ------------------------------------ */
 
-	/** The host fields for the client's proxy: monitored_by and the proxy or group id. */
+	/** The host fields for the client's cluster host proxy: monitored_by and the proxy or group id. */
 	private function monitoredBy(array $client): array {
-		[$kind, $target] = ClientSpec::monitoredBy($client['fields']['monitored_by']) ?? ['server', ''];
+		return $this->monitorFor($client['fields']['monitored_by']);
+	}
+
+	/**
+	 * The host fields for the client's Linux role hosts: their own choice (Servers & roles), or —
+	 * left empty — the cluster host's, except through a jump host, which is the cluster's alone.
+	 */
+	public function serversMonitoredBy(array $client): array {
+		$own = (string) ($client['fields']['servers_monitored_by'] ?? '');
+		if ($own === 'server') {
+			return ['monitored_by' => ZBX_MONITORED_BY_SERVER];
+		}
+		if ($own !== '') {
+			return $this->monitorFor($own);
+		}
+		return $client['fields']['monitored_by'] === 'jump' ? ['monitored_by' => ZBX_MONITORED_BY_SERVER] : $this->monitoredBy($client);
+	}
+
+	private function monitorFor(string $value): array {
+		[$kind, $target] = ClientSpec::monitoredBy($value) ?? ['server', ''];
 		if ($kind === 'proxy') {
 			$p = API::Proxy()->get(['output' => ['proxyid'], 'filter' => ['name' => $target]]);
 			if (!$p) {
@@ -1163,6 +1244,9 @@ class Reconciler {
 		if (($s['host'] ?? '') !== '') {
 			$out[] = ['tag' => self::OWN_NAME_TAG, 'value' => 'own'];
 		}
+		if (($s['confirm'] ?? '') !== '') {
+			$out[] = ['tag' => self::CONFIRM_TAG, 'value' => $s['confirm']];
+		}
 		return $out;
 	}
 
@@ -1196,11 +1280,35 @@ class Reconciler {
 	}
 
 	private function create(array $host): string {
-		$host['name'] = $host['host'];
+		$host['name'] = $host['name'] ?? $host['host'];
 		if ($this->status !== 'active') {
 			$host['status'] = HOST_STATUS_NOT_MONITORED;
 		}
 		return $this->api(API::Host()->create($host), _s('create host "%1$s"', $host['host']))['hostids'][0];
+	}
+
+	/**
+	 * Switching a cluster to the default credential: its own {$ELASTICSEARCH.USERNAME} and
+	 * {$ELASTICSEARCH.PASSWORD} are taken off so it inherits the global ones. Only on that
+	 * switch — the mode is the operator's choice, and problems() refused it while no default
+	 * password is set — and said in the save's lines.
+	 */
+	private function useDefaultCredential(array $cluster): void {
+		$own = API::UserMacro()->get(['output' => ['hostmacroid', 'macro'], 'hostids' => [$cluster['hostid']],
+			'filter' => ['macro' => [DefaultCredential::USER_MACRO, DefaultCredential::PASSWORD_MACRO]]]) ?: [];
+		if ($own) {
+			$this->api(API::UserMacro()->delete(array_values(array_map('strval', array_column($own, 'hostmacroid')))), _('remove the cluster\'s own credential'));
+			$this->done[] = _s('"%1$s" now uses the default Elasticsearch credential: its own %2$s removed.', $cluster['host'], implode(' and ', array_column($own, 'macro')));
+		}
+	}
+
+	/** Set a role host's visible name (its server name). The host name, and so its identity, stays. */
+	private function visibleName(array $host, string $to): void {
+		if (($host['name'] ?? '') === $to) {
+			return;
+		}
+		$this->api(API::Host()->update(['hostid' => $host['hostid'], 'name' => $to]), _s('set the visible name of "%1$s"', $host['host']));
+		$this->done[] = _s('Visible name of %1$s set to "%2$s" (was "%3$s"); its host name is unchanged.', $host['host'], $to, (string) ($host['name'] ?? ''));
 	}
 
 	/** Give a host the client's name for it. History, items and links stay with the host. */

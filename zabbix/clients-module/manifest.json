@@ -92,6 +92,22 @@
 		"ep.clients.test": {
 			"class": "TestConnection",
 			"layout": "layout.json"
+		},
+		"ep.clients.discover": {
+			"class": "DiscoverList",
+			"view": "ep.clients.discover",
+			"layout": "layout.htmlpage"
+		},
+		"ep.clients.discover.apply": {
+			"class": "DiscoverApply",
+			"view": "ep.clients.discover",
+			"layout": "layout.htmlpage"
+		},
+		"ep.clients.credential.save": {
+			"class": "CredentialSave"
+		},
+		"ep.clients.columns.save": {
+			"class": "ColumnsSave"
 		}
 	}
 }
