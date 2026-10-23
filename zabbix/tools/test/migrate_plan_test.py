@@ -211,7 +211,8 @@ class Guard(unittest.TestCase):
 class Exports(unittest.TestCase):
     def test_scanner_matches_the_templates(self):
         files = sorted(glob.glob(os.path.join(HERE, "..", "..", "templates", "*.yaml")))
-        self.assertEqual(len(files), 4)
+        # the four copied from ElasticPro, and the request gate template written here
+        self.assertEqual(len(files), 5)
         for f in files:
             text = read(f)
             k = mig._keys_from_yaml_scan(text)
