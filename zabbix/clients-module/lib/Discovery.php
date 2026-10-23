@@ -971,6 +971,10 @@ final class Discovery {
 			$add = array_values(array_diff($tpl, $c['templates']));
 			$have = array_values(array_intersect($tpl, $c['templates']));
 			$q = fn(array $l) => implode(', ', array_map(fn($t) => '"'.$t.'"', $l));
+			if (($c['es']['url'] ?? '') === '') {
+				$w[] = ['macros', _s('Set connection macros on "%1$s" from the typed URL: {$ELASTICSEARCH.SCHEME}, {$ELASTICSEARCH.HOST}, {$ELASTICSEARCH.PORT} = %2$s.',
+					$c['host'], $client['es']['scheme'].'://'.$client['es']['host'].':'.$client['es']['port'])];
+			}
 			$w[] = ['link', $add
 				? _s('Link to "%1$s", directly and in one step (host.massadd): %2$s.%3$s Items with a key the host already has are adopted, history kept; nothing is unlinked or cleared.',
 					$c['host'], $q($add), $have ? ' '._s('Already linked: %1$s.', $q($have)) : '')

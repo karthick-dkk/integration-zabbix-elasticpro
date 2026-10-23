@@ -24,10 +24,10 @@ namespace {
 	require __DIR__.'/fake-zabbix.php';
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'DefaultCredential', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'DefaultCredential', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck', 'EpRole', 'TemplateMove', 'Missing', 'ClusterSecret', 'Discovery'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
-	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate, WriteCheck};
+	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate, WriteCheck, Discovery};
 
 	$failed = 0; $passed = 0; $scene = '';
 	function check(string $what, bool $ok, $detail = null): void {
@@ -1381,6 +1381,23 @@ namespace Modules\EpClients\Test {
 	if (is_dir($dir.'/backups')) { rmdir($dir.'/backups'); }
 	foreach (array_diff(scandir($dir), ['.', '..']) as $fn) { unlink($dir.'/'.$fn); }
 	rmdir($dir);
+
+
+	/* ---- Discover: a cluster host with no ES URL macros, the URL typed on the page ---- */
+	$begin('discover: typed URL for a cluster host without macros');
+	\Zbx::addHost(['host' => 'dn-ES-Cluster', 'groups' => ['Elasticsearch clusters'], 'templates' => [Roles::clusterTemplate()]]);
+	$dd = fn() => new Discovery(new ClientSpec(Roles::defaults()), new Reconciler(new ClientSpec(Roles::defaults())));
+	$dp = array_column($dd()->scan()['proposals'], null, 'name')['dn-ES-Cluster'];
+	$dnId = $dp['hosts'][0]['hostid'];
+	check('discover: listed refused, not ticked, until a URL is typed', !$dp['choices']['selected'] && $dp['plan']['blockers'] !== []);
+	$posted = fn(string $u) => ['sel' => [$dp['id'] => '1'], 'host' => [$dp['id'] => [$dnId => '1']], 'es_url' => [$dp['id'] => $u]];
+	$dc = Discovery::choicesFrom($dp, $posted('ftp//nope'), Roles::defaults());
+	check('discover: a bad URL stays refused', $dd()->plan($dp, $dc)['blockers'] !== [] && $dd()->plan($dp, $dc)['cluster'] === null);
+	$dc = Discovery::choicesFrom($dp, $posted('https://dn.example:9243'), Roles::defaults());
+	$dr = $dd()->apply($dp, $dc, null, function () {}, function (string $n) {});
+	$dm = \Zbx::macrosOf($dnId);
+	check('discover: adopted, and the macros come from the typed URL', $dr['error'] === null && $dm['{$ELASTICSEARCH.SCHEME}'] === 'https'
+		&& $dm['{$ELASTICSEARCH.HOST}'] === 'dn.example' && $dm['{$ELASTICSEARCH.PORT}'] === '9243', [$dr['error'], $dm]);
 
 	$scene = '';
 	echo "$passed passed, $failed failed", PHP_EOL;

@@ -554,6 +554,43 @@ namespace Modules\EpClients\Test {
 	$m = Missing::forClient($now, $rr->macros($now['cluster']['hostid']), [], null, false, ['source' => 'none']);
 	check('Missing: "no credential: set the default or this cluster\'s"', in_array('credential', array_column($m, 'key'), true));
 
+
+	/* ======================================================================================
+	 *  A CLUSTER HOST WITH NO ES URL ON IT: THE URL TYPED ON THE PAGE
+	 * ====================================================================================== */
+	$begin('typed URL for a cluster host without macros');
+	\Zbx::addHost(['host' => 'nm-ES-Cluster', 'groups' => ['Elasticsearch clusters'], 'templates' => [Roles::clusterTemplate()]]);
+	$nm = $byName($disc()->scan())['nm-ES-Cluster'];
+	$nmId = $hostIn($nm, 'nm-ES-Cluster')['hostid'];
+	check('the scan refuses it and does not tick it', !$nm['choices']['selected'] && $nm['plan']['blockers'] !== [] && $nm['choices']['hosts'][$hostIn($nm, 'nm-ES-Cluster')['hostid']] === false, [$nm['plan']['skipped'], $nm['plan']['blockers']]);
+	// What the page posts: the hidden host input now carries the real host id's "1" for this row.
+	$post = fn(string $url) => ['sel' => [$nm['id'] => '1'], 'host' => [$nm['id'] => [$nmId => '1']], 'es_url' => [$nm['id'] => $url]];
+	$bad = $disc()->plan($nm, Discovery::choicesFrom($nm, $post('not a url'), $roles));
+	check('a bad URL stays refused, with the reason', $bad['cluster'] === null && $bad['blockers'] !== [] && (bool) preg_grep('/type it as scheme:\/\/host:port/', $bad['skipped']), [$bad['blockers'], $bad['skipped']]);
+	$wrote = count(\Zbx::$wrote);
+	$res = $disc()->apply($nm, Discovery::choicesFrom($nm, $post('not a url'), $roles), null, $noBackup, $noNote);
+	check('…and adopting it writes nothing', $res['error'] !== null && count(\Zbx::$wrote) === $wrote, $res['error']);
+	$c = Discovery::choicesFrom($nm, $post('https://es.nm.example:9200'), $roles);
+	check('the posted host id makes the cluster host chosen', $c['hosts'][$nmId] === true);
+	$plan = $disc()->plan($nm, $c);
+	check('a valid URL: no blocker, the cluster host is adopted', $plan['blockers'] === [] && $plan['cluster']['hostid'] === $nmId && $plan['adopting'] === 1, [$plan['blockers'], $plan['skipped']]);
+	$line = array_values(array_filter($plan['writes'], fn($w) => str_starts_with($w[1], 'Set connection macros on "nm-ES-Cluster" from the typed URL')));
+	check('the write list says it sets the connection macros from the typed URL', count($line) === 1 && str_contains($line[0][1], 'https://es.nm.example:9200'), $plan['writes']);
+	$res = $disc()->apply($nm, $c, null, $noBackup, $noNote);
+	check('adopt succeeds', $res['error'] === null, $res);
+	$mm = \Zbx::macrosOf($nmId);
+	check('the host now carries SCHEME, HOST and PORT from the typed URL', ($mm['{$ELASTICSEARCH.SCHEME}'] ?? null) === 'https' && ($mm['{$ELASTICSEARCH.HOST}'] ?? null) === 'es.nm.example'
+		&& ($mm['{$ELASTICSEARCH.PORT}'] ?? null) === '9200', $mm);
+	$hostRow = \Zbx::byHost('nm-ES-Cluster');
+	check('it is in the client group, with the cluster template linked', in_array('nm-ES-Cluster', array_column($hostRow['hostgroups'], 'name'), true)
+		&& in_array(Roles::clusterTemplate(), array_column($hostRow['parentTemplates'], 'host'), true), $hostRow['hostgroups']);
+	check('a macro-bearing host does not get the line (the URL was read, not typed)', (function () use ($disc, $byName, $esMacros, $begin, $hostIn, $roles) {
+		$begin('control');
+		\Zbx::addHost(['host' => 'ct-ES-Cluster', 'groups' => ['Elasticsearch clusters'], 'templates' => [Roles::clusterTemplate()], 'macros' => $esMacros('es.ct')]);
+		$p = $byName($disc()->scan())['ct-ES-Cluster'];
+		return !preg_grep('/from the typed URL/', array_column($p['plan']['writes'], 1)) && $p['choices']['selected'];
+	})());
+
 	/* ---------------- tidy up ---------------- */
 	$rm = function (string $d) use (&$rm) {
 		foreach (array_diff(scandir($d) ?: [], ['.', '..']) as $f) { is_dir("$d/$f") ? $rm("$d/$f") : unlink("$d/$f"); }

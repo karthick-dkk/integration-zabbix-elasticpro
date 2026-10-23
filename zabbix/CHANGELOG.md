@@ -4,6 +4,10 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.6
+
+- **Discover: a typed ES URL now adopts a cluster host that has no URL macros.** The refused row's hidden host id stayed 0, so typing `https://host:9200` (even then "Preview writes") never enabled Adopt ("No host is ticked that can be adopted"). The row now carries the real host id, a valid typed URL lifts the refusal and ticks the row after the preview, the write list gains "Set connection macros on <host> from the typed URL", and adopting sets `{$ELASTICSEARCH.SCHEME/HOST/PORT}` from it before linking; an invalid URL stays refused with the reason.
+
 ## Unreleased
 
 - **Discover existing hosts** (Cluster Management → Discover): finds the Elasticsearch clusters
