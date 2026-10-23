@@ -71,7 +71,8 @@ if ($editing) {
 		.'<div class="ep-acts" role="group" aria-label="'.$e(_('Client actions')).'">'.implode('', $acts).'</div></div>';
 }
 if ($ro) {
-	$html[] = '<div class="ep-notes"><div class="ep-note">'.$e(_('Read only: only Super admins change clients.')).'</div></div>';
+	$html[] = '<div class="ep-notes">'.implode('', array_map(fn($line) => '<div class="ep-note">'.$e($line).'</div>',
+		\Modules\EpClients\Lib\EpRole::noteLines($data['write_note'] ?? null))).'</div>';
 }
 $html[] = '<form method="post" action="'.$e($url('ep.clients.save')).'" id="ep-client-form" class="ep-f" autocomplete="off">'.($ro ? '<fieldset disabled class="ep-ro">' : '');
 $html[] = '<input type="hidden" name="'.CSRF_TOKEN_NAME.'" value="'.$e(CCsrfTokenHelper::get('ep.clients.save')).'">';

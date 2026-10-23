@@ -52,12 +52,42 @@ class TemplateInstaller {
 	public static function install(array $roles): void {
 		// The cluster template first: it is the one the core searches for to find clusters
 		// at all, so a site that gets no further than this still has a working sync.
-		self::import(ClusterTemplate::export(), ClusterTemplate::name());
-		// The devices template next: the master template's figures read its item.
-		self::import(DevicesTemplate::export(), DevicesTemplate::name());
-		self::import(JumpTemplate::export(), JumpTemplate::name());
-		self::import(JumpTemplate::ulmExport(), JumpTemplate::ulmName());
-		self::import((new MasterTemplate($roles))->export(), MasterTemplate::name());
+		// The devices template next: the master template's figures read its item. exports() keeps
+		// that order.
+		foreach (self::exports($roles) as [$export, $name]) {
+			self::import($export, $name);
+		}
+	}
+
+	/** What install() imports, in its order: [export, template name]. */
+	private static function exports(array $roles): array {
+		return [
+			[ClusterTemplate::export(), ClusterTemplate::name()],
+			[DevicesTemplate::export(), DevicesTemplate::name()],
+			[JumpTemplate::export(), JumpTemplate::name()],
+			[JumpTemplate::ulmExport(), JumpTemplate::ulmName()],
+			[(new MasterTemplate($roles))->export(), MasterTemplate::name()]
+		];
+	}
+
+	/**
+	 * The template groups install() writes templates into. The import does not create a missing
+	 * one (RULES has no template_groups) and creating one is a Super admin's alone; writing into
+	 * one needs write permission on it — WriteCheck asks both before anyone else installs.
+	 */
+	public static function templateGroups(array $roles): array {
+		$out = [];
+		foreach (self::exports($roles) as [$export]) {
+			foreach ($export['zabbix_export']['template_groups'] ?? [] as $g) {
+				$out[(string) $g['name']] = true;
+			}
+			foreach ($export['zabbix_export']['templates'] ?? [] as $t) {
+				foreach ($t['groups'] ?? [] as $g) {
+					$out[(string) $g['name']] = true;
+				}
+			}
+		}
+		return array_keys($out);
 	}
 
 	private static function import(array $export, string $name): void {

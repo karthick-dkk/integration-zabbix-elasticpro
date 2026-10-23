@@ -326,6 +326,23 @@ class AlertRouting {
 	}
 
 	/**
+	 * Whether sync() would write the client's DL user group or DL account — steps Zabbix keeps for
+	 * Super admins (usergroup.create/update/delete, user.create/update/delete of another user).
+	 * It does whenever routing or the report is wanted afterwards (the group is brought up to
+	 * date on every save) and when either was wanted before (turning both off deletes them),
+	 * unless unsafe() would leave everything alone. WriteCheck asks this before a save by
+	 * anyone else, so the save is refused before anything changes rather than half done.
+	 *
+	 * @param bool $group_after  whether the client's host group exists once the change is made
+	 */
+	public static function needsAccounts(string $client, bool $group_after, array $before, array $after, ?bool $legacy_settings = null): bool {
+		if (self::unsafe($client, $group_after ? 'known' : null, $after, $legacy_settings) !== null) {
+			return false;
+		}
+		return self::wanted($before) || self::reportWanted($before) || self::wanted($after) || self::reportWanted($after);
+	}
+
+	/**
 	 * The weekly report: removed when not wanted (first pass, before the DL group can go), made or
 	 * brought up to date when wanted (second pass, once the group exists). The dashboard is deleted
 	 * only while it holds nothing but the page's own widgets, under either naming.

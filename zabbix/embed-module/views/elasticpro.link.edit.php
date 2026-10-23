@@ -82,6 +82,9 @@ if ($st['core_url'] !== $st['public_url']) {
 }
 $status
 	->addItem([new CLabel(_('Verify TLS')), new CFormField([$st['verify_tls'] ? _('yes') : _('no'), ' ', $src($ff['verify_tls'])])])
+	->addItem([new CLabel(_('Trusted plain-HTTP hosts')), new CFormField([
+		$st['trusted_plain_hosts'] ? implode(', ', $st['trusted_plain_hosts']) : _('none'), ' ', $src($ff['trusted_plain_hosts'])
+	])])
 	->addItem([new CLabel(_('Secret')), new CFormField($secret_text)]);
 if ($db['mode'] === 'pair' && $db['zabbixUrl'] !== '') {
 	$status->addItem([new CLabel(_('Paired as')), new CFormField($db['zabbixUrl'])]);
@@ -161,6 +164,12 @@ $ep_box = (new CTextBox('ep_url', $ff['public_url'] ? $st['public_url'] : $db['e
 	->setId('ep-url')->setWidth(ZBX_TEXTAREA_BIG_WIDTH)->setAttribute('placeholder', 'https://elasticpro.example.com');
 $verify_box = (new CCheckBox('verify_tls', '1'))->setId('ep-manual-verify')
 	->setChecked($ff['verify_tls'] ? $st['verify_tls'] : $db['verifyTls']);
+$plain_box = (new CTextBox('trusted_plain_hosts',
+	implode(', ', $ff['trusted_plain_hosts'] ? $st['trusted_plain_hosts'] : $db['trustedPlainHosts'])))
+	->setId('ep-plain-hosts')->setWidth(ZBX_TEXTAREA_BIG_WIDTH)->setAttribute('placeholder', 'ep-core');
+if ($ff['trusted_plain_hosts']) {
+	$plain_box->setReadonly(true);
+}
 $secret_box = (new CPassBox('secret', '', 255))->setId('ep-secret')->setWidth(ZBX_TEXTAREA_BIG_WIDTH)
 	->setAttribute('autocomplete', 'new-password')
 	->setAttribute('placeholder', $db['secret_set'] ? _('set — leave empty to keep') : _('at least 32 characters'));
@@ -180,6 +189,12 @@ $manual = $form('manual', 'ep-manual')->addItem((new CFormGrid())
 	])])
 	->addItem([new CLabel(_('Verify TLS'), 'ep-manual-verify'), new CFormField([
 		$verify_box, $ff['verify_tls'] ? (new CDiv(_('Set in config.php.')))->addClass('ep-hint') : null
+	])])
+	->addItem([new CLabel(_('Trusted plain-HTTP hosts'), 'ep-plain-hosts'), new CFormField([
+		$plain_box,
+		(new CDiv($ff['trusted_plain_hosts'] ? _('Set in config.php.')
+			: _('Exact host names, comma-separated (default: ep-core, the core on the compose network). Cluster Management accepts ElasticPro\'s signed "admin" answer over plain HTTP only from these; https with verification is still the recommendation. No IP addresses or wildcards.')
+		))->addClass('ep-hint'),
 	])])
 	->addItem([new CLabel(_('Secret'), 'ep-secret'), new CFormField([
 		$secret_box,

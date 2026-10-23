@@ -130,6 +130,11 @@ class Lifecycle {
 		return $ids ? API::Host()->get(['output' => ['hostid', 'name', 'status'], 'hostids' => $ids, 'selectTags' => ['tag', 'value'], 'preservekeys' => true]) : [];
 	}
 
+	/** The hosts a status change writes, hostid => name — what WriteCheck asks write permission on. */
+	public function touched(array $now): array {
+		return array_map(fn($h) => (string) $h['name'], $this->hosts($now));
+	}
+
 	public function status(string $client): string {
 		$now = $this->rec->current($client);
 		return $now['master'] !== null ? self::statusOf($this->rec->macros($now['master']['hostid'])) : 'active';
