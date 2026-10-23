@@ -180,6 +180,17 @@ class UuidAlignment(unittest.TestCase):
                              text.count("- uuid:") - text.count("template_groups:"), f)
 
 
+class RawExpression(unittest.TestCase):
+    def test_rebuilds_macros_that_expand_expression_would_resolve(self):
+        fns = [{"functionid": "11", "itemid": "1", "function": "nodata", "parameter": "$,{$OLDM.STALE}"},
+               {"functionid": "12", "itemid": "2", "function": "find", "parameter": '$,,"regexp","^critical: "'},
+               {"functionid": "13", "itemid": "1", "function": "last", "parameter": "$"}]
+        keys = {"1": "oldp.epoch", "2": "oldp.detail[disk]"}
+        self.assertEqual(mig.raw_expression("{11}=1 or {12}=1 or {13}>{$OLDM.WARN}", fns, keys, "T"),
+                         'nodata(/T/oldp.epoch,{$OLDM.STALE})=1 or find(/T/oldp.detail[disk],,"regexp","^critical: ")=1'
+                         " or last(/T/oldp.epoch)>{$OLDM.WARN}")
+
+
 class Guard(unittest.TestCase):
     def setUp(self):
         self.api = mig.Api.__new__(mig.Api)
