@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
-const MODULES = ['clients-module', 'capacity-widget', 'resources-widget', 'volume-widget', 'tophosts-widget', 'overview-widget'];
+const MODULES = ['clients-module', 'capacity-widget', 'resources-widget', 'volume-widget', 'tophosts-widget', 'overview-widget', 'embed-module'];
 
 const phpFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
   const p = path.join(dir, e.name);
