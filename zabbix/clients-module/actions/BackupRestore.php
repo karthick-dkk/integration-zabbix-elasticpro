@@ -11,6 +11,9 @@ use Modules\EpClients\Lib\{Backups, ClientSpec, ClientState, Reconciler, Roles, 
  * undone. A client that is just as it was in the backup is left alone: a restore changes only
  * what changed since.
  *
+ * A partial backup (Backups: taken by someone who saw only some clients) restores only the clients
+ * in its scope; every other client is neither removed nor overwritten (Backups::outsideScope()).
+ *
  * It deletes nothing that was not confirmed. A restore has two destructive sides — hosts this
  * page made that the backup does not list, and the items of a role the backup does not have —
  * and a deleted Zabbix host or item takes its history with it, which no backup here can bring
@@ -70,6 +73,9 @@ class BackupRestore extends Base {
 			$deletes_of = [];
 			$deletes = [];
 			foreach ($b['clients'] as $name => $form) {
+				if (in_array((string) $name, $outside, true)) {
+					continue;
+				}
 				if ($same_roles && isset($live[$name]) && Backups::sameForm(ClientState::plain($state->formFor($name)), $form)) {
 					$unchanged[$name] = true;
 					continue;
@@ -90,8 +96,12 @@ class BackupRestore extends Base {
 			// page made for them. That is the largest delete set of the three and the one the live
 			// install is most exposed to, because a client the page could not see before the rename
 			// is not in any backup taken before it, so it reads as "added since".
+			//
+			// A partial backup (taken by someone who could see only some clients) says nothing about
+			// the clients outside its scope: those are neither removed nor overwritten.
+			$outside = Backups::outsideScope($b, array_keys($live));
 			$removes_of = [];
-			foreach (array_diff(array_keys($live), array_keys($b['clients'])) as $name) {
+			foreach (array_diff(array_keys($live), array_keys($b['clients']), $outside) as $name) {
 				$removes_of[$name] = self::managedHostsOf((new Reconciler($spec))->current($name));
 				$needs = WriteCheck::merge($needs, WriteCheck::forHosts($name, $removes_of[$name], null, [], null));
 				$deletes += $removes_of[$name];
@@ -149,12 +159,19 @@ class BackupRestore extends Base {
 				$lines[] = _s('No clients could be read, so the snapshot taken before this restore (%1$s) holds none. It still records the roles. No copy that holds clients was pruned to make room for it.', $taken);
 			}
 
+			if ($outside) {
+				$lines[] = _s('This backup is partial (%1$s): %2$s outside it left alone.', (string) Backups::scopeLabel($b),
+					implode(', ', array_map(fn($n) => '"'.$n.'"', $outside)));
+			}
 			if (!$same_roles) {
 				Roles::save($b['roles']);
 				TemplateInstaller::install($b['roles']);
 				$lines[] = _('Roles restored and the master template rewritten for them.');
 			}
 			foreach ($b['clients'] as $name => $form) {
+				if (in_array((string) $name, $outside, true)) {
+					continue;
+				}
 				if (isset($unchanged[$name])) {
 					$lines[] = _s('%1$s is as it was — left alone.', $name);
 					continue;

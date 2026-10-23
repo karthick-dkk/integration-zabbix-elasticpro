@@ -303,6 +303,8 @@ namespace {
 				if (isset($p['search']) && !self::matchSearch($h, (array) $p['search'], !empty($p['startSearch']))) { continue; }
 				if (isset($p['tags']) && !self::matchTags($h, (array) $p['tags'], (int) ($p['evaltype'] ?? TAG_EVAL_TYPE_AND_OR))) { continue; }
 				if (!empty($p['editable']) && !array_diff(array_column($h['hostgroups'], 'name'), self::$readOnlyGroups, self::$hiddenGroups)) { continue; }
+				// A host all of whose groups the user has no permission on: Zabbix does not show it at all.
+				if (self::$hiddenGroups && !array_diff(array_column($h['hostgroups'], 'name'), self::$hiddenGroups)) { continue; }
 				// Only what the call asked for: see the note on $hideTemplates.
 				$rec = ['hostid' => $h['hostid'], 'host' => $h['host'], 'name' => $h['name'], 'status' => $h['status'],
 					'monitored_by' => $h['monitored_by'], 'proxyid' => $h['proxyid'], 'proxy_groupid' => $h['proxy_groupid'],
@@ -1459,6 +1461,66 @@ namespace Modules\EpClients\Test {
 	check('a restore may take its snapshot even so', $empty !== '' && count(Backups::get($empty)['clients']) === 0);
 	check('and that snapshot does not push out the copy that holds clients',
 		count(array_filter(Backups::list(), fn($b) => $b['clients'] > 0)) === 1, Backups::list());
+
+	/*
+	 * A backup taken by a Zabbix Admin whom ElasticPro calls an admin. Backups::take() reads the
+	 * clients through the Zabbix API as that person (ClientState, not a register of its own), so
+	 * it holds only the clients they can see: a partial backup. It must say so, never push a full
+	 * Super admin backup out, and a restore of it must leave every other client alone.
+	 */
+	$begin('a backup taken by someone who sees only some clients is partial');
+	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }
+	foreach (['north', 'south'] as $c) {
+		\Zbx::addHost(['host' => $c.'-Master', 'groups' => [$c, Reconciler::MASTERS_GROUP], 'templates' => [MasterTemplate::NAME],
+			'tags' => [Reconciler::MANAGED, ['tag' => 'ep-kind', 'value' => 'master']],
+			'macros' => ['{$GRP.CLIENT}' => $c, '{$EP.CLIENT.TYPE}' => 'DI', '{$EP.LEAD}' => 'Lead '.$c]]);
+	}
+	$full = Backups::take('a Super admin save', 'Admin', $state($rec()), $roles);
+	check('a Super admin\'s backup holds both clients and is full',
+		array_keys(Backups::get($full)['clients']) === ['north', 'south'] && !Backups::isPartial(Backups::get($full)));
+	// A Zabbix Admin with no permission on south's host group (nor the masters group).
+	\Zbx::$hiddenGroups = ['south', Reconciler::MASTERS_GROUP];
+	check('the Admin sees north only', array_keys($state($rec())->clients()) === ['north'], array_keys($state($rec())->clients()));
+	$part = Backups::take('an ElasticPro admin\'s save', 'ep-qa-admin', $state($rec()), $roles, false, false);
+	$pb = Backups::get($part);
+	check('their backup does not contain the client they cannot see — it is a view, not the full register',
+		array_keys($pb['clients']) === ['north'], array_keys($pb['clients']));
+	check('so it is recorded as partial, with its scope and the total known from the full backup',
+		Backups::isPartial($pb) && $pb['scope'] === ['north'] && $pb['scope_of'] === 2, [$pb['scope'] ?? null, $pb['scope_of'] ?? null]);
+	check('the Backups list labels it "partial: 1 of 2 clients"',
+		(array_values(array_filter(Backups::list(), fn($b) => $b['id'] === $part))[0]['scope_label'] ?? '') === 'partial: 1 of 2 clients', Backups::list());
+	check('a restore of it leaves the client outside its scope alone', Backups::outsideScope($pb, ['north', 'south']) === ['south']);
+	check('a restore of a full backup leaves nobody out', Backups::outsideScope(Backups::get($full), ['north', 'south']) === []);
+	for ($i = 0; $i < 4; $i++) {
+		Backups::take('another admin save '.$i, 'ep-qa-admin', $state($rec()), $roles, false, false);
+	}
+	$listed = Backups::list();
+	check('five partial backups never push the full Super admin backup out',
+		count(array_filter($listed, fn($b) => $b['id'] === $full)) === 1, $listed);
+	check('partial backups rotate among themselves: three kept',
+		count(array_filter($listed, fn($b) => $b['partial'])) === Backups::KEEP, $listed);
+	\Zbx::$hiddenGroups = [];
+	for ($i = 0; $i < 3; $i++) {
+		Backups::take('a Super admin save '.$i, 'Admin', $state($rec()), $roles);
+	}
+	$listed = Backups::list();
+	check('and full ones among themselves: three full and three partial',
+		count(array_filter($listed, fn($b) => !$b['partial'])) === Backups::KEEP && count(array_filter($listed, fn($b) => $b['partial'])) === Backups::KEEP, $listed);
+	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }
+	\Zbx::$hiddenGroups = ['south', Reconciler::MASTERS_GROUP];
+	$lone = Backups::get(Backups::take('an admin save, no full backup yet', 'ep-qa-admin', $state($rec()), $roles, false, false));
+	check('with no full backup to count from, the total is unknown, not a guess',
+		$lone['scope_of'] === null && Backups::scopeLabel($lone) === 'partial: 1 clients of an unknown total', $lone['scope_of'] ?? 'missing');
+	\Zbx::$hiddenGroups = [];
+	$base_src = file_get_contents(__DIR__.'/../actions/Base.php');
+	check('Base::backup() takes a full backup only for a Super admin',
+		str_contains($base_src, "Backups::take(\$before, \$this->user(), \$this->state(), \$this->roles(), false, \$this->superOnly())"));
+	$restore_src = file_get_contents(__DIR__.'/../actions/BackupRestore.php');
+	check('BackupRestore neither removes nor overwrites a client outside a partial backup\'s scope',
+		str_contains($restore_src, '$outside = Backups::outsideScope($b, array_keys($live));')
+		&& str_contains($restore_src, "array_diff(array_keys(\$live), array_keys(\$b['clients']), \$outside)")
+		&& substr_count($restore_src, 'if (in_array((string) $name, $outside, true)) {') === 2);
+	foreach (glob($dir.'/backups/*.json') ?: [] as $f) { unlink($f); }
 
 	/*
 	 * Restoring a backup from before the rename: schema 1, one disk per role, IPs held per role

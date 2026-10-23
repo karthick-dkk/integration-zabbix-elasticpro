@@ -172,9 +172,14 @@ abstract class Base extends CController {
 		return (string) (CWebUser::$data['username'] ?? '?');
 	}
 
-	/** A copy of everything, before a change. Refuses the change when it cannot be taken. */
+	/**
+	 * A copy of everything, before a change. Refuses the change when it cannot be taken.
+	 * state() reads the clients through the Zabbix API as this user, so a Super admin's backup is
+	 * full and anybody else's (an ElasticPro admin who is a Zabbix Admin) is partial: it records
+	 * its scope and rotates apart from the full ones (Backups, class comment).
+	 */
 	protected function backup(string $before): string {
-		return $this->lastBackup = Backups::take($before, $this->user(), $this->state(), $this->roles());
+		return $this->lastBackup = Backups::take($before, $this->user(), $this->state(), $this->roles(), false, $this->superOnly());
 	}
 
 	protected function lifecycle(): Lifecycle {

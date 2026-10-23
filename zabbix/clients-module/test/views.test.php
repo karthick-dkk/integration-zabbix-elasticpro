@@ -32,6 +32,8 @@ namespace {
 		public function addItem($i) { if (is_array($i)) { foreach ($i as $x) { $this->addItem($x); } } else { $this->items[] = $i; } return $this; }
 		public function setAttribute($k, $v) { $this->at[$k] = $v; return $this; }
 		public function setId($v) { return $this->setAttribute('id', $v); }
+		public function setTitle($v) { return $this->setAttribute('title', $v); }
+		public function onClick($js) { return $this->setAttribute('onclick', $js); }
 		public function addClass($c) { $this->at['class'] = trim(($this->at['class'] ?? '').' '.$c); return $this; }
 		public function toString() {
 			$a = ''; foreach ($this->at as $k => $v) { $a .= ' '.$k.'="'.htmlspecialchars((string) $v).'"'; }
@@ -65,6 +67,7 @@ namespace {
 	}
 	class CTableInfo extends CTag {
 		public function __construct() { parent::__construct('table'); }
+		public function setNoDataMessage($m) { return $this; }
 		public function setHeader($h) { $tr = new CTag('tr'); foreach ($h as $c) { $tr->addItem(new CTag('th', true, $c)); } return $this->addItem($tr); }
 		public function addRow($cells) { $tr = new CTag('tr'); foreach ($cells as $c) { $tr->addItem((new CTag('td'))->addItem($c)); } return $this->addItem($tr); }
 	}
@@ -94,6 +97,15 @@ namespace Modules\EpClients\Test {
 	}
 	$out = getenv('EP_VIEWS_OUT');
 	$dump = function (string $name, string $html) use ($out) { if ($out) { file_put_contents($out.'/'.$name.'.html', $html); } };
+
+	/* ---------------- backups: a partial one says so ---------------- */
+	$bk = render('ep.clients.backups', ['store_ok' => true, 'store_dir' => '/var/lib/elasticpro-zabbix', 'backups' => [
+		['id' => '20261023-010000-aaaa', 'taken' => 1792717200, 'by' => 'Admin', 'before' => 'Save acme', 'clients' => 7, 'machines' => 30, 'partial' => false, 'scope_label' => null],
+		['id' => '20261023-020000-bbbb', 'taken' => 1792720800, 'by' => 'ep-qa-admin', 'before' => 'Save north', 'clients' => 3, 'machines' => 9, 'partial' => true, 'scope_label' => 'partial: 3 of 7 clients']]]);
+	check('backups: a partial backup is labelled "partial: N of M clients", a full one is not', substr_count(body($bk), 'partial: 3 of 7 clients') >= 1
+		&& substr_count(body($bk), 'class="ep-partial"') === 1, body($bk));
+	check('backups: restoring a partial one says every other client is left alone', str_contains($bk, 'Every other client is left alone')
+		&& str_contains($bk, 'Clients added since are removed'));
 
 	/* ---------------- the list ---------------- */
 	$client = fn(string $name, string $status, array $x = []) => $x + ['name' => $name, 'masterid' => '1'.crc32($name) % 90, 'status' => $status, 'maintenance' => null,

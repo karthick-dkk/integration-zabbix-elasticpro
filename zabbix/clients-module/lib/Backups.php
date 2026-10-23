@@ -14,6 +14,17 @@ namespace Modules\EpClients\Lib;
  * Only three are kept, so a backup that holds nothing is not a harmless one: three of them push
  * every real copy out. take() therefore refuses an empty client list while backups that hold
  * clients are still here — see it for why.
+ *
+ * Full and partial backups. A backup reads the clients through the Zabbix API as the person making
+ * the change, so it holds what that person can see. A Super admin sees every client: a full
+ * backup. Since ElasticPro's role decides who edits, a Zabbix Admin may save too, and Zabbix shows
+ * them only the hosts their groups allow: their backup is partial. It records its `scope`, the
+ * clients it covers, and `scope_of`, how many clients there were as far as this page knew (the
+ * newest full backup's clients and the scope together; null when there is no full backup to
+ * count from — unknown, not zero). Partial backups rotate among themselves, so however many
+ * Admins save, they never push a full backup out; a restore of a partial backup never removes or
+ * overwrites a client outside its scope (outsideScope()); the Backups list says "partial: N of M
+ * clients".
  */
 class Backups {
 
@@ -52,7 +63,7 @@ class Backups {
 	 * snapshot of no clients never deletes a copy that holds clients. Ordinary saves pass
 	 * $allow_empty false and are refused exactly as before — nothing about this weakens them.
 	 */
-	public static function take(string $before, string $by, ClientState $state, array $roles, bool $allow_empty = false): string {
+	public static function take(string $before, string $by, ClientState $state, array $roles, bool $allow_empty = false, bool $full = true): string {
 		$clients = [];
 		foreach ($state->clients() as $name => $_) {
 			$clients[$name] = ClientState::plain($state->formFor($name));
@@ -65,7 +76,7 @@ class Backups {
 			$hosts += count((array) json_decode((string) ($form['servers'] ?? '[]'), true));
 		}
 		$id = gmdate('Ymd-His').'-'.bin2hex(random_bytes(2));
-		Store::write(self::DIR.'/'.$id.'.json', [
+		$record = [
 			'id' => $id,
 			'schema' => self::SCHEMA,
 			'taken' => time(),
@@ -74,13 +85,26 @@ class Backups {
 			'roles' => $roles,
 			'clients' => $clients,
 			'machines' => $hosts
-		]);
+		];
+		if (!$full) {
+			$record['scope'] = array_keys($clients);
+			$record['scope_of'] = self::knownTotal(array_keys($clients));
+		}
+		Store::write(self::DIR.'/'.$id.'.json', $record);
 		// Only KEEP are kept, and the oldest beyond that go — except that a snapshot holding no
 		// clients never pushes out a copy that holds some. Without this, the one snapshot taken
 		// under $allow_empty would delete the oldest copy that still has the seven live clients in
 		// it, which is the copy the operator needs if the restore it was taken for goes wrong. The
 		// same holds for a fresh install's empty snapshots, which holdsClients() lets through.
-		foreach (array_slice(Store::listing(self::DIR), self::KEEP) as $old) {
+		//
+		// Full and partial backups are two pools of KEEP each: a partial one (a Zabbix Admin's, see
+		// the class comment) never pushes a full one out, and a full one never pushes out the last
+		// partial copies either.
+		$pool = array_values(array_filter(Store::listing(self::DIR), function (string $f) use ($full): bool {
+			$b = Store::read($f);
+			return $b !== null && self::isPartial($b) === !$full;
+		}));
+		foreach (array_slice($pool, self::KEEP) as $old) {
 			if (!$clients) {
 				$older = Store::read($old);
 				if ($older !== null && (array) ($older['clients'] ?? []) !== []) {
@@ -90,6 +114,49 @@ class Backups {
 			Store::delete($old);
 		}
 		return $id;
+	}
+
+	/** A backup that covers only the clients its taker could see (it carries a scope). */
+	public static function isPartial(array $b): bool {
+		return array_key_exists('scope', $b) && is_array($b['scope']);
+	}
+
+	/**
+	 * How many clients there were as far as this page knows, for a partial backup of $names: the
+	 * newest full backup's clients and $names together. Null without a full backup to count from.
+	 */
+	private static function knownTotal(array $names): ?int {
+		foreach (Store::listing(self::DIR) as $file) {
+			$b = Store::read($file);
+			if ($b !== null && !self::isPartial($b)) {
+				return count(array_unique(array_merge(array_map('strval', array_keys((array) ($b['clients'] ?? []))), array_map('strval', $names))));
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Of the clients there now, the ones a restore of $b must leave alone: for a partial backup,
+	 * every client outside its scope — never removed, never overwritten. A full backup leaves
+	 * none out.
+	 */
+	public static function outsideScope(array $b, array $live_names): array {
+		if (!self::isPartial($b)) {
+			return [];
+		}
+		$scope = array_map('strval', $b['scope']);
+		return array_values(array_filter(array_map('strval', $live_names), fn($n) => !in_array($n, $scope, true)));
+	}
+
+	/** "partial: 3 of 7 clients", "partial: 3 clients of an unknown total"; null for a full backup. */
+	public static function scopeLabel(array $b): ?string {
+		if (!self::isPartial($b)) {
+			return null;
+		}
+		$n = count($b['scope']);
+		return isset($b['scope_of']) && is_int($b['scope_of'])
+			? _s('partial: %1$s of %2$s clients', $n, $b['scope_of'])
+			: _s('partial: %1$s clients of an unknown total', $n);
 	}
 
 	/** Whether any backup still kept holds a client at all — the signal take() refuses on. */
@@ -124,7 +191,8 @@ class Backups {
 			$b = Store::read($file);
 			if ($b) {
 				$out[] = ['id' => $b['id'], 'taken' => $b['taken'], 'by' => $b['by'], 'before' => $b['before'],
-					'clients' => count($b['clients']), 'machines' => $b['machines'] ?? 0];
+					'clients' => count($b['clients']), 'machines' => $b['machines'] ?? 0,
+					'partial' => self::isPartial($b), 'scope_label' => self::scopeLabel($b)];
 			}
 		}
 		return $out;
