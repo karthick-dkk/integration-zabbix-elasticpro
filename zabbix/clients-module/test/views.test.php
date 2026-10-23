@@ -354,9 +354,14 @@ namespace Modules\EpClients\Test {
 		&& str_contains($cp, 'unknown: not measured yet') && str_contains($cp, 'Retention</div><div><span class="ep-hint">not set') && str_contains($cp, '250 GB'));
 	check('client page: the Templates tab names each template and what it is; the ones not linked yet', str_contains($cp, '<td>Linux extra</td><td class="ep-hint">another template, left as it is')
 		&& str_contains($cp, 'not linked yet: saving links it'));
-	check('form: Client | Connection, Servers & roles, Capacity | Log archive, and the action bar', strpos($cp, 'id="ep-card-client"') < strpos($cp, 'id="ep-card-connection"')
-		&& strpos($cp, 'id="ep-card-connection"') < strpos($cp, 'id="ep-card-servers"') && strpos($cp, 'id="ep-card-servers"') < strpos($cp, 'id="ep-card-capacity"')
-		&& strpos($cp, 'id="ep-card-capacity"') < strpos($cp, 'id="ep-archive"') && str_contains($cp, 'id="ep-dirty"'));
+	check('form: two packed columns (Client, Capacity | Connection, Log archive), Servers & roles under them, and the action bar',
+		substr_count($cp, 'class="ep-col"') === 2 && str_contains($cp, 'class="ep-cols"')
+		&& strpos($cp, 'id="ep-card-client"') < strpos($cp, 'id="ep-card-capacity"') && strpos($cp, 'id="ep-card-capacity"') < strpos($cp, 'class="ep-col"', strpos($cp, 'id="ep-card-capacity"'))
+		&& strpos($cp, 'id="ep-card-connection"') < strpos($cp, 'id="ep-archive"') && strpos($cp, 'id="ep-archive"') < strpos($cp, 'id="ep-card-servers"')
+		&& str_contains($cp, 'id="ep-dirty"'));
+	check('form: compact hooks — label and (i) share a cell, no hint column, "No servers yet" beside + Add server', str_contains($cp, '<div class="ep-lab"><label')
+		&& str_contains($cp, 'class="ep-noservers">No servers yet</span><button type="button" class="ep-lnk" id="ep-add-server"')
+		&& preg_match_all('~<div class="ep-row"><div class="ep-lab">~', $cp) >= 8);
 	check('form: "This DL receives" alert e-mails and the weekly report; notes', str_contains($cp, 'This DL receives') && str_contains($cp, 'name="alert_dl"')
 		&& str_contains($cp, 'name="weekly_report"') && str_contains($cp, 'name="client_notes"'));
 	check('form: Credential Default / This cluster only, the default named with who set it', str_contains($cp, 'Default (svc, set ') && str_contains($cp, 'This cluster only')

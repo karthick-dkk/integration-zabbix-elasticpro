@@ -27,14 +27,14 @@ $num = fn(string $name) => in_array($field($name), ['', '0'], true) ? '' : $fiel
  */
 $tips = 0;
 $row = function(string $label, string $control, string $for = '', string $hint = '') use ($e, &$tips): string {
-	$tip = '<span></span>';
+	$tip = '';
 	if ($hint !== '') {
 		$id = 'ep-tip-'.(++$tips);
 		$control = preg_replace('/<(input|select|textarea)\b/', '<$1 aria-describedby="'.$id.'"', $control, 1);
 		$tip = '<span class="ep-tipw"><span class="ep-i" tabindex="0" role="img" aria-label="'.$e(_('Details')).'">ⓘ</span>'
 			.'<span class="ep-tip" role="tooltip" id="'.$id.'">'.$hint.'</span></span>';
 	}
-	return '<div class="ep-row"><label'.($for !== '' ? ' for="'.$e($for).'"' : '').'>'.$e($label).'</label><div class="ep-ctl">'.$control.'</div>'.$tip.'</div>';
+	return '<div class="ep-row"><div class="ep-lab"><label'.($for !== '' ? ' for="'.$e($for).'"' : '').'>'.$e($label).'</label>'.$tip.'</div><div class="ep-ctl">'.$control.'</div></div>';
 };
 $text = fn(string $name, string $placeholder = '', string $extra = '') =>
 	'<input type="text" id="'.$e($name).'" name="'.$e($name).'" value="'.$e($field($name)).'" placeholder="'.$e($placeholder).'" '.$extra.'>';
@@ -249,7 +249,8 @@ if ($tabs) {
 
 /* ==== The form (board Edit-after.dc.html): Client | Connection, Servers & roles, Capacity | Log archive ==== */
 $html[] = '<div class="ep-panel" data-panel="form"'.($tabs ? ' hidden' : '').'>';
-$html[] = '<div class="ep-two">';
+$html[] = '<div class="ep-cols">';
+$html[] = '<div class="ep-col">';
 
 /* ---- Client ---- */
 $epTypes = \Modules\EpClients\Lib\Settings::types();
@@ -266,14 +267,48 @@ if ($editing) {
 }
 $html[] = $row(_('Lead'), $text('lead_name', _('SOC / Manager lead')), 'lead_name');
 $html[] = $row(_('Cluster DL'), '<input type="email" id="cluster_dl" name="cluster_dl" value="'.$e($field('cluster_dl')).'" placeholder="soc-example@company.com">', 'cluster_dl');
-$html[] = '<fieldset class="ep-row ep-fs"><legend>'.$e(_('This DL receives')).'</legend><label>'.$e(_('This DL receives')).'</label><div class="ep-ctl ep-inline">'
+$html[] = '<fieldset class="ep-row ep-fs"><legend>'.$e(_('This DL receives')).'</legend><div class="ep-lab"><label>'.$e(_('This DL receives')).'</label></div><div class="ep-ctl ep-inline">'
 	.'<label class="ep-check"><input type="checkbox" name="alert_dl" value="1"'.($field('alert_dl') === '1' ? ' checked' : '').'> '.$e(_('Alert e-mails')).'</label>'
-	.'<label class="ep-check"><input type="checkbox" name="weekly_report" value="1"'.($field('weekly_report') === '1' ? ' checked' : '').'> '.$e(_('Weekly PDF report')).'</label></div><span></span></fieldset>';
+	.'<label class="ep-check"><input type="checkbox" name="weekly_report" value="1"'.($field('weekly_report') === '1' ? ' checked' : '').'> '.$e(_('Weekly PDF report')).'</label></div></fieldset>';
 $html[] = $row(_('Notes'), '<div class="ep-inline ep-grow"><input type="text" id="client_notes" name="client_notes" value="'.$e($field('client_notes')).'" placeholder="'.$e(_('Notes')).'" maxlength="2000">'
 	.'<button type="button" class="ep-lnk" data-ep-notes-more aria-label="'.$e(_('Expand notes')).'">'.$e(_('more')).'</button></div>', 'client_notes');
 // Not on the compact form, kept as it is so a save never blanks it.
 $html[] = '<input type="hidden" name="contract_end" value="'.$e($field('contract_end')).'">';
 $html[] = '</section>';
+
+/* ---- Capacity ---- */
+$html[] = '<section class="ep-card" id="ep-card-capacity" aria-labelledby="h-cap"><h2 class="ep-ttl" id="h-cap">'.$e(_('Capacity')).'</h2>';
+$html[] = $row(_('Purchased').' *', '<div class="ep-inline">'.$seg('purchased_by', ['storage' => _('Storage'), 'devices' => _('Devices')], $field('purchased_by') ?: 'storage')
+	.'<input type="text" inputmode="decimal" class="ep-num" id="purchased" name="purchased" value="'.$e($num('purchased')).'" placeholder="0" aria-label="'.$e(_('Purchased storage')).'">'
+	.'<input type="text" inputmode="numeric" class="ep-num" id="purchased_devices" name="purchased_devices" value="'.$e($num('purchased_devices')).'" placeholder="0" aria-label="'.$e(_('Purchased devices')).'">'
+	.'<span class="ep-inline-hint" id="ep-purchased-unit">GB</span></div>');
+$html[] = $row(_('Retention'), '<div class="ep-inline"><input type="text" inputmode="numeric" class="ep-num" id="retention_days" name="retention_days" value="'.$e($field('retention_days')).'" placeholder="'.$e(_('not set')).'"><span class="ep-hint">'.$e(_('days')).'</span></div>', 'retention_days');
+$html[] = $row(_('Backup'), '<div class="ep-inline"><input type="text" inputmode="decimal" class="ep-num" id="backup_gb" name="backup_gb" value="'.$e($field('backup_gb')).'" placeholder="'.$e(_('not set')).'"><span class="ep-hint">GB</span></div>', 'backup_gb',
+	$e(_('Empty means not set; reports say not set, never 0.')));
+// Requested capacity per role: kept from the full form, folded under Capacity.
+$req = '<div class="ep-table-wrap"><table class="ep-req"><thead><tr><th>'.$e(_('Role')).'</th><th>'.$e(_('Servers')).'</th><th>'.$e(_('CPU cores')).'</th>'
+	.'<th>'.$e(_('Memory GB')).'</th><th class="ep-disks-h">'.$e(_('Disks, GB')).'</th></tr></thead><tbody>';
+foreach ($data['roles']['families'] as $fam) {
+	foreach ($fam['roles'] as $r) {
+		$in = fn(string $suffix, string $ph = '') => '<input type="text" inputmode="decimal" data-ep-num name="'.$e($r['id'].'_'.$suffix).'" value="'
+			.$e($num($r['id'].'_'.$suffix)).'" placeholder="'.$e($ph).'" aria-label="'.$e($r['label'].' '.$suffix).'">';
+		$disks = '<div class="ep-disk"><span class="ep-mono ep-mount">/</span>'.$in('disk', '—').'</div>';
+		for ($n = 2; $n <= \Modules\EpClients\Lib\Roles::DISK_SLOTS; $n++) {
+			$fs = $r['id'].'_disk'.$n.'_fs';
+			$disks .= '<div class="ep-disk" data-ep-slot><input type="text" class="ep-mono ep-mount-in" name="'.$e($fs).'" value="'.$e($field($fs)).'" placeholder="/data" aria-label="'
+				.$e(_s('%1$s disk %2$s mount', $r['label'], $n)).'">'.$in('disk'.$n, '—')
+				.'<button type="button" class="ep-icon" data-ep-disk-remove aria-label="'.$e(_s('Remove %1$s disk %2$s', $r['label'], $n)).'">×</button></div>';
+		}
+		$disks .= '<button type="button" class="ep-link ep-add-disk" data-ep-disk-add>'.$e(_('+ disk')).'</button>';
+		$req .= '<tr data-ep-role="'.$e($r['id']).'"><td><span class="ep-req-role">'.$e($r['label']).'</span> <span class="ep-built"></span></td>'
+			.'<td>'.$in('servers', '—').'</td><td>'.$in('cpu', '—').'</td><td>'.$in('mem', '—').'</td><td class="ep-disks">'.$disks.'</td></tr>';
+	}
+}
+$req .= '</tbody></table></div><div class="ep-group-foot"><span class="ep-hint" id="ep-req-empty">'.$e(_('Rows appear for the roles your servers have.')).'</span> <select id="ep-request-role" aria-label="'.$e(_('Request another role')).'"></select></div>';
+$html[] = '<details class="ep-reqd"><summary>'.$e(_('Requested per role (servers, CPU, memory, disks)')).'</summary>'.$req.'</details>';
+$html[] = '</section>';
+$html[] = '</div>';
+$html[] = '<div class="ep-col">';
 
 /* ---- Connection ---- */
 $pw = $data['password'] ?? ['stored' => false, 'record' => null];
@@ -362,6 +397,25 @@ if ($editing && !$ro) {
 	$html[] = $row(_('Test'), '<button type="button" class="ep-lnk" id="ep-test" data-csrf="'.$e(CCsrfTokenHelper::get('ep.clients.test')).'">'.$e(_('Test now')).'</button><div id="ep-test-out" class="ep-test"></div>');
 }
 $html[] = '</section>';
+
+/* ---- Log archive ---- */
+$html[] = '<section class="ep-card" id="ep-archive" aria-labelledby="h-arch"><h2 class="ep-ttl" id="h-arch">'.$e(_('Log archive (S3)')).'</h2>';
+$html[] = '<div class="ep-inline" id="ep-archive-open-row"><span class="ep-hint" id="ep-archive-note">'.$e(_('Not needed for On-Prem.')).'</span><button type="button" class="ep-lnk ep-open" id="ep-archive-open">'.$e(_('Add one anyway')).'</button></div>';
+$html[] = '<div class="ep-group" id="ep-archive-body" hidden>';
+$html[] = $row(_('Bucket'), $text('ulm_bucket', 'example-archive'), 'ulm_bucket');
+$html[] = $row(_('Region'), '<div class="ep-inline">'.$text('ulm_region', 'us-east-1').$seg('ulm_auth', ['role_base' => _('Server role'), 'access_key' => _('Access key')], $field('ulm_auth') ?: 'role_base').'</div>', 'ulm_region');
+$html[] = '<div id="ep-archive-more" hidden>';
+$html[] = $row(_('Role ARN'), $text('ulm_role_arn', 'arn:aws:iam::111122223333:role/example-archive'), 'ulm_role_arn');
+$html[] = $row(_('External ID'), $text('ulm_external_id'), 'ulm_external_id');
+$html[] = $row(_('Access key ID'), $text('ulm_access_key_id', _('access key only')), 'ulm_access_key_id');
+$html[] = $row(_('Secret (Vault)'), $text('ulm_secret_path', 'secret/elasticpro/example-s3:secret_access_key'), 'ulm_secret_path');
+$html[] = $row(_('Folders'), '<div class="ep-inline">'.$text('ulm_raw_prefix', 'rawlog', 'aria-label="'.$e(_('Raw folder')).'"')
+	.$text('ulm_enriched_prefix', 'enrichedlog', 'aria-label="'.$e(_('Enriched folder')).'"').'</div>');
+$html[] = '</div>';
+$html[] = '<button type="button" class="ep-more" data-ep-disclose="ep-archive-more" data-more="'.$e(_('Role ARN, keys, folders…')).'" data-less="'.$e(_('Fewer options')).'" aria-expanded="false">'
+	.$e(_('Role ARN, keys, folders…')).'</button>';
+$html[] = '</div></section>';
+$html[] = '</div>';
 $html[] = '</div>';
 
 /* ---- Servers & roles ---- */
@@ -384,61 +438,9 @@ $html[] = '<div class="ep-sheet" id="ep-sheet" hidden>'
 	.'<div class="ep-sheet-foot"><span id="ep-s-msg" class="ep-hint"></span>'
 	.'<button type="button" class="btn-alt" id="ep-s-cancel">'.$e(_('Cancel')).'</button>'
 	.'<button type="button" id="ep-s-add" disabled>'.$e(_('Add server')).'</button></div></div>';
-$html[] = '<div class="ep-group-foot"><button type="button" class="ep-lnk" id="ep-add-server">'.$e(_('+ Add server')).'</button>'
+$html[] = '<div class="ep-group-foot"><span class="ep-noservers">'.$e(rtrim(_('No servers yet.'), '.')).'</span><button type="button" class="ep-lnk" id="ep-add-server">'.$e(_('+ Add server')).'</button>'
 	.'<span class="ep-grow"></span><label for="agent_port" class="ep-hint">'.$e(_('Agent port')).'</label> '.$text('agent_port', '10050', 'class="ep-num"').'</div>';
 $html[] = '</section>';
-
-$html[] = '<div class="ep-two">';
-/* ---- Capacity ---- */
-$html[] = '<section class="ep-card" id="ep-card-capacity" aria-labelledby="h-cap"><h2 class="ep-ttl" id="h-cap">'.$e(_('Capacity')).'</h2>';
-$html[] = $row(_('Purchased').' *', '<div class="ep-inline">'.$seg('purchased_by', ['storage' => _('Storage'), 'devices' => _('Devices')], $field('purchased_by') ?: 'storage')
-	.'<input type="text" inputmode="decimal" class="ep-num" id="purchased" name="purchased" value="'.$e($num('purchased')).'" placeholder="0" aria-label="'.$e(_('Purchased storage')).'">'
-	.'<input type="text" inputmode="numeric" class="ep-num" id="purchased_devices" name="purchased_devices" value="'.$e($num('purchased_devices')).'" placeholder="0" aria-label="'.$e(_('Purchased devices')).'">'
-	.'<span class="ep-inline-hint" id="ep-purchased-unit">GB</span></div>');
-$html[] = $row(_('Retention'), '<div class="ep-inline"><input type="text" inputmode="numeric" class="ep-num" id="retention_days" name="retention_days" value="'.$e($field('retention_days')).'" placeholder="'.$e(_('not set')).'"><span class="ep-hint">'.$e(_('days')).'</span></div>', 'retention_days');
-$html[] = $row(_('Backup'), '<div class="ep-inline"><input type="text" inputmode="decimal" class="ep-num" id="backup_gb" name="backup_gb" value="'.$e($field('backup_gb')).'" placeholder="'.$e(_('not set')).'"><span class="ep-hint">GB</span></div>', 'backup_gb',
-	$e(_('Empty means not set; reports say not set, never 0.')));
-// Requested capacity per role: kept from the full form, folded under Capacity.
-$req = '<div class="ep-table-wrap"><table class="ep-req"><thead><tr><th>'.$e(_('Role')).'</th><th>'.$e(_('Servers')).'</th><th>'.$e(_('CPU cores')).'</th>'
-	.'<th>'.$e(_('Memory GB')).'</th><th class="ep-disks-h">'.$e(_('Disks, GB')).'</th></tr></thead><tbody>';
-foreach ($data['roles']['families'] as $fam) {
-	foreach ($fam['roles'] as $r) {
-		$in = fn(string $suffix, string $ph = '') => '<input type="text" inputmode="decimal" data-ep-num name="'.$e($r['id'].'_'.$suffix).'" value="'
-			.$e($num($r['id'].'_'.$suffix)).'" placeholder="'.$e($ph).'" aria-label="'.$e($r['label'].' '.$suffix).'">';
-		$disks = '<div class="ep-disk"><span class="ep-mono ep-mount">/</span>'.$in('disk', '—').'</div>';
-		for ($n = 2; $n <= \Modules\EpClients\Lib\Roles::DISK_SLOTS; $n++) {
-			$fs = $r['id'].'_disk'.$n.'_fs';
-			$disks .= '<div class="ep-disk" data-ep-slot><input type="text" class="ep-mono ep-mount-in" name="'.$e($fs).'" value="'.$e($field($fs)).'" placeholder="/data" aria-label="'
-				.$e(_s('%1$s disk %2$s mount', $r['label'], $n)).'">'.$in('disk'.$n, '—')
-				.'<button type="button" class="ep-icon" data-ep-disk-remove aria-label="'.$e(_s('Remove %1$s disk %2$s', $r['label'], $n)).'">×</button></div>';
-		}
-		$disks .= '<button type="button" class="ep-link ep-add-disk" data-ep-disk-add>'.$e(_('+ disk')).'</button>';
-		$req .= '<tr data-ep-role="'.$e($r['id']).'"><td><span class="ep-req-role">'.$e($r['label']).'</span> <span class="ep-built"></span></td>'
-			.'<td>'.$in('servers', '—').'</td><td>'.$in('cpu', '—').'</td><td>'.$in('mem', '—').'</td><td class="ep-disks">'.$disks.'</td></tr>';
-	}
-}
-$req .= '</tbody></table></div><div class="ep-group-foot"><span class="ep-hint" id="ep-req-empty">'.$e(_('Rows appear for the roles your servers have.')).'</span> <select id="ep-request-role" aria-label="'.$e(_('Request another role')).'"></select></div>';
-$html[] = '<details class="ep-reqd"><summary>'.$e(_('Requested per role (servers, CPU, memory, disks)')).'</summary>'.$req.'</details>';
-$html[] = '</section>';
-
-/* ---- Log archive ---- */
-$html[] = '<section class="ep-card" id="ep-archive" aria-labelledby="h-arch"><h2 class="ep-ttl" id="h-arch">'.$e(_('Log archive (S3)')).'</h2>';
-$html[] = '<div class="ep-inline" id="ep-archive-open-row"><span class="ep-hint" id="ep-archive-note">'.$e(_('Not needed for On-Prem.')).'</span><button type="button" class="ep-lnk ep-open" id="ep-archive-open">'.$e(_('Add one anyway')).'</button></div>';
-$html[] = '<div class="ep-group" id="ep-archive-body" hidden>';
-$html[] = $row(_('Bucket'), $text('ulm_bucket', 'example-archive'), 'ulm_bucket');
-$html[] = $row(_('Region'), '<div class="ep-inline">'.$text('ulm_region', 'us-east-1').$seg('ulm_auth', ['role_base' => _('Server role'), 'access_key' => _('Access key')], $field('ulm_auth') ?: 'role_base').'</div>', 'ulm_region');
-$html[] = '<div id="ep-archive-more" hidden>';
-$html[] = $row(_('Role ARN'), $text('ulm_role_arn', 'arn:aws:iam::111122223333:role/example-archive'), 'ulm_role_arn');
-$html[] = $row(_('External ID'), $text('ulm_external_id'), 'ulm_external_id');
-$html[] = $row(_('Access key ID'), $text('ulm_access_key_id', _('access key only')), 'ulm_access_key_id');
-$html[] = $row(_('Secret (Vault)'), $text('ulm_secret_path', 'secret/elasticpro/example-s3:secret_access_key'), 'ulm_secret_path');
-$html[] = $row(_('Folders'), '<div class="ep-inline">'.$text('ulm_raw_prefix', 'rawlog', 'aria-label="'.$e(_('Raw folder')).'"')
-	.$text('ulm_enriched_prefix', 'enrichedlog', 'aria-label="'.$e(_('Enriched folder')).'"').'</div>');
-$html[] = '</div>';
-$html[] = '<button type="button" class="ep-more" data-ep-disclose="ep-archive-more" data-more="'.$e(_('Role ARN, keys, folders…')).'" data-less="'.$e(_('Fewer options')).'" aria-expanded="false">'
-	.$e(_('Role ARN, keys, folders…')).'</button>';
-$html[] = '</div></section>';
-$html[] = '</div>';
 
 /* ---- the action bar ---- */
 $html[] = '<div class="ep-foot"><span class="ep-hint" id="ep-dirty">'.$e(_('No changes · a backup is taken before saving')).'</span><span class="ep-grow"></span>'

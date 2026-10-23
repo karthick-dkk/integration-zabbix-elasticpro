@@ -47,3 +47,16 @@ test('the view reads this file, and the file follows the roles the page is given
   assert.match(view, /readfile\(__DIR__\.'\/js\/ep\.clients\.edit\.js'\)/);
   assert.match(view, /name="servers" id="servers"/);
 });
+
+test('the form is packed: column, row and card hooks in the view, and the sizes in the stylesheet (2.1.7)', () => {
+  const view = fs.readFileSync(path.join(HERE, 'views/ep.clients.edit.php'), 'utf8');
+  const css = fs.readFileSync(path.join(HERE, 'views/css/ep.clients.edit.css'), 'utf8');
+  for (const hook of ['class="ep-cols"', 'class="ep-col"', 'class="ep-lab"', 'ep-noservers']) assert.ok(view.includes(hook), `view lacks ${hook}`);
+  assert.ok(!view.includes('class="ep-two"'), 'the stretched two-up grid is gone');
+  const packed = css.slice(css.indexOf('2.1.7: the form packed'));
+  assert.match(packed, /\.ep-f \.ep-row \{[^}]*min-height: 32px/);
+  assert.match(packed, /input\[type=text\][^{]*\{[^}]*height: 28px/);
+  assert.match(packed, /\.ep-f \.ep-card \{ padding: 12px; \}/);
+  assert.match(packed, /\.ep-f \.ep-col \{[^}]*align-content: start/);
+  assert.match(packed, /\.ep-f \.ep-cols \{[^}]*align-items: start/);
+});
