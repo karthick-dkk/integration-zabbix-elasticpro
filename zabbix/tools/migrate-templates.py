@@ -188,6 +188,23 @@ def map_macro(macro, gen):
     return macro
 
 
+def raw_expression(expression, functions, key_of, host):
+    """A trigger expression with its macros as written.
+
+    trigger.get's expandExpression resolves user macros to their VALUES ("{$X.STALE}" comes
+    back as "30m"), so it can neither show which macros a trigger uses nor be compared with an
+    export. The stored form is "{functionid}=1" with each function's parameters apart
+    ("$,{$X.STALE}", "$" standing for the item); this puts them back together:
+    nodata(/host/key,{$X.STALE})=1."""
+    out = expression or ""
+    for f in functions or []:
+        params = f.get("parameter", "")
+        rest = params[1:] if params.startswith("$") else ("," + params if params else "")
+        call = f"{f['function']}(/{host}/{key_of.get(f['itemid'], '?')}{rest})"
+        out = out.replace("{" + f["functionid"] + "}", call)
+    return out
+
+
 def macro_refs(text):
     return {re.sub(r":.*\}$", "}", m) for m in re.findall(r"\{\$[A-Z0-9_.]+(?::[^}]*)?\}", text or "")}
 
@@ -334,7 +351,7 @@ def snapshot_host(api, hostid, since=None, count=True):
     protos = api.call("itemprototype.get", {"hostids": [hostid], "output": ["itemid", "key_", "templateid"] + MACRO_FIELDS}) if rules else []
     triggers = api.call("trigger.get", {"hostids": [hostid], "output": ["triggerid", "description", "templateid", "status",
                                                                          "expression", "recovery_expression"],
-                                         "selectItems": ["itemid"], "expandExpression": True})
+                                         "selectItems": ["itemid"], "selectFunctions": "extend"})
     # Where each inherited object comes from: its templateid is the parent object on the
     # directly linked template, whose hostid is that template.
     origin = {}
@@ -351,9 +368,12 @@ def snapshot_host(api, hostid, since=None, count=True):
             torigin[p["triggerid"]] = p["hosts"][0]["hostid"] if p["hosts"] else None
     for o in items + rules + protos:
         o["origin"] = origin.get(o["templateid"]) if o["templateid"] != "0" else None
+    key_of = {i["itemid"]: i["key_"] for i in items}
     for t in triggers:
         t["origin"] = torigin.get(t["templateid"]) if t["templateid"] != "0" else None
         t["itemids"] = sorted(i["itemid"] for i in t.get("items", []))
+        t["expression"] = raw_expression(t["expression"], t.get("functions"), key_of, h["host"])
+        t["recovery_expression"] = raw_expression(t["recovery_expression"], t.get("functions"), key_of, h["host"])
     counts = {}
     if count:
         for i in items:
@@ -573,6 +593,10 @@ def zabbix_objects(api, tid):
     out = []
     t = api.call("template.get", {"templateids": [tid], "output": ["templateid", "host", "uuid"]})[0]
     out.append({"section": "templates", "id": t["templateid"], "uuid": t["uuid"], "template": t["host"]})
+    key_of = {}
+    for meth in ("item.get", "itemprototype.get"):
+        for i in api.call(meth, {"templateids": [tid], "output": ["itemid", "key_"]}):
+            key_of[i["itemid"]] = i["key_"]
     for sec, meth, idk, extra in (("items", "item.get", "itemid", ["key_"]), ("discovery_rules", "discoveryrule.get", "itemid", ["key_"]),
                                   ("item_prototypes", "itemprototype.get", "itemid", ["key_"]),
                                   ("triggers", "trigger.get", "triggerid", ["description", "expression"]),
@@ -580,10 +604,11 @@ def zabbix_objects(api, tid):
                                   ("graphs", "graph.get", "graphid", ["name"]), ("graph_prototypes", "graphprototype.get", "graphid", ["name"])):
         p = {"templateids": [tid], "output": [idk, "uuid"] + extra, "inherited": False}
         if "expression" in extra:
-            p["expandExpression"] = True
+            p["selectFunctions"] = "extend"
         for o in api.call(meth, p):
+            expr = raw_expression(o.get("expression"), o.get("functions"), key_of, t["host"]) if "expression" in extra else None
             out.append({"section": sec, "id": o[idk], "uuid": o.get("uuid"), "key": o.get("key_"),
-                        "name": o.get("description") or o.get("name"), "expression": o.get("expression")})
+                        "name": o.get("description") or o.get("name"), "expression": expr})
     for v in api.call("valuemap.get", {"hostids": [tid], "output": ["valuemapid", "name", "uuid"]}):
         out.append({"section": "valuemaps", "id": v["valuemapid"], "uuid": v["uuid"], "name": v["name"]})
     for b in api.call("templatedashboard.get", {"templateids": [tid], "output": ["dashboardid", "name", "uuid"]}):

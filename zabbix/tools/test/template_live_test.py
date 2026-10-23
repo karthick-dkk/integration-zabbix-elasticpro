@@ -283,12 +283,15 @@ def macro_usage(api, tplid):
     scan("item", api("item.get", templateids=tplid, output=MACRO_FIELDS + ["formula"]), MACRO_FIELDS + ["params"])
     scan("lld", api("discoveryrule.get", templateids=tplid, output=MACRO_FIELDS + ["lifetime"]), MACRO_FIELDS + ["lifetime"])
     scan("prototype", api("itemprototype.get", templateids=tplid, output=MACRO_FIELDS), MACRO_FIELDS)
-    # expandExpression: 7.0 stores function parameters (where a macro period sits) apart from the
-    # expression, which on its own reads "{12345}=1".
-    scan("trigger", api("trigger.get", templateids=tplid, output=["expression", "recovery_expression"],
-                        expandExpression=True), ["expression", "recovery_expression"])
-    scan("trigger-prototype", api("triggerprototype.get", templateids=tplid, output=["expression", "recovery_expression"],
-                                  expandExpression=True), ["expression", "recovery_expression"])
+    # 7.0 keeps function parameters (where a macro period sits) apart from the expression, which
+    # reads "{12345}=1"; and expandExpression resolves macros to their values, so it hides them.
+    # The raw expression (constants such as {$X.WARN}) plus every function's parameters it is.
+    for kind, meth in (("trigger", "trigger.get"), ("trigger-prototype", "triggerprototype.get")):
+        objs = api(meth, templateids=tplid, output=["expression", "recovery_expression"],
+                   selectFunctions=["parameter"])
+        for o in objs:
+            o["parameters"] = " ".join(f.get("parameter", "") for f in o.get("functions", []))
+        scan(kind, objs, ["expression", "recovery_expression", "parameters"])
     # Preprocessing parameters consume macros too (e.g. a JSONPath or a threshold).
     for kind, meth in (("item", "item.get"), ("prototype", "itemprototype.get")):
         for o in api(meth, templateids=tplid, output=["itemid"], selectPreprocessing=["params"]):

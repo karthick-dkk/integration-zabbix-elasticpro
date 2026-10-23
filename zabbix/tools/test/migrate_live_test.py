@@ -291,6 +291,12 @@ def in_place_scenario(tmp):
     check("macros carried to the current names on the template", {"{$ELASTICPRO.PLAN.STALE}", "{$ELASTICPRO.PLAN.LIVE_USED.WARN}"} <= tm, sorted(tm))
     titems = api("item.get", {"templateids": tid(P + "PLAN"), "output": ["key_"]})
     check("template has 18 items after the import (no empty duplicates)", len(titems) == 18, len(titems))
+    trigs = api("trigger.get", {"templateids": tid(P + "PLAN"), "output": ["description"]})
+    want = src.count("expression:")
+    check(f"template has {want} triggers after the import (none duplicated, macros in parameters matched)",
+          len(trigs) == want, sorted(t["description"] for t in trigs))
+    graphs = api("graph.get", {"templateids": tid(P + "PLAN"), "output": ["name"]})
+    check("graphs not duplicated", len(graphs) == 3, len(graphs))
 
 
 def main():
