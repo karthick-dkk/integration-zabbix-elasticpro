@@ -1,3 +1,7 @@
 node_modules/
 .DS_Store
 secrets/
+
+# migrate-templates.py: your filled-in map and the journals of committed runs
+zabbix/tools/migrate-map.json
+migrate-journal-*.json

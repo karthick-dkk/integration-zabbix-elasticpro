@@ -1,0 +1,64 @@
+{
+  "_readme": [
+    "Copy this file (e.g. to migrate-map.json, which is git-ignored), replace every <PLACEHOLDER>",
+    "with the names your Zabbix uses, and delete the generations you do not have. The script",
+    "refuses to run while a placeholder is left. Paths are relative to this file.",
+    "",
+    "mode 'in-place': a template that already has the current name but whose items carry an older",
+    "  key prefix. Keys are renamed on the template; every linked host follows with the same items.",
+    "mode 'replace': hosts linked to old_templates get new_templates. With unlink_old true the old",
+    "  template is unlinked WITHOUT clear and its items stay on the host with their history; keys",
+    "  that map onto a key of a new template are renamed first so the link adopts them.",
+    "",
+    "keys / macros map exact names; key_prefixes / macro_prefixes map a leading prefix.",
+    "See docs/MIGRATION.md."
+  ],
+  "generations": [
+    {
+      "name": "previous-key-prefix",
+      "mode": "in-place",
+      "templates": {
+        "ElasticPro client plan": "../templates/template-elasticpro-client-plan.yaml",
+        "ElasticPro alerts": "../templates/template-elasticpro-alerts.yaml",
+        "ElasticPro log delay": "../templates/template-elasticpro-log-delay.yaml"
+      },
+      "key_prefixes": [["<OLD-KEY-PREFIX>.", "elasticpro."]],
+      "macro_prefixes": [["{$<OLD-MACRO-PREFIX>.", "{$ELASTICPRO."]]
+    },
+    {
+      "name": "old-cluster-template",
+      "mode": "replace",
+      "old_templates": ["<OLD ELASTICSEARCH CLUSTER TEMPLATE>"],
+      "new_templates": ["Elasticsearch Cluster by HTTP EP", "ElasticPro client plan", "ElasticPro alerts",
+                        "ElasticPro log delay", "ElasticPro cluster devices"],
+      "_unlink_old": "false: none of its metric keys exists in the ElasticPro templates, so nothing moves; the new templates are linked beside it. true retires it: its items stay on the host as host items, with their history, and the macros they use are copied to the host.",
+      "unlink_old": false
+    },
+    {
+      "name": "old-cluster-template-to-jump-host",
+      "mode": "replace",
+      "old_templates": ["<OLD ELASTICSEARCH CLUSTER TEMPLATE FOR A CLUSTER BEHIND A JUMP HOST>"],
+      "new_templates": ["ElasticPro Elasticsearch via SSH jump host", "ElasticPro client plan", "ElasticPro alerts",
+                        "ElasticPro log delay"],
+      "_unlink_old": "true: the jump host template uses the same es.cluster.* keys, so the link adopts those items and their history moves with them.",
+      "unlink_old": true,
+      "keys": {}
+    },
+    {
+      "name": "old-client-master",
+      "mode": "replace",
+      "old_templates": ["<OLD CLIENT MASTER TEMPLATE>"],
+      "new_templates": ["ElasticPro client master"],
+      "unlink_old": true,
+      "key_prefixes": [["<OLD-MASTER-KEY-PREFIX>.", "ep."]],
+      "macro_prefixes": [["{$<OLD-MASTER-MACRO-PREFIX>.", "{$EP."]]
+    },
+    {
+      "name": "old-linux-agent-template",
+      "mode": "replace",
+      "old_templates": ["<OLD LINUX AGENT TEMPLATE>"],
+      "new_templates": ["Linux by Zabbix agent -EP"],
+      "unlink_old": true
+    }
+  ]
+}
