@@ -150,10 +150,16 @@ id `elasticpro`), signed with the scheme and the code (`SsoClient::sign()`) of t
   the echoed nonce and ts equal to the ones sent, and a nonce this Zabbix session has not consumed
   before (the session keeps the last 64). Otherwise the page says *"the answer was not signed by
   ElasticPro"* or *"replayed answer"*.
-- **Over what.** An `admin` is acted on only when `core_url` is https with TLS verification on, or a
-  loopback core (127.0.0.0/8, ::1, localhost). Otherwise the lookup still runs — an operator is still
-  told their role — but nobody is elevated, and the page says *"core_url is plain HTTP / TLS
-  verification is off; elevation needs https with verification (or loopback)"*.
+- **Over what.** The signature is what authenticates the answer: somebody on the path can block it
+  (then only Super admins edit) but cannot forge or replay it. On top of that, an `admin` is acted on
+  only when `core_url` is https with TLS verification on, a loopback core (127.0.0.0/8, ::1,
+  localhost), or plain http to a host listed in the ElasticPro module's `trusted_plain_hosts`
+  (config.php, or Administration → ElasticPro; exact host names only, never IP addresses or
+  wildcards; default `ep-core`, the core's name on the documented compose network). For any other
+  core the lookup still runs — an operator is still told their role — but nobody is elevated, and
+  the page says *"ElasticPro's answer cannot be trusted over this connection"* with *"core_url is
+  plain HTTP / TLS verification is off; elevation needs https with verification, a loopback core, or
+  a host listed in trusted_plain_hosts"*. https with verification remains the recommendation.
 
 With that module not enabled, Zabbix not paired, the core not answering, or any check above failing,
 only Super admins edit, and the page says so with the reason. An ElasticPro admin sets someone's role on ElasticPro's Accounts page; for a

@@ -32,8 +32,12 @@ use Modules\ElasticPro\Lib\SsoClient;
  *   X-ElasticPro-Signature: <hex HMAC-SHA256 of ts + "\n" + nonce + "\n" + the exact body bytes>
  * with this question's ts and nonce, under the same secret, and the body echoes both. A missing or
  * wrong signature, an echo of another question, or a nonce this session has already consumed is
- * no answer at all. And an "admin" is acted on only over a connection that cannot be read or
- * altered on the way: https with certificate verification, or a loopback core.
+ * no answer at all. The signature is what authenticates the answer: somebody on the path can
+ * block it (which leaves only Super admins editing) but cannot forge or replay it. On top of that,
+ * an "admin" is acted on only over https with certificate verification, a loopback core, or plain
+ * http to a host named in the ElasticPro module's `trusted_plain_hosts` — exact host names only,
+ * default ['ep-core'], the core's name on the documented compose network. https stays the
+ * recommendation; any other plain-http host is refused with UNTRUSTED.
  *
  * The pairing and the signing are the ElasticPro module's (modules/elasticpro, id "elasticpro"):
  * its Settings::resolve() and SsoClient::sign(), loaded from that module's folder, so there is one
@@ -57,7 +61,7 @@ final class EpRole {
 	/** What the page says when ElasticPro answered "admin" over a connection elevation does not trust. */
 	public const UNTRUSTED = 'ElasticPro\'s answer cannot be trusted over this connection; only Super admins can edit until it can.';
 
-	/** @var callable(): array  {core_url, secret, verify_tls} or {error} */
+	/** @var callable(): array  {core_url, secret, verify_tls, trusted_plain_hosts} or {error} */
 	private $settings;
 	/** @var callable(string $url, array $headers, bool $verify_tls): array{status: int, data: ?array, error: string} */
 	private $transport;
@@ -112,7 +116,9 @@ final class EpRole {
 	/** The reasons a lookup is not acted on, as the page shows them. */
 	public const NOT_SIGNED = 'the answer was not signed by ElasticPro';
 	public const REPLAYED = 'replayed answer';
-	public const INSECURE = 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification (or loopback)';
+	public const INSECURE = 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification, a loopback core, or a host listed in trusted_plain_hosts';
+	/** Plain-http hosts trusted when the ElasticPro module does not say (older module, or nothing stored). */
+	public const DEFAULT_PLAIN_HOSTS = ['ep-core'];
 
 	/** The exact bytes that are signed and sent. */
 	public static function claim(string $user, int $type, int $ts, string $nonce): string {
@@ -141,16 +147,31 @@ final class EpRole {
 	}
 
 	/**
-	 * Whether an "admin" from this core may be acted on: https with certificate verification, or a
-	 * core on this machine (127.0.0.0/8, ::1, localhost), where nothing travels a network.
+	 * Whether a signed "admin" from this core may be acted on: https with certificate verification;
+	 * a core on this machine (127.0.0.0/8, ::1, localhost), where nothing travels a network; or plain
+	 * http to a host named exactly in $plain_hosts (the internal compose network's core). Only host
+	 * names match there — a core_url naming an IP never does, and a wildcard in the list matches
+	 * only itself, which no URL has — and only the http scheme: https without verification is not
+	 * rescued by being listed.
+	 *
+	 * @param string[] $plain_hosts
 	 */
-	public static function transportTrusted(string $core_url, bool $verify_tls): bool {
+	public static function transportTrusted(string $core_url, bool $verify_tls, array $plain_hosts = []): bool {
 		$scheme = strtolower((string) parse_url($core_url, PHP_URL_SCHEME));
 		$host = strtolower(trim((string) parse_url($core_url, PHP_URL_HOST), '[]'));
 		if ($host === 'localhost' || $host === '::1' || preg_match('/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/', $host)) {
 			return true;
 		}
-		return $scheme === 'https' && $verify_tls;
+		if ($scheme === 'https') {
+			return $verify_tls;
+		}
+		// The list was cleaned when it was stored (the ElasticPro module's Settings::plainHosts(), the
+		// one definition of what may be listed); here it is only matched, exactly, and never against an
+		// address — a core_url naming an IP is not on the internal network by name.
+		if ($scheme !== 'http' || $host === '' || filter_var($host, FILTER_VALIDATE_IP) !== false) {
+			return false;
+		}
+		return in_array($host, array_map(fn($h) => strtolower(trim((string) $h)), $plain_hosts), true);
 	}
 
 	/**
@@ -228,7 +249,8 @@ final class EpRole {
 		$out['source'] = is_string($data['source'] ?? null) ? $data['source'] : null;
 		$out['disabled'] = ($data['disabled'] ?? false) === true;
 		$out['locked'] = ($data['locked'] ?? false) === true;
-		$out['trusted'] = self::transportTrusted((string) $s['core_url'], (bool) ($s['verify_tls'] ?? true));
+		$out['trusted'] = self::transportTrusted((string) $s['core_url'], (bool) ($s['verify_tls'] ?? true),
+			(array) ($s['trusted_plain_hosts'] ?? self::DEFAULT_PLAIN_HOSTS));
 		if (!$out['trusted']) {
 			$out['error'] = self::INSECURE;
 		}
@@ -310,7 +332,9 @@ final class EpRole {
 				? _('the stored pairing secret no longer opens — pair again from ElasticPro')
 				: _('Zabbix is not paired with ElasticPro (Administration → ElasticPro)')];
 		}
-		return ['core_url' => (string) $s['core_url'], 'secret' => (string) $s['secret'], 'verify_tls' => (bool) $s['verify_tls']];
+		return ['core_url' => (string) $s['core_url'], 'secret' => (string) $s['secret'], 'verify_tls' => (bool) $s['verify_tls'],
+			// An ElasticPro module from before this setting has no key: the documented compose default.
+			'trusted_plain_hosts' => array_key_exists('trusted_plain_hosts', $s) ? (array) $s['trusted_plain_hosts'] : self::DEFAULT_PLAIN_HOSTS];
 	}
 
 	/**

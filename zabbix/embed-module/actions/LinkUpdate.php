@@ -33,6 +33,7 @@ class LinkUpdate extends CController {
 			'ep_url' => 'string',
 			'secret' => 'string',
 			'verify_tls' => 'in 0,1',
+			'trusted_plain_hosts' => 'string',
 		]);
 		if (!$ok) {
 			$this->setResponse(new CControllerResponseFatal());
@@ -134,7 +135,7 @@ class LinkUpdate extends CController {
 				'mode' => 'pair',
 				'tokenId' => $made['tokenid'],
 				'zabbixUrl' => $zabbix_url,
-			]);
+			] + array_intersect_key(Settings::dbConfig(), array_flip(['trustedPlainHosts'])));
 		}
 		catch (\Throwable $e) {
 			throw new \RuntimeException('ElasticPro accepted the pairing, but saving it here failed ('
@@ -174,6 +175,16 @@ class LinkUpdate extends CController {
 			throw new \RuntimeException('the secret must be at least 32 characters (the same value as ELASTICPRO_ZABBIX_SSO_SECRET on the core)');
 		}
 		$sealed = $secret !== '' ? Settings::seal($secret) : (string) ($old['secret'] ?? '');
+		// Plain-http hosts Cluster Management trusts for a signed answer. Refused rather than quietly
+		// trimmed: an address or a wildcard typed here would otherwise look accepted and match nothing.
+		$plain = Settings::plainHosts($old['trustedPlainHosts'] ?? Settings::DEFAULT_PLAIN_HOSTS);
+		if ($this->hasInput('trusted_plain_hosts')) {
+			[$plain, $dropped] = Settings::splitPlainHosts((string) $this->getInput('trusted_plain_hosts'));
+			if ($dropped) {
+				throw new \RuntimeException(_s('"Trusted plain-HTTP hosts" takes exact host names only, not IP addresses or wildcards: %1$s',
+					implode(', ', $dropped)));
+			}
+		}
 		if ($sealed === '' && !$s['from_file']['secret']) {
 			throw new \RuntimeException('enter the secret — nothing is stored yet');
 		}
@@ -182,6 +193,7 @@ class LinkUpdate extends CController {
 			'epUrl' => $ep,
 			'secret' => $sealed,
 			'verifyTls' => $this->getInput('verify_tls', '0') === '1',
+			'trustedPlainHosts' => $plain,
 			'pairedAt' => time(),
 			'pairedBy' => $this->by(),
 			'mode' => 'manual',
@@ -264,7 +276,7 @@ class LinkUpdate extends CController {
 		$tokenid = (string) ($old['tokenId'] ?? '');
 		$gone = Pairing::deleteToken($tokenid);
 		// Keep where ElasticPro is, so a later pairing or manual entry starts from it.
-		Settings::saveDbConfig(array_intersect_key($old, array_flip(['epUrl', 'verifyTls'])));
+		Settings::saveDbConfig(array_intersect_key($old, array_flip(['epUrl', 'verifyTls', 'trustedPlainHosts'])));
 
 		CMessageHelper::setSuccessTitle(_('Unpaired: the secret stored here was removed'));
 		if ($tokenid !== '') {

@@ -21,10 +21,13 @@ Cluster Management follows ElasticPro's role (to be folded into the next version
 - **Only a signed, fresh answer elevates.** Each question carries a fresh nonce; the core signs its
   answer (`X-ElasticPro-Signature`, HMAC over ts, nonce and the exact body) and echoes the nonce and
   ts. An unsigned or wrongly signed answer, an echo of another question, or a nonce the session has
-  consumed is not acted on ("the answer was not signed by ElasticPro", "replayed answer"). An admin
-  is acted on only over https with verification, or a loopback core; otherwise the page says
-  "core_url is plain HTTP / TLS verification is off; elevation needs https with verification (or
-  loopback)".
+  consumed is not acted on ("the answer was not signed by ElasticPro", "replayed answer"). The
+  signature is what authenticates the answer; on top of it, an admin is acted on only over https
+  with verification, a loopback core, or plain http to a host in the ElasticPro module's new
+  `trusted_plain_hosts` setting (config.php or Administration → ElasticPro; exact host names, no IP
+  addresses or wildcards; default `ep-core`, the core on the documented compose network). Any other
+  plain-http host: "ElasticPro's answer cannot be trusted over this connection". https stays the
+  recommendation.
 - **Backups and the register stay with Super admins**, whatever ElasticPro's role: Backups (list,
   download, restore) and Re-create refuse everyone else, and only a Super admin's pages compare with
   the register of hosts or record a client in it.

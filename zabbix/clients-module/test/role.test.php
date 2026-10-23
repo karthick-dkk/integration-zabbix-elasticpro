@@ -21,9 +21,11 @@ namespace {
 namespace Modules\EpClients\Test {
 	$embed = __DIR__.'/../../embed-module/lib/SsoClient.php';
 	require_once $embed;
+	require_once __DIR__.'/../../embed-module/lib/Settings.php';
 	require_once __DIR__.'/../lib/EpRole.php';
 	require_once __DIR__.'/../lib/WriteCheck.php';
 	use Modules\ElasticPro\Lib\SsoClient;
+	use Modules\ElasticPro\Lib\Settings as EmbedSettings;
 	use Modules\EpClients\Lib\{EpRole, WriteCheck};
 
 	$failed = 0; $passed = 0;
@@ -103,7 +105,7 @@ namespace Modules\EpClients\Test {
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'trusted' => false, 'error' => EpRole::INSECURE]));
 	check('an admin over a connection elevation does not trust: Super admins only, with the reason', !$d['write'] && $d['why'] === 'untrusted'
 		&& $d['note'] === 'ElasticPro\'s answer cannot be trusted over this connection; only Super admins can edit until it can.'
-		&& $d['hint'] === 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification (or loopback)', $d);
+		&& $d['hint'] === 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification, a loopback core, or a host listed in trusted_plain_hosts', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin']) + []);
 	check('trusted is what lets it through', $d['write']);
 	$d = EpRole::decide(4, null);
@@ -213,7 +215,14 @@ namespace Modules\EpClients\Test {
 	/* ------------------------- over what the answer travelled ------------------------- */
 
 	$over = [
-		'http to another host' => [['core_url' => 'http://ep-core:8765', 'verify_tls' => true], false],
+		// The documented compose setup: the core by its service name, plain http, inside the network.
+		'http to ep-core, trusted by default' => [['core_url' => 'http://ep-core:8765', 'verify_tls' => true], true],
+		'http to ep-core, listed' => [['core_url' => 'http://EP-Core:8765', 'verify_tls' => false, 'trusted_plain_hosts' => ['ep-core']], true],
+		'http to ep-core, list emptied' => [['core_url' => 'http://ep-core:8765', 'verify_tls' => true, 'trusted_plain_hosts' => []], false],
+		'http to other-host, not listed' => [['core_url' => 'http://other-host:8765', 'verify_tls' => true], false],
+		'http to an IP, even listed' => [['core_url' => 'http://10.0.0.5:8765', 'verify_tls' => true, 'trusted_plain_hosts' => ['10.0.0.5']], false],
+		'http with a wildcard listed' => [['core_url' => 'http://ep-core.svc:8765', 'verify_tls' => true, 'trusted_plain_hosts' => ['*.svc', '*']], false],
+		'https unverified to a listed host' => [['core_url' => 'https://ep-core:8765', 'verify_tls' => false, 'trusted_plain_hosts' => ['ep-core']], false],
 		'https with verification off' => [['core_url' => 'https://ep-core:8765', 'verify_tls' => false], false],
 		'http to 127.0.0.1' => [['core_url' => 'http://127.0.0.1:8765', 'verify_tls' => false], true],
 		'http to 127.3.4.5' => [['core_url' => 'http://127.3.4.5:8765', 'verify_tls' => true], true],
@@ -230,8 +239,32 @@ namespace Modules\EpClients\Test {
 			? $d['write']
 			: (!$d['write'] && $d['why'] === 'untrusted' && $d['hint'] === EpRole::INSECURE), $d);
 	}
+	// The signature is the guard on a trusted plain-http host: a bad or missing one elevates nobody.
+	foreach (['bad', 'missing'] as $how) {
+		$sent = []; $session = null;
+		$d = role(ok(['role' => 'admin'], ['sig' => $how]), $sent, $now, $session, ['core_url' => 'http://ep-core:8765', 'verify_tls' => true, 'secret' => SECRET])
+			->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+		check("ep-core over http with a $how signature: not elevated", !$d['write'] && $d['why'] === 'unasked' && $d['hint'] === EpRole::NOT_SIGNED, $d);
+	}
 	$sent = []; $session = null;
-	$d = role(ok(['role' => 'operator']), $sent, $now, $session, ['core_url' => 'http://ep-core:8765', 'verify_tls' => true, 'secret' => SECRET])
+	$d = role(ok(['role' => 'admin']), $sent, $now, $session, ['core_url' => 'http://ep-core:8765', 'verify_tls' => true, 'secret' => SECRET])
+		->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+	check('ep-core over http with a valid signature: an ElasticPro admin edits', $d['write'] && $d['why'] === 'elasticpro_admin', $d);
+	$sent = []; $session = null;
+	$d = role(ok(['role' => 'admin']), $sent, $now, $session, ['core_url' => 'http://other-host:8765', 'verify_tls' => true, 'secret' => SECRET])
+		->decision('alice', USER_TYPE_ZABBIX_ADMIN);
+	check('other-host over http, valid signature: still "cannot be trusted over this connection"', !$d['write'] && $d['why'] === 'untrusted'
+		&& $d['note'] === EpRole::UNTRUSTED, $d);
+
+	// What may be listed: one definition, the ElasticPro module's Settings; the page refuses the rest.
+	[$kept, $dropped] = EmbedSettings::splitPlainHosts(" EP-Core, ep_core\n10.0.0.5 *.svc [::1] 1.2.3 ep-core ");
+	check('only exact host names are kept, lower-cased and once', $kept === ['ep-core', 'ep_core'], $kept);
+	check('addresses and wildcards are dropped, and named', $dropped === ['10.0.0.5', '*.svc', '[::1]', '1.2.3'], $dropped);
+	check('a list works the same as text', EmbedSettings::plainHosts(['ep-core', '127.0.0.1', 'x*']) === ['ep-core']);
+	check('the default is the compose service name', EmbedSettings::DEFAULT_PLAIN_HOSTS === ['ep-core'] && EpRole::DEFAULT_PLAIN_HOSTS === ['ep-core']);
+
+	$sent = []; $session = null;
+	$d = role(ok(['role' => 'operator']), $sent, $now, $session, ['core_url' => 'http://other-host:8765', 'verify_tls' => true, 'secret' => SECRET])
 		->decision('alice', USER_TYPE_ZABBIX_ADMIN);
 	check('over plain http an operator still reads, and is told their role', !$d['write'] && $d['role'] === 'operator'
 		&& strpos((string) $d['note'], 'Your ElasticPro role: operator.') !== false, $d);
