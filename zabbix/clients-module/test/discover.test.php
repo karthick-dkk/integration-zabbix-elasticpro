@@ -168,13 +168,13 @@ namespace Modules\EpClients\Test {
 		// The old page's client, karthick-DC style: every name of the generation before the rename,
 		// {$EVP.…} macros on its master, and one IP holding four roles.
 		\Zbx::addHost(['host' => 'karthick-DC-Master', 'groups' => ['karthick-DC', Reconciler::LEGACY_MASTERS_GROUP], 'templates' => [MasterTemplate::LEGACY_NAME],
-			'tags' => [Reconciler::LEGACY_MANAGED, ['tag' => 'evp-client', 'value' => 'karthick-DC'], ['tag' => 'evp-kind', 'value' => 'master']],
+			'tags' => [Reconciler::LEGACY_MANAGED, ['tag' => Reconciler::LEGACY_TAG_PREFIX.'client', 'value' => 'karthick-DC'], ['tag' => Reconciler::LEGACY_TAG_PREFIX.'kind', 'value' => 'master']],
 			'macros' => ['{$GRP.CLIENT}' => 'karthick-DC', '{$EVP.CLIENT.TYPE}' => 'On-Prem']]);
 		\Zbx::addHost(['host' => 'karthick-DC-ES-Cluster', 'groups' => ['karthick-DC', Reconciler::CLUSTER_GROUP], 'templates' => [Reconciler::LEGACY_CLUSTER_TEMPLATE],
-			'tags' => [Reconciler::LEGACY_MANAGED, ['tag' => 'evp-kind', 'value' => 'cluster']], 'macros' => $esMacros('es.kdc')]);
+			'tags' => [Reconciler::LEGACY_MANAGED, ['tag' => Reconciler::LEGACY_TAG_PREFIX.'kind', 'value' => 'cluster']], 'macros' => $esMacros('es.kdc')]);
 		\Zbx::addHost(['host' => 'karthick-DC-ES-Data-Parser-Forwarder-Engine-1', 'ip' => '10.2.0.1',
 			'groups' => ['karthick-DC', 'ES Data', 'ESNodes', 'Parser', 'Parsers', 'Forwarders', 'Engine', 'Engines'], 'templates' => [Reconciler::agentTemplate()],
-			'tags' => [Reconciler::LEGACY_MANAGED, ['tag' => 'evp-kind', 'value' => 'server']]]);
+			'tags' => [Reconciler::LEGACY_MANAGED, ['tag' => Reconciler::LEGACY_TAG_PREFIX.'kind', 'value' => 'server']]]);
 		// A cluster made by hand, on a generation no setting knows, with a server in its own team group
 		// on the old agent template, a server tagged to it, and one whose role cannot be told.
 		\Zbx::addHost(['host' => 'globex-prod', 'ip' => '10.3.0.9', 'groups' => ['Prod Elasticsearch', 'globex'], 'templates' => [$OLDGEN],
@@ -295,7 +295,7 @@ namespace Modules\EpClients\Test {
 	check('nothing was unlinked with clear', !array_filter(\Zbx::calls('Host.massRemove'), fn($p) => isset($p['templateids_clear'])));
 	check('the secret password on the cluster host was left alone', \Zbx::macrosOf($ids['globex-prod'])['{$ELASTICSEARCH.PASSWORD}'] === 'hunter2');
 	check('the role-unknown host was not touched', array_column(\Zbx::byHost('globex-prod-ES-Data-7')['hostgroups'], 'name') === ['ESNodes']);
-	check('karthick-DC was not written', \Zbx::tagsOf(\Zbx::byHost('karthick-DC-ES-Cluster')['hostid']) === ['evp-kind=cluster', 'managed-by=elasticvue-clients']);
+	check('karthick-DC was not written', \Zbx::tagsOf(\Zbx::byHost('karthick-DC-ES-Cluster')['hostid']) === [Reconciler::LEGACY_TAG_PREFIX.'kind=cluster', Reconciler::LEGACY_MANAGED['tag'].'='.Reconciler::LEGACY_MANAGED['value']]);
 	$again = $byName($disc()->scan());
 	check('rescanned: globex-prod is a client now', $again['globex-prod']['status'] === 'client' || $again['globex-prod']['status'] === 'existing', $again['globex-prod']['status']);
 
