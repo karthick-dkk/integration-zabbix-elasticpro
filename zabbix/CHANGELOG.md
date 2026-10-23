@@ -101,8 +101,9 @@ installing (ElasticPro: Config → Zabbix → Pair with Zabbix) so the sync role
   imports `ztest-` copies into a test Zabbix (`ZABBIX_URL`, `ZABBIX_TOKEN`), proves a second import
   changes nothing, sets every macro on a test host and feeds payloads, including the edge cases
   (empty secret, wrong URL, thresholds at the boundary, stale data); `--dry-run` needs no Zabbix
-  and runs in CI. It covers the four copied templates; the request gate template is not in its
-  default list yet.
+  and runs in CI. It covers every template in `templates/`, the request gate one with its own
+  scenario. Its macro scan also reads trigger function parameters, so a macro used only there
+  (`nodata(...,{$ELASTICPRO.STALE})`) is no longer reported as unused.
 - **Moving hosts onto the ElasticPro templates without losing history**: `tools/migrate-templates.py`
   and `docs/MIGRATION.md`. Dry run unless `--commit`; it never deletes anything (delete methods and
   "unlink and clear" are refused before a request is built). Per host it copies to host level the
@@ -111,7 +112,10 @@ installing (ElasticPro: Config → Zabbix → Pair with Zabbix) so the sync role
   history), and checks that every item still exists with at least as many values. A template with
   the current name but older keys is upgraded in place. A rename onto a key of another value type,
   or a link that would fail, is refused with the reason and the host left alone. Macros a newly
-  linked template would redefine for kept items are pinned at host level. `--commit` writes a
+  linked template would redefine for kept items are pinned at host level. Trigger macros are read
+  from the stored expression, not Zabbix's expanded one, so a macro used only in a trigger
+  parameter is kept on unlink and `--import` aligns every trigger instead of duplicating the ones
+  with a macro (3 of the client plan's 6 had been duplicated in testing). `--commit` writes a
   journal and `--rollback` undoes from it. The planner's tests run in CI
   (`migrate_plan_test.py`); `migrate_live_test.py` proves both modes against a test Zabbix.
 
