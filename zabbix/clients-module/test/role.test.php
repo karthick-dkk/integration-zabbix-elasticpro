@@ -69,7 +69,8 @@ namespace Modules\EpClients\Test {
 			'clock' => function () use (&$now) { return $now[0]; },
 			'nonce' => $nonce ?? __NAMESPACE__.'\nextNonce',
 			'load' => function () use (&$session) { return $session; },
-			'save' => function (array $kept) use (&$session) { $session = $kept; }
+			'save' => function (array $kept) use (&$session) { $session = $kept; },
+			'log' => function (string $line) { $GLOBALS['ep_role_log'][] = $line; }
 		]);
 	}
 	function ok(array $data, array $tamper = []): array {
@@ -101,11 +102,14 @@ namespace Modules\EpClients\Test {
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, ['asked' => false, 'error' => 'ElasticPro did not answer at http://ep-core:8765: timeout']);
 	check('ElasticPro not answering: Super admins only, said plainly', !$d['write'] && $d['why'] === 'unasked'
 		&& $d['note'] === 'ElasticPro could not be asked who may edit; only Super admins can edit until it answers.', $d);
-	check('with the reason beside it', $d['hint'] === 'ElasticPro did not answer at http://ep-core:8765: timeout', $d['hint']);
+	check('the page shows only the fixed line, no reason: core_url and the curl error are the server\'s business', $d['hint'] === null
+		&& EpRole::noteLines([$d['note'], $d['hint']]) === [EpRole::UNASKED], $d);
+	check('the reason is kept for the server log and Super admins', $d['detail'] === 'ElasticPro did not answer at http://ep-core:8765: timeout', $d['detail']);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'trusted' => false, 'error' => EpRole::INSECURE]));
-	check('an admin over a connection elevation does not trust: Super admins only, with the reason', !$d['write'] && $d['why'] === 'untrusted'
+	check('an admin over a connection elevation does not trust: Super admins only, the fixed line only', !$d['write'] && $d['why'] === 'untrusted'
 		&& $d['note'] === 'ElasticPro\'s answer cannot be trusted over this connection; only Super admins can edit until it can.'
-		&& $d['hint'] === 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification, a loopback core, or a host listed in trusted_plain_hosts', $d);
+		&& $d['hint'] === null
+		&& $d['detail'] === 'core_url is plain HTTP / TLS verification is off; elevation needs https with verification, a loopback core, or a host listed in trusted_plain_hosts', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin']) + []);
 	check('trusted is what lets it through', $d['write']);
 	$d = EpRole::decide(4, null);
@@ -175,13 +179,20 @@ namespace Modules\EpClients\Test {
 		'not configured' => [['status' => 503, 'data' => ['ok' => false, 'kind' => 'not_configured', 'message' => 'set ELASTICPRO_ZABBIX_SSO_SECRET']], '/HTTP 503/'],
 		'rate limited' => [['status' => 429, 'data' => ['ok' => false, 'kind' => 'rate_limited', 'message' => 'wait a minute']], '/HTTP 429/']
 	];
+	$GLOBALS['ep_role_log'] = [];
 	foreach ($fails as $what => [$reply, $why]) {
 		$sent = []; $session = null;
 		$r = role($reply, $sent, $now, $session);
 		$d = $r->decision('alice', USER_TYPE_ZABBIX_ADMIN);
 		check($what.': nobody but a Super admin edits', !$d['write'] && $d['why'] === 'unasked', $d);
-		check($what.': the reason is given', preg_match($why, (string) $d['hint']) === 1, $d['hint']);
-		check($what.': and never the secret', strpos(json_encode($d), SECRET) === false);
+		check($what.': the page says only "could not be asked"', $d['note'] === EpRole::UNASKED && $d['hint'] === null
+			&& EpRole::noteLines([$d['note'], $d['hint']]) === [EpRole::UNASKED], $d);
+		check($what.': the page names neither core_url nor the core\'s message', strpos(implode(' ', EpRole::noteLines([$d['note'], $d['hint']])), 'ep-core') === false
+			&& preg_match($why, implode(' ', EpRole::noteLines([$d['note'], $d['hint']]))) === 0);
+		check($what.': the reason is kept in detail', preg_match($why, (string) $d['detail']) === 1, $d['detail']);
+		check($what.': and written to the server log, naming the user', preg_match($why, (string) end($GLOBALS['ep_role_log'])) === 1
+			&& strpos((string) end($GLOBALS['ep_role_log']), '"alice"') !== false, $GLOBALS['ep_role_log'] ?? null);
+		check($what.': and never the secret', strpos(json_encode($d), SECRET) === false && strpos(implode("\n", $GLOBALS['ep_role_log']), SECRET) === false);
 	}
 	/* ------------------------ is the answer ElasticPro's, and new? ------------------------ */
 
@@ -195,7 +206,7 @@ namespace Modules\EpClients\Test {
 		$sent = []; $session = null;
 		$d = role($reply, $sent, $now, $session)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
 		check($what.': not acted on — Super admins only', !$d['write'] && $d['why'] === 'unasked', $d);
-		check($what.': the page says '.$why, $d['hint'] === $why && $d['note'] === EpRole::UNASKED, $d);
+		check($what.': the page says only "could not be asked"; '.$why.' is the detail', $d['hint'] === null && $d['detail'] === $why && $d['note'] === EpRole::UNASKED, $d);
 	}
 	$sent = []; $session = null;
 	$d = role(ok(['role' => 'admin']), $sent, $now, $session)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
@@ -206,7 +217,7 @@ namespace Modules\EpClients\Test {
 	role(ok(['role' => 'admin']), $sent, $now, $session, null, $same)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
 	$now[0] += EpRole::TTL + 1;
 	$d = role(ok(['role' => 'admin']), $sent, $now, $session, null, $same)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
-	check('a nonce this session has consumed: a replayed answer, not acted on', count($sent) === 2 && !$d['write'] && $d['hint'] === EpRole::REPLAYED, $d);
+	check('a nonce this session has consumed: a replayed answer, not acted on', count($sent) === 2 && !$d['write'] && $d['detail'] === EpRole::REPLAYED && $d['hint'] === null, $d);
 	$session['nonces'] = array_map(fn($i) => sprintf('%032x', 100000 + $i), range(1, 200));
 	$now[0] += EpRole::TTL + 1;
 	role(ok(['role' => 'admin']), $sent, $now, $session)->decision('alice', USER_TYPE_ZABBIX_ADMIN);
@@ -237,14 +248,14 @@ namespace Modules\EpClients\Test {
 		check($what.': the lookup itself still goes', count($sent) === 1);
 		check($what.($trusted ? ': elevation allowed' : ': elevation refused, with the reason'), $trusted
 			? $d['write']
-			: (!$d['write'] && $d['why'] === 'untrusted' && $d['hint'] === EpRole::INSECURE), $d);
+			: (!$d['write'] && $d['why'] === 'untrusted' && $d['note'] === EpRole::UNTRUSTED && $d['hint'] === null && $d['detail'] === EpRole::INSECURE), $d);
 	}
 	// The signature is the guard on a trusted plain-http host: a bad or missing one elevates nobody.
 	foreach (['bad', 'missing'] as $how) {
 		$sent = []; $session = null;
 		$d = role(ok(['role' => 'admin'], ['sig' => $how]), $sent, $now, $session, ['core_url' => 'http://ep-core:8765', 'verify_tls' => true, 'secret' => SECRET])
 			->decision('alice', USER_TYPE_ZABBIX_ADMIN);
-		check("ep-core over http with a $how signature: not elevated", !$d['write'] && $d['why'] === 'unasked' && $d['hint'] === EpRole::NOT_SIGNED, $d);
+		check("ep-core over http with a $how signature: not elevated", !$d['write'] && $d['why'] === 'unasked' && $d['hint'] === null && $d['detail'] === EpRole::NOT_SIGNED, $d);
 	}
 	$sent = []; $session = null;
 	$d = role(ok(['role' => 'admin']), $sent, $now, $session, ['core_url' => 'http://ep-core:8765', 'verify_tls' => true, 'secret' => SECRET])
@@ -272,8 +283,9 @@ namespace Modules\EpClients\Test {
 	$sent = []; $session = null;
 	$r = role(ok([]), $sent, $now, $session, ['error' => 'Zabbix is not paired with ElasticPro (Administration → ElasticPro)']);
 	$d = $r->decision('alice', USER_TYPE_ZABBIX_ADMIN);
-	check('not paired: nothing is sent, Super admins only, and the page says why', $sent === [] && !$d['write']
-		&& $d['hint'] === 'Zabbix is not paired with ElasticPro (Administration → ElasticPro)', $d);
+	check('not paired: nothing is sent, Super admins only, the fixed line on the page and the reason in detail', $sent === [] && !$d['write']
+		&& $d['note'] === EpRole::UNASKED && $d['hint'] === null
+		&& $d['detail'] === 'Zabbix is not paired with ElasticPro (Administration → ElasticPro)', $d);
 	$sent = []; $session = null;
 	$r = role(['status' => 200, 'data' => ['ok' => true, 'role' => 'root']], $sent, $now, $session);
 	$d = $r->decision('alice', USER_TYPE_ZABBIX_ADMIN);

@@ -75,6 +75,8 @@ final class EpRole {
 	private $load;
 	/** @var callable(array): void */
 	private $save;
+	/** @var callable(string): void  the server log (error_log), where the detailed reasons go */
+	private $log;
 
 	/** @var array answers already decided in this request, user|type => answer */
 	private $memo = [];
@@ -83,7 +85,7 @@ final class EpRole {
 
 	/**
 	 * Every dependency can be replaced, so the tests can answer for the core, the clock and the
-	 * session. Keys: settings, transport, sign, clock, nonce, load, save.
+	 * session. Keys: settings, transport, sign, clock, nonce, load, save, log.
 	 */
 	public function __construct(array $deps = []) {
 		$this->settings = $deps['settings'] ?? [self::class, 'embedSettings'];
@@ -93,6 +95,7 @@ final class EpRole {
 		$this->nonce = $deps['nonce'] ?? fn() => bin2hex(random_bytes(16));
 		$this->load = $deps['load'] ?? [self::class, 'sessionLoad'];
 		$this->save = $deps['save'] ?? [self::class, 'sessionSave'];
+		$this->log = $deps['log'] ?? fn(string $line) => error_log($line);
 	}
 
 	/** The one this request uses. */
@@ -196,6 +199,11 @@ final class EpRole {
 		// The consumed nonces outlive a change of user: they are this session's, not one answer's.
 		$nonces = is_array($kept['nonces'] ?? null) ? $kept['nonces'] : [];
 		$answer = $this->ask($user, $type, $now, $nonces);
+		// The detailed reason (core_url, the curl error, the core's own message) goes to the server
+		// log; the page shows a person who is not a Super admin only the fixed line (decide()).
+		if (($answer['error'] ?? null) !== null) {
+			($this->log)('ElasticPro Cluster Management: the role lookup for "'.$user.'" was not acted on: '.$answer['error']);
+		}
 		($this->save)(['user' => $user, 'type' => $type, 'answer' => $answer,
 			'nonces' => array_slice($nonces, -self::NONCES_KEPT)]);
 		return $this->memo[$key] = $answer;
@@ -262,20 +270,25 @@ final class EpRole {
 	 * read-only notes all come from here.
 	 *
 	 * @param array|null $answer  answer() for this user; ignored for a Super admin.
-	 * @return array{write: bool, why: string, role: ?string, note: ?string, hint: ?string}
+	 * @return array{write: bool, why: string, role: ?string, note: ?string, hint: ?string, detail: ?string}
 	 *   why: super | elasticpro_admin | elasticpro_role | untrusted | unasked | no_type
+	 *
+	 * When ElasticPro could not be asked, or its answer cannot be trusted, the person (never a
+	 * Super admin: they are not asked) sees only the fixed UNASKED / UNTRUSTED line and no hint:
+	 * the reason names core_url, a curl error or the core's own message, which is the server's
+	 * business, not theirs. The reason stays in `detail` and in the server log (answer()).
 	 */
 	public static function decide(int $type, ?array $answer): array {
 		if ($type == USER_TYPE_SUPER_ADMIN) {
-			return ['write' => true, 'why' => 'super', 'role' => null, 'note' => null, 'hint' => null];
+			return ['write' => true, 'why' => 'super', 'role' => null, 'note' => null, 'hint' => null, 'detail' => null];
 		}
 		if (!in_array($type, [USER_TYPE_ZABBIX_ADMIN, USER_TYPE_ZABBIX_USER], true)) {
 			return ['write' => false, 'why' => 'no_type', 'role' => null,
-				'note' => _('Editing needs an ElasticPro admin role (or Zabbix Super admin).'), 'hint' => null];
+				'note' => _('Editing needs an ElasticPro admin role (or Zabbix Super admin).'), 'hint' => null, 'detail' => null];
 		}
 		if ($answer === null || !($answer['asked'] ?? false)) {
-			return ['write' => false, 'why' => 'unasked', 'role' => null, 'note' => _(self::UNASKED),
-				'hint' => $answer !== null && ($answer['error'] ?? null) !== null ? (string) $answer['error'] : null];
+			return ['write' => false, 'why' => 'unasked', 'role' => null, 'note' => _(self::UNASKED), 'hint' => null,
+				'detail' => $answer !== null && ($answer['error'] ?? null) !== null ? (string) $answer['error'] : null];
 		}
 		$role = $answer['role'];
 		$mapped = $role === null;
@@ -284,10 +297,10 @@ final class EpRole {
 		if ($role === 'admin' && !$blocked && !$mapped) {
 			if (!($answer['trusted'] ?? false)) {
 				// An admin over a connection that could have been altered on the way is not acted on.
-				return ['write' => false, 'why' => 'untrusted', 'role' => 'admin', 'note' => _(self::UNTRUSTED),
-					'hint' => (string) ($answer['error'] ?? self::INSECURE)];
+				return ['write' => false, 'why' => 'untrusted', 'role' => 'admin', 'note' => _(self::UNTRUSTED), 'hint' => null,
+					'detail' => (string) ($answer['error'] ?? self::INSECURE)];
 			}
-			return ['write' => true, 'why' => 'elasticpro_admin', 'role' => 'admin', 'note' => null, 'hint' => null];
+			return ['write' => true, 'why' => 'elasticpro_admin', 'role' => 'admin', 'note' => null, 'hint' => null, 'detail' => null];
 		}
 		$said = $mapped
 			? _s('Your ElasticPro role: %1$s (from your Zabbix user type — ElasticPro has not seen you sign in yet).', (string) $role)
@@ -296,7 +309,7 @@ final class EpRole {
 					($answer['disabled'] ?? false) ? _('blocked') : _('locked'))
 				: _s('Your ElasticPro role: %1$s.', (string) $role));
 		return ['write' => false, 'why' => 'elasticpro_role', 'role' => $role,
-			'note' => _('Editing needs an ElasticPro admin role (or Zabbix Super admin).').' '.$said, 'hint' => null];
+			'note' => _('Editing needs an ElasticPro admin role (or Zabbix Super admin).').' '.$said, 'hint' => null, 'detail' => null];
 	}
 
 	/** decide() for this user, asking (or reading the session) only when the type needs it. */
