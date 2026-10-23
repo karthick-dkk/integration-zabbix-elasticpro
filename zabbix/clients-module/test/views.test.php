@@ -287,6 +287,8 @@ namespace Modules\EpClients\Test {
 	check('discover: the rule box, and one row per cluster', str_contains($db, 'is a cluster. Its host name becomes the cluster name') && substr_count($db, 'data-proposal=') === 3);
 	check('discover: the new cluster ticked, its name editable', str_contains($db, 'name="sel[p1]" value="1" checked="checked" id="sel_p1"') && str_contains($db, 'name="name[p1]" value="globex-prod"'));
 	check('discover: a refused row cannot be ticked, and says why', (bool) preg_match('~name="sel\[p3\]"[^>]*disabled~', $db) && str_contains($db, 'Refused until fixed'));
+	check('discover: a refused cluster host with no ES URL carries its real host id, so a typed URL can be adopted; one already a client carries none',
+		str_contains($db, 'name="host[p3][30]" value="1"') && !str_contains($db, 'name="host[p2][20]"'));
 	check('discover: already a client hidden by default behind its switch', (bool) preg_match('~<tr[^>]*class="ep-already"[^>]*hidden="hidden"~', $db) && str_contains($db, 'Show hosts that are already a client (1)'));
 	check('discover: host groups, "no client group: will create", templates with their generation', str_contains($db, 'Prod Elasticsearch') && str_contains($db, 'no client group: will create globex-prod')
 		&& str_contains($db, 'Old ES template') && str_contains($db, 'name not known here · kept beside'));

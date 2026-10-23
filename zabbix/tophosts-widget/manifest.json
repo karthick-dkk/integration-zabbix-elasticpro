@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro top hosts",
 	"namespace": "EpTophosts",
-	"version": "2.1.5",
+	"version": "2.1.6",
 	"author": "ElasticPro",
 	"description": "The busiest client servers, ranked by CPU, memory, disk used, JVM heap or any Zabbix item \u2014 now, or its average or maximum over a window \u2014 as a list with bars, a table or a bar chart, coloured at each client's thresholds. Settings choose the clients, client types and roles, how many, the columns each row shows (any figure of the server through the column model, with its own thresholds and look) and the metrics a viewer may switch between on the widget.",
 	"widget": {

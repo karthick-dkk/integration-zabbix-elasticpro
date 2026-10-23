@@ -47,9 +47,14 @@ class DiscoverApply extends Base {
 				if ($p['status'] === 'client') {
 					continue;
 				}
+				$refused = !empty($p['plan']['blockers']);
 				$p['choices'] = Discovery::choicesFrom($p, $in, $roles);
 				try {
 					$p['plan'] = Discovery::compact($disc->plan($p, $p['choices'], $refusals));
+					// A URL typed for a cluster host that had none lifts the refusal: the row is ticked, as if the scan had found it.
+					if ($refused && !$p['plan']['blockers'] && $p['plan']['adopting'] > 0 && $p['choices']['es_url'] !== '' && ($p['hosts'][0]['es']['url'] ?? '') === '') {
+						$p['choices']['selected'] = true;
+					}
 				}
 				catch (Exception $e) {
 					$p['plan'] = Discovery::emptyPlan();

@@ -219,7 +219,9 @@ if ($scan !== null) {
 		}
 		if (!$already) {
 			$roleLines[] = (new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'host['.$pid.']['.$cluster['hostid'].']')
-				->setAttribute('value', !empty($c['hosts'][$cluster['hostid']]) ? '1' : '0');
+				// A cluster host with no ES URL on it is offered too: the plan refuses it until a valid URL is typed, and
+				// then it is the real host id that goes with the form (it used to stay 0, so a typed URL adopted nothing).
+				->setAttribute('value', !empty($c['hosts'][$cluster['hostid']]) || (($cluster['already'] ?? null) === null && ($cluster['es']['url'] ?? '') === '') ? '1' : '0');
 			$roleLines[] = (new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'move['.$pid.']['.$cluster['hostid'].']')->setAttribute('value', '1');
 		}
 		$sources = array_count_values(array_filter(array_map(fn($h) => $h['source_detail'] ?? null, $servers)));
