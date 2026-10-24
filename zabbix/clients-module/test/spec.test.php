@@ -835,6 +835,18 @@ namespace Modules\EpClients\Test {
 		&& strpos($famDisk, MasterTemplate::familyMountMacros('es')[0]) !== false && strpos($famDisk, MasterTemplate::familyMountMacros('es')[4]) !== false);
 	check('devices: purchased, seen and their share', in_array('ep.devices.purchased', $keys, true) && in_array('ep.devices.usage', $keys, true)
 		&& strpos(array_values(array_filter($t['items'], fn($i) => $i['key'] === 'ep.devices.seen'))[0]['params'], DevicesTemplate::KEY) !== false);
+	$pp = fn($key) => array_values(array_filter($t['items'], fn($i) => $i['key'] === $key))[0]['preprocessing'] ?? [];
+	check('an empty role sums to 0: allocated/used/family requested carry a not-supported check that sets 0 on "no input data" only',
+		$pp('ep.role.cpu.allocated[aiml]') === [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function'], 'error_handler' => 'CUSTOM_VALUE', 'error_handler_params' => '0']]
+		&& $pp('ep.role.disk.used[aiml]')[0]['error_handler'] === 'CUSTOM_VALUE' && $pp('ep.es.cpu.requested')[0]['error_handler'] === 'CUSTOM_VALUE'
+		&& $pp('ep.es.servers.allocated')[0]['error_handler'] === 'CUSTOM_VALUE');
+	check('an empty role has no usage: avg and ratio items discard the value instead of going unsupported',
+		$pp('ep.role.cpu.usage[aiml]') === [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function|division by zero|is not supported|not enough data'], 'error_handler' => 'DISCARD_VALUE']]
+		&& $pp('ep.role.disk.usage[aiml]')[0]['error_handler'] === 'DISCARD_VALUE' && $pp('ep.es.mem.usage')[0]['error_handler'] === 'DISCARD_VALUE');
+	check('a static requested figure and the cluster-wide figures carry no empty-role rule (no cluster host is unknown, not 0)',
+		$pp('ep.role.cpu.requested[aiml]') === [] && $pp('ep.es.storage.allocated') === [] && $pp('ep.devices.seen') === [] && $pp('ep.es.storage.usage') === []);
+	$masterMacros = array_column($t['macros'], 'value', 'macro');
+	check('the master template says which generation wrote it, so the page asks for a rewrite after an upgrade', ($masterMacros['{$EP.MASTER.VERSION}'] ?? '') === MasterTemplate::VERSION && MasterTemplate::VERSION === '5');
 	check('no aggregate hides a macro in its key', !array_filter($t['items'], fn($i) => preg_match('/last_foreach\(\/\*\/[^?]*\{\$/', $i['params'])));
 	check('a shortfall alert per role and resource, plus storage, plus storage over purchase', count($x['triggers']) === count(Roles::allRoles($roles)) * 4 + 2);
 	$overT = array_values(array_filter($x['triggers'], fn($t) => strpos($t['expression'], MasterTemplate::OVER['storage']) !== false));

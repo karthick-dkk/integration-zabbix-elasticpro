@@ -4,6 +4,33 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.10
+
+**A client whose roles are not all in use no longer carries 60–150 unsupported items on its
+master host.** Zabbix's `sum()` and `avg()` over `last_foreach()` of an empty set do not return
+0: the item goes unsupported with "no input data for function", and every ratio built on it
+follows ("division by zero", "not enough data", "is not supported"). On the test Zabbix the
+Local client's master host had 148 of its 251 items unsupported for that reason alone, and the
+Zabbix "unsupported items" report was noise.
+
+The master template Cluster Management writes now gives every role and family aggregate an
+empty-role rule, as Zabbix's "check for not supported value" step on those errors only:
+
+- a sum (servers, CPU, memory and disk allocated or used; a family's requested figures):
+  **0** — the true figure for no machines. Any other error (a misnamed group, a dead agent)
+  still shows as unsupported with its reason;
+- an average or a ratio (CPU, memory and disk usage): **no value** — the item stays
+  supported and has nothing to say, which the reports draw as "—". A usage of nothing is
+  not 0.
+
+The cluster-wide figures (ES storage allocated and used, devices seen) keep no rule: a client
+with no cluster host is unknown, not 0. Verified on Zabbix 7.0.31 with an empty client: 234
+aggregates, 0 unsupported for lack of servers.
+
+The template now carries `{$EP.MASTER.VERSION}` (5), and Cluster Management compares it: after
+this upgrade the page says the master template is outdated until **Write master template** is
+pressed once. Hosts keep their items and history.
+
 ## 2.1.9
 
 QA pass over every module, template and macro on a live Zabbix 7.0.31 (modules 2.1.8, ElasticPro
