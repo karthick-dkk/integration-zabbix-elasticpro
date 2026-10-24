@@ -249,10 +249,13 @@ class MasterTemplate {
 	 * - a sum (allocated, used, a family's requested, a count): 0 — the true figure for no
 	 *   machines; only on that one error, so a misnamed group or a dead agent still shows as
 	 *   unsupported with its reason;
-	 * - an average or a ratio (usage): no value — the item stays supported and simply has
-	 *   nothing to say, which the reports draw as "—". A usage of nothing is not 0. The ratio's
-	 *   own errors are covered too: a 0 B allocation (division by zero), a used figure with no
-	 *   value yet (not enough data), or one that is unsupported for another reason.
+	 * - an average or a ratio (usage): unsupported, with the reason in plain words — "no server
+	 *   in this role". A usage of nothing is not 0, and Zabbix has no supported-but-empty state
+	 *   for a calculated item: "discard value" (2.1.10) kept an already-unsupported item
+	 *   unsupported with the old error, and would have left the LAST usage standing on a role
+	 *   that lost its servers — a stale figure shown as current. The ratio's own errors are
+	 *   covered too: a 0 B allocation (division by zero), a used figure with no value yet (not
+	 *   enough data), or one that is unsupported for another reason.
 	 * Anything else (a macro, a static requested figure) needs no rule.
 	 */
 	private static function emptyRule(string $kind, string $params): ?string {
@@ -265,6 +268,9 @@ class MasterTemplate {
 		return null;
 	}
 
+	/** What a usage item says when the client has no server in the role: Zabbix shows it as the item's error. */
+	public const NO_SERVER_ERROR = 'No server in this role yet: a usage of nothing is not a figure. It reads again when one is added.';
+
 	/** The preprocessing an empty-role rule is: Zabbix's "check for not supported value", on that error only. */
 	private static function emptyPreprocessing(string $rule): array {
 		if ($rule === 'zero') {
@@ -272,7 +278,7 @@ class MasterTemplate {
 				'error_handler' => 'CUSTOM_VALUE', 'error_handler_params' => '0']];
 		}
 		return [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function|division by zero|is not supported|not enough data'],
-			'error_handler' => 'DISCARD_VALUE']];
+			'error_handler' => 'CUSTOM_ERROR', 'error_handler_params' => self::NO_SERVER_ERROR]];
 	}
 
 	private function itemExport(array $it): array {
@@ -298,7 +304,7 @@ class MasterTemplate {
 		}
 		if (!empty($it['empty'])) {
 			$out['preprocessing'] = self::emptyPreprocessing($it['empty']);
-			$out['description'] .= $it['empty'] === 'zero' ? ' 0 when the client has no server in this role.' : ' No value when the client has no server in this role.';
+			$out['description'] .= $it['empty'] === 'zero' ? ' 0 when the client has no server in this role.' : ' Unsupported, saying so, when the client has no server in this role.';
 		}
 		return $out;
 	}
