@@ -29,7 +29,7 @@ class MasterTemplate {
 	 * template's contents follow the site's roles rather than a fixed generation, so
 	 * TemplateInstaller compares {$EP.ROLES.HASH} for it instead.
 	 */
-	public const VERSION = '4';
+	public const VERSION = '5';
 
 	/**
 	 * The name this template is installed and linked under: the mapping on the Roles page, or
@@ -167,7 +167,8 @@ class MasterTemplate {
 			// move. The Settings page says so, and links here, when the two have drifted.
 			['{$EP.USAGE.WARN}', (string) Settings::usage()['warn'], 'Usage at or above this is yellow. From ElasticPro → Settings.'],
 			['{$EP.USAGE.HIGH}', (string) Settings::usage()['high'], 'Usage at or above this is red. From ElasticPro → Settings.'],
-			['{$EP.ROLES.HASH}', Roles::hash($this->roles), 'Which roles this template was written for. Set by the Clients page.']
+			['{$EP.ROLES.HASH}', Roles::hash($this->roles), 'Which roles this template was written for. Set by the Clients page.'],
+			['{$EP.MASTER.VERSION}', self::VERSION, 'Which generation of this template is written. Set by the Clients page.']
 		];
 		foreach ($this->roles['families'] as $f) {
 			foreach (self::familyMountMacros($f['id']) as $i => $macro) {
@@ -230,8 +231,48 @@ class MasterTemplate {
 	/** Share of what was bought that is in use, per purchase basis; over 100 is over what was bought. */
 	public const OVER = ['storage' => 'ep.es.storage.purchased.usage', 'devices' => 'ep.devices.usage'];
 
+	/** True while roleItems()/familyItems() add: those aggregates get an empty-role rule (see itemExport). */
+	private bool $perRole = false;
+
 	private function add(string $key, string $name, string $units, string $params, string $description, string $kind, array $tags = [], string $delay = '1m'): void {
-		$this->items[$key] = compact('key', 'name', 'units', 'params', 'description', 'kind', 'tags', 'delay');
+		$empty = $this->perRole ? self::emptyRule($kind, $params) : null;
+		$this->items[$key] = compact('key', 'name', 'units', 'params', 'description', 'kind', 'tags', 'delay', 'empty');
+	}
+
+	/**
+	 * What a role or family aggregate reports when the client has no server in that role.
+	 * Zabbix's sum()/avg() over last_foreach() of an empty set do not return 0: the item goes
+	 * unsupported with "no input data for function", and so does every ratio built on it
+	 * ("division by zero", "is not supported"). Before 2.1.10 a client whose roles were not all
+	 * in use carried 60–150 unsupported items for that reason alone.
+	 *
+	 * - a sum (allocated, used, a family's requested, a count): 0 — the true figure for no
+	 *   machines; only on that one error, so a misnamed group or a dead agent still shows as
+	 *   unsupported with its reason;
+	 * - an average or a ratio (usage): no value — the item stays supported and simply has
+	 *   nothing to say, which the reports draw as "—". A usage of nothing is not 0. The ratio's
+	 *   own errors are covered too: a 0 B allocation (division by zero), a used figure with no
+	 *   value yet (not enough data), or one that is unsupported for another reason.
+	 * Anything else (a macro, a static requested figure) needs no rule.
+	 */
+	private static function emptyRule(string $kind, string $params): ?string {
+		if (in_array($kind, ['allocated', 'used', 'requested'], true) && preg_match('/^(sum|count)\(last_foreach\(/', $params)) {
+			return 'zero';
+		}
+		if ($kind === 'usage' && preg_match('/^(avg\(last_foreach\(|100\*last\()/', $params)) {
+			return 'none';
+		}
+		return null;
+	}
+
+	/** The preprocessing an empty-role rule is: Zabbix's "check for not supported value", on that error only. */
+	private static function emptyPreprocessing(string $rule): array {
+		if ($rule === 'zero') {
+			return [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function'],
+				'error_handler' => 'CUSTOM_VALUE', 'error_handler_params' => '0']];
+		}
+		return [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function|division by zero|is not supported|not enough data'],
+			'error_handler' => 'DISCARD_VALUE']];
 	}
 
 	private function itemExport(array $it): array {
@@ -254,6 +295,10 @@ class MasterTemplate {
 		}
 		if ($it['kind'] === 'requested') {
 			$out['valuemap'] = ['name' => 'ElasticPro not set'];
+		}
+		if (!empty($it['empty'])) {
+			$out['preprocessing'] = self::emptyPreprocessing($it['empty']);
+			$out['description'] .= $it['empty'] === 'zero' ? ' 0 when the client has no server in this role.' : ' No value when the client has no server in this role.';
 		}
 		return $out;
 	}
@@ -301,6 +346,7 @@ class MasterTemplate {
 	}
 
 	private function roleItems(array $f, array $r): void {
+		$this->perRole = true;
 		$in = 'group="{$GRP.CLIENT}" and group="'.$r['group'].'"';
 		// / and the role's extra disks. The mounts are macros; Zabbix substitutes none inside an
 		// aggregate's key, so the key is a wildcard and the Linux template's `filesystem` tag picks
@@ -325,9 +371,11 @@ class MasterTemplate {
 		$this->add($k('disk', 'allocated'), "$L disk allocated", 'B', 'sum(last_foreach(/*/vfs.fs.dependent.size[*,total]?['.$in.' and '.$mounts.']))', 'The role\'s mounts (/ and its extra disks), across its machines.', 'allocated', $tags);
 		$this->add($k('disk', 'used'), "$L disk used", 'B', 'sum(last_foreach(/*/vfs.fs.dependent.size[*,used]?['.$in.' and '.$mounts.']))', 'The role\'s mounts (/ and its extra disks), across its machines.', 'used', $tags);
 		$this->add($k('disk', 'usage'), "$L disk usage", '%', '100*last(//'.$k('disk', 'used').')/last(//'.$k('disk', 'allocated').')', 'Used as a share of allocated.', 'usage', $tags);
+		$this->perRole = false;
 	}
 
 	private function familyItems(array $f): void {
+		$this->perRole = true;
 		$client = 'group="{$GRP.CLIENT}"';
 		$in = $client.' and group="'.$f['group'].'"';
 		$sum = fn($res, $kind) => 'sum(last_foreach(/*/ep.role.'.$res.'.'.$kind.'[*]?['.$client.' and tag="family:'.$f['id'].'"]))';
@@ -352,6 +400,7 @@ class MasterTemplate {
 		$this->add($k('disk', 'used'), "$L disk used", 'B', 'sum(last_foreach(/*/vfs.fs.dependent.size[*,used]?['.$in.' and '.$fs.']))',
 			'The family\'s mounts, across its machines.', 'used');
 		$this->add($k('disk', 'usage'), "$L disk usage", '%', '100*last(//'.$k('disk', 'used').')/last(//'.$k('disk', 'allocated').')', 'Used as a share of allocated.', 'usage');
+		$this->perRole = false;
 	}
 
 	/* ------------------------------------ alerts ------------------------------------ */

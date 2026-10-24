@@ -152,6 +152,7 @@ class TemplateInstaller {
 			return 'missing';
 		}
 		$current = ($by[MasterTemplate::name()]['{$EP.ROLES.HASH}'] ?? '') === Roles::hash($roles)
+			&& ($by[MasterTemplate::name()]['{$EP.MASTER.VERSION}'] ?? '') === MasterTemplate::VERSION
 			&& ($by[DevicesTemplate::name()]['{$EP.DEVICES.VERSION}'] ?? '') === DevicesTemplate::VERSION
 			&& ($by[JumpTemplate::name()]['{$EP.JUMP.VERSION}'] ?? '') === JumpTemplate::VERSION
 			&& ($by[ClusterTemplate::name()]['{$EP.CLUSTER.VERSION}'] ?? '') === ClusterTemplate::VERSION;
