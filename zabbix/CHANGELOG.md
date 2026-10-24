@@ -4,6 +4,15 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.12
+
+**Cluster Management asks for the master template rewrite that 2.1.11 needed.** 2.1.11 changed
+what the master template writes (the usage items' empty-role rule) but left the template's
+generation number at 5, so Cluster Management told every site the template was current and the
+corrected rule reached no host. The generation is now 6: the page shows "written for an older
+version" until **Write master template** is pressed once. Nothing else changed. The number moves
+with every change to the template's content from now on, not only with the roles.
+
 ## 2.1.11
 
 **Usage items of a role with no servers go unsupported saying why, instead of "discard value".**

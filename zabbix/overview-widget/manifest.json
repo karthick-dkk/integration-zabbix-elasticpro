@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro client overview",
 	"namespace": "EpOverview",
-	"version": "2.1.11",
+	"version": "2.1.12",
 	"author": "ElasticPro",
 	"description": "Every client at a glance, as cards or as the Summary view of earlier releases, now with a usage chart. Cards: open problems by severity, the metrics you choose with now, average, minimum and maximum over a trend window, used of allocated with a forecast, servers by role, the contract badge and what is wrong with the data. Data and metrics: host groups, clients, client types, trend window, a metrics list (built-in ElasticPro figures or any Zabbix item key on the client's servers, combined per client, with their own or ElasticPro Settings thresholds), order, top N and which clients show. Layout and production: sections and their order, columns, density, used of allocated, servers by role, problems and warnings, and where a click goes.",
 	"widget": {

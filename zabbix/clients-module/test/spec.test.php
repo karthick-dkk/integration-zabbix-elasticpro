@@ -847,7 +847,7 @@ namespace Modules\EpClients\Test {
 	check('a static requested figure and the cluster-wide figures carry no empty-role rule (no cluster host is unknown, not 0)',
 		$pp('ep.role.cpu.requested[aiml]') === [] && $pp('ep.es.storage.allocated') === [] && $pp('ep.devices.seen') === [] && $pp('ep.es.storage.usage') === []);
 	$masterMacros = array_column($t['macros'], 'value', 'macro');
-	check('the master template says which generation wrote it, so the page asks for a rewrite after an upgrade', ($masterMacros['{$EP.MASTER.VERSION}'] ?? '') === MasterTemplate::VERSION && MasterTemplate::VERSION === '5');
+	check('the master template says which generation wrote it, so the page asks for a rewrite after an upgrade', ($masterMacros['{$EP.MASTER.VERSION}'] ?? '') === MasterTemplate::VERSION && MasterTemplate::VERSION === '6');
 	check('no aggregate hides a macro in its key', !array_filter($t['items'], fn($i) => preg_match('/last_foreach\(\/\*\/[^?]*\{\$/', $i['params'])));
 	check('a shortfall alert per role and resource, plus storage, plus storage over purchase', count($x['triggers']) === count(Roles::allRoles($roles)) * 4 + 2);
 	$overT = array_values(array_filter($x['triggers'], fn($t) => strpos($t['expression'], MasterTemplate::OVER['storage']) !== false));
