@@ -186,7 +186,7 @@ if ($tabs) {
 		.$e(_s('Linux hosts monitored by %1$s; the cluster host by %2$s.', $lxText, $px($field('monitored_by')))).'</span></div><div class="ep-kv">'.$rolesHtml.'</div></div>';
 	$ci = $data['cluster_info'] ?? null;
 	$five = \Modules\EpClients\Lib\Reconciler::clusterTemplates();
-	$fc = $data['full_in'] !== null ? \Modules\EpClients\Lib\Forecast::fullIn($data['full_in'], $data['forecast'] ?? []) : null;
+	$fc = ($data['full_in'] ?? null) !== null ? \Modules\EpClients\Lib\Forecast::fullIn($data['full_in'], $data['forecast'] ?? []) : null;
 	$notSet = '<span class="ep-hint">'.$e(_('not set')).'</span>';
 	$seenText = $ci === null ? '<span class="ep-hint">'.$e(_('unknown: no cluster host')).'</span>'
 		: ($field('es_url') === '' ? '<span class="ep-hint">'.$e(_('unknown: needs ES URL')).'</span>'
