@@ -29,7 +29,11 @@ class MasterTemplate {
 	 * template's contents follow the site's roles rather than a fixed generation, so
 	 * TemplateInstaller compares {$EP.ROLES.HASH} for it instead.
 	 */
-	public const VERSION = '5';
+	// Move this whenever what the template says changes — items, their preprocessing, triggers,
+	// macros — not only when the roles do: TemplateInstaller compares it, and without the move
+	// no installed Zabbix is asked to rewrite (2.1.11 shipped a preprocessing change with the
+	// number left at 5, and Cluster Management showed every site as current).
+	public const VERSION = '6';
 
 	/**
 	 * The name this template is installed and linked under: the mapping on the Roles page, or
