@@ -4,6 +4,18 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.11
+
+**Usage items of a role with no servers go unsupported saying why, instead of "discard value".**
+2.1.10 gave the master template's averages and ratios (CPU, memory, disk usage) a "discard
+value" rule for an empty role. On a live Zabbix that did two wrong things: an item that was
+already unsupported stayed unsupported with its old error (Zabbix keeps the state when a value is
+discarded), and a role that later lost all its servers would have kept its last usage standing as
+if current — a stale figure shown as a measurement. The rule now sets the error to "No server in
+this role yet: a usage of nothing is not a figure. It reads again when one is added." The sums
+(allocated, used, requested) keep their 2.1.10 rule and read 0. Press **Write master template**
+once after the upgrade (Cluster Management asks).
+
 ## 2.1.10
 
 **A client whose roles are not all in use no longer carries 60–150 unsupported items on its

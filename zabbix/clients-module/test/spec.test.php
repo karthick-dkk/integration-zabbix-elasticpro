@@ -840,9 +840,10 @@ namespace Modules\EpClients\Test {
 		$pp('ep.role.cpu.allocated[aiml]') === [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function'], 'error_handler' => 'CUSTOM_VALUE', 'error_handler_params' => '0']]
 		&& $pp('ep.role.disk.used[aiml]')[0]['error_handler'] === 'CUSTOM_VALUE' && $pp('ep.es.cpu.requested')[0]['error_handler'] === 'CUSTOM_VALUE'
 		&& $pp('ep.es.servers.allocated')[0]['error_handler'] === 'CUSTOM_VALUE');
-	check('an empty role has no usage: avg and ratio items discard the value instead of going unsupported',
-		$pp('ep.role.cpu.usage[aiml]') === [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function|division by zero|is not supported|not enough data'], 'error_handler' => 'DISCARD_VALUE']]
-		&& $pp('ep.role.disk.usage[aiml]')[0]['error_handler'] === 'DISCARD_VALUE' && $pp('ep.es.mem.usage')[0]['error_handler'] === 'DISCARD_VALUE');
+	check('an empty role has no usage: avg and ratio items go unsupported saying why, never a stale or a 0 figure',
+		$pp('ep.role.cpu.usage[aiml]') === [['type' => 'CHECK_NOT_SUPPORTED', 'parameters' => ['0', 'no input data for function|division by zero|is not supported|not enough data'], 'error_handler' => 'CUSTOM_ERROR', 'error_handler_params' => MasterTemplate::NO_SERVER_ERROR]]
+		&& $pp('ep.role.disk.usage[aiml]')[0]['error_handler'] === 'CUSTOM_ERROR' && $pp('ep.es.mem.usage')[0]['error_handler'] === 'CUSTOM_ERROR'
+		&& !array_filter($t['items'], fn($i) => array_filter($i['preprocessing'] ?? [], fn($p) => $p['error_handler'] === 'DISCARD_VALUE')));
 	check('a static requested figure and the cluster-wide figures carry no empty-role rule (no cluster host is unknown, not 0)',
 		$pp('ep.role.cpu.requested[aiml]') === [] && $pp('ep.es.storage.allocated') === [] && $pp('ep.devices.seen') === [] && $pp('ep.es.storage.usage') === []);
 	$masterMacros = array_column($t['macros'], 'value', 'macro');
