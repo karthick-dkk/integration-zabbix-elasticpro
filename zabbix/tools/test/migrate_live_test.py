@@ -7,7 +7,8 @@ Builds its own fixtures — every object named ztest-mig-* — and runs the real
 
   replace   an "old" template (same key, a key that maps by prefix, a FLOAT item the new template
             has as UNSIGNED, an HTTP item using a macro only the old template defines, a trigger,
-            a discovery rule) and a "new" one; a host on the old one with values pushed into it.
+            a discovery rule of its own and one the new template also has, with a prototype) and
+            a "new" one; a host on the old one with values pushed into it and a discovered item.
             Dry run (nothing may change), --commit --retire-old-triggers, a second dry run (nothing
             left to do), then --rollback --commit.
   in-place  a copy of the client plan template whose keys and macros carry an older prefix, with
@@ -15,7 +16,8 @@ Builds its own fixtures — every object named ztest-mig-* — and runs the real
 
 After each step it checks that every item id that existed still exists and holds at least as
 many values as before, that renamed items were adopted, that the value-type mismatch was kept
-apart, and that nothing was deleted. Removes everything it made unless --keep (or --cleanup to
+apart, that the shared discovery rule was adopted (same rule id, templated again, its discovered
+item still there with its values), and that nothing was deleted. Removes everything it made unless --keep (or --cleanup to
 remove leftovers only). Never point it at production: it creates hosts and pushes values.
 """
 import json, os, re, subprocess, sys, tempfile, time, urllib.request
@@ -146,6 +148,15 @@ OLD_T = f"""zabbix_export:
           name: 'old lld'
           type: TRAP
           key: ztestold.lld
+        - uuid: {u('o7')}
+          name: 'shared lld'
+          type: TRAP
+          key: ztest.lld
+          item_prototypes:
+            - uuid: {u('o7p')}
+              name: 'discovered {{#X}}'
+              type: TRAP
+              key: 'ztest.lld.item[{{#X}}]'
   triggers:
     - uuid: {u('o1t')}
       expression: 'last(/{P}OLD/ztest.same)>100'
@@ -172,6 +183,16 @@ NEW_T = f"""zabbix_export:
           name: 'f'
           type: TRAP
           key: ztestnew.f
+      discovery_rules:
+        - uuid: {u('n7')}
+          name: 'shared lld'
+          type: TRAP
+          key: ztest.lld
+          item_prototypes:
+            - uuid: {u('n7p')}
+              name: 'discovered {{#X}}'
+              type: TRAP
+              key: 'ztest.lld.item[{{#X}}]'
   triggers:
     - uuid: {u('n1t')}
       expression: 'last(/{P}NEW/ztest.same)>100'
@@ -186,8 +207,18 @@ def replace_scenario(tmp):
     gid = api("hostgroup.create", {"name": P + "group"})["groupids"][0]
     host = api("host.create", {"host": P + "host-1", "groups": [{"groupid": gid}], "templates": [{"templateid": tid(P + "OLD")}]})["hostids"][0]
     time.sleep(20)
+    # One discovered item under the shared rule, so the move has a flags=4 item to keep.
+    rule = {r["key_"]: r for r in api("discoveryrule.get", {"hostids": host, "output": ["itemid", "key_", "templateid"]})}["ztest.lld"]
+    api("history.push", [{"itemid": rule["itemid"], "value": json.dumps([{"{#X}": "a"}])}])
+    for _ in range(12):
+        time.sleep(5)
+        if any(i["key_"] == "ztest.lld.item[a]" for i in items(host).values()):
+            break
     its = items(host)
-    vals = [{"itemid": i["itemid"], "value": str(n)} for i in its.values() if i["key_"] in ("ztest.same", "ztestold.a", "ztestold.f", "ztestold.kept")
+    disc = next((i for i in its.values() if i["key_"] == "ztest.lld.item[a]"), None)
+    check("fixture: the shared rule discovered ztest.lld.item[a]", disc is not None and disc["flags"] == "4")
+    vals = [{"itemid": i["itemid"], "value": str(n)} for i in its.values()
+            if i["key_"] in ("ztest.same", "ztestold.a", "ztestold.f", "ztestold.kept", "ztest.lld.item[a]")
             for n in range(5)]
     for v in vals:
         api("history.push", [v])
@@ -209,6 +240,8 @@ def replace_scenario(tmp):
     check("dry run keeps the FLOAT item apart", "hide the stored values" in out or "KEEP" in out)
     check("dry run copies {$ZTEST.URL} to the host", "MACRO   {$ZTEST.URL}" in out)
     check("dry run lists {$ZTEST.SECRET} for a person", "BY HAND {$ZTEST.SECRET}" in out)
+    check("dry run plans ADOPT of the shared discovery rule", "ADOPT   discovery rule ztest.lld" in out)
+    check("dry run keeps the old template's own rule", "KEEP    discovery rule ztestold.lld" in out)
 
     rc, out = run("--map", path, "--commit", "--retire-old-triggers", "--journal", journal)
     check("commit exit 0", rc == 0, out[-600:] if rc else "")
@@ -228,6 +261,16 @@ def replace_scenario(tmp):
     check("FLOAT item kept as a host item with its values", f_old and f_old["templateid"] == "0" and ac.get(f_old["itemid"]) == 5)
     check("new template's ztestnew.f created beside it (empty)", f_new and f_new["itemid"] not in ids_before)
     check("kept HTTP item still on the host", "ztestold.http" in by)
+    rules = {r["key_"]: r for r in api("discoveryrule.get", {"hostids": host, "output": ["itemid", "key_", "templateid"]})}
+    check("shared discovery rule adopted by the new template, same rule id", rules.get("ztest.lld", {}).get("itemid") == rule["itemid"]
+          and rules["ztest.lld"]["templateid"] != "0", rules.get("ztest.lld"))
+    check("the old template's own rule stays as a host rule", rules.get("ztestold.lld", {}).get("templateid") == "0", rules.get("ztestold.lld"))
+    d_after = by.get("ztest.lld.item[a]")
+    check("discovered item still there, same id, flags 4, every value it had", disc and d_after and d_after["itemid"] == disc["itemid"]
+          and d_after["flags"] == "4" and ac.get(d_after["itemid"]) == before.get(disc["itemid"]), d_after and (before.get(disc["itemid"]), ac.get(d_after["itemid"])))
+    protos = api("itemprototype.get", {"hostids": host, "output": ["key_", "templateid"]})
+    check("the prototype on the host is the new template's (one, templated)", len(protos) == 1 and protos[0]["templateid"] != "0", protos)
+    check("verify counted no discovery rule as not adopted", "discovery rules not adopted 0" in out)
     hm = {x["macro"]: x for x in api("usermacro.get", {"hostids": host, "output": ["macro", "value"]})}
     check("{$ZTEST.URL} copied to the host with the old value", hm.get("{$ZTEST.URL}", {}).get("value") == "http://127.0.0.1:9/ztest")
     check("secret not copied", "{$ZTEST.SECRET}" not in hm)
@@ -250,6 +293,9 @@ def replace_scenario(tmp):
     fewer = {iid: (before[iid], rc2.get(iid)) for iid in before if (rc2.get(iid) or 0) < before[iid]}
     check("rollback: still no item with fewer values", not fewer, fewer)
     check("rollback: nothing deleted (old ids all present)", ids_before <= set(rb))
+    rules = {r["key_"]: r for r in api("discoveryrule.get", {"hostids": host, "output": ["itemid", "key_", "templateid"]})}
+    check("rollback: the shared rule re-adopted by the old template, same id", rules.get("ztest.lld", {}).get("itemid") == rule["itemid"]
+          and rules["ztest.lld"]["templateid"] != "0", rules.get("ztest.lld"))
 
 
 def in_place_scenario(tmp):

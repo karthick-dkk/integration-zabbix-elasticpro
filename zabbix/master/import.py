@@ -75,6 +75,7 @@ if not auth:
 # used to be told by this script to import a template it had deliberately renamed.
 TEMPLATE_DEFAULTS = {
     "cluster": "Elasticsearch Cluster by HTTP EP",
+    "health": "ElasticPro cluster health",
     "agent": "Linux by Zabbix agent -EP",
     "master": "ElasticPro client master",
     "devices": "ElasticPro cluster devices",
@@ -111,12 +112,18 @@ NEEDS_TEMPLATES = [TEMPLATES["cluster"], TEMPLATES["agent"], TEMPLATES["plan"],
 # client using the archive check may never have it, and that is not a reason to refuse
 # everything else here.
 OPTIONAL_TEMPLATES = [TEMPLATES["ulm"]]
+# Also optional, with its own note: the cluster health template (templates/
+# template-elasticpro-cluster-health.yaml in this repository). Cluster Management links it to
+# every cluster host it saves, so a Zabbix without it refuses the save until it is imported —
+# but an install that still runs an older Elasticsearch template on its clusters is not broken
+# by its absence, and the move onto it is a deliberate step (docs/MIGRATION.md).
+HEALTH_TEMPLATE = TEMPLATES["health"]
 # The groups discovered hosts are linked to, and the one master hosts go in. "Log archive" is
 # only used by clients with the S3 template above; creating it early costs nothing and a host
 # using it later finds it already there.
 NEEDS_GROUPS = ["Elasticsearch clusters", "Log archive", "ESNodes", "Parsers", "Forwarders", "Engines", "ElasticPro clients"]
 
-have = {t["host"] for t in call("template.get", {"filter": {"host": NEEDS_TEMPLATES + OPTIONAL_TEMPLATES}, "output": ["host"]})}
+have = {t["host"] for t in call("template.get", {"filter": {"host": NEEDS_TEMPLATES + OPTIONAL_TEMPLATES + [HEALTH_TEMPLATE]}, "output": ["host"]})}
 missing = [t for t in NEEDS_TEMPLATES if t not in have]
 if missing:
     sys.exit("import these templates first: " + ", ".join(missing))
@@ -126,6 +133,11 @@ if missing_optional:
           "parts. Import it separately (see deploy/PRODUCTION.md, \"Log archive template\") if "
           "this Zabbix will monitor a client with an archive bucket; everything else here "
           "(host groups, the client-capacity and client-resources dashboards) is unaffected.")
+if HEALTH_TEMPLATE not in have:
+    print("note: " + HEALTH_TEMPLATE + " not found — import zabbix/templates/template-elasticpro-cluster-health.yaml "
+          "before saving a client in Cluster Management (it links the template to every cluster host). Clusters "
+          "still on an older Elasticsearch template are moved onto it with tools/migrate-templates.py "
+          "(docs/MIGRATION.md), history kept.")
 
 groups = {g["name"] for g in call("hostgroup.get", {"filter": {"name": NEEDS_GROUPS}, "output": ["name"]})}
 for g in NEEDS_GROUPS:

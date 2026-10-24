@@ -138,6 +138,7 @@ $page->addItem($form->addItem($grid));
 // failing silently later; see TemplateMap.
 $slotLabels = [
 	'cluster' => _('Elasticsearch cluster'),
+	'health' => _('Elasticsearch cluster health'),
 	'agent' => _('Linux agent'),
 	'master' => _('Client master'),
 	'devices' => _('Cluster devices'),

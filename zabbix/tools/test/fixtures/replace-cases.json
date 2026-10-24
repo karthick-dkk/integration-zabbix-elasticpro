@@ -4,7 +4,8 @@
     "tools/test/migrate_plan_test.py (plan_replace in migrate-templates.py, a generation with no key or macro renames)",
     "and clients-module/test/discover.test.php (TemplateMove::plan, the in-module port).",
     "Change a rule in one and this table fails the other. Template ids: 100 old, 200 new, 300 a third template.",
-    "expect.actions: item key -> ADOPT | KEEP | CURRENT | UNTOUCHED | REFUSE; refused / manual are counts."
+    "expect.actions: item key -> ADOPT | KEEP | CURRENT | UNTOUCHED | REFUSE; refused / manual are counts.",
+    "expect.rules (optional): discovery rule key -> ADOPT | KEEP | REFUSE. target.protos: prototype key -> value type; snap.prototypes carry discoveryRule.itemid."
   ],
   "cases": [
     {
@@ -71,14 +72,28 @@
       "expect": {"actions": {"third.key": "REFUSE"}, "refused": 1, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
     },
     {
-      "name": "a discovery rule in both the old and the new template: refused; a discovered item stays with its rule",
+      "name": "a discovery rule in both the old and the new template: adopted, same id; a discovered item stays with its rule",
       "unlink": true,
       "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
                "items": [{"itemid": "18", "key_": "disc[1]", "templateid": "0", "value_type": "3", "flags": "4", "origin": null}],
-               "rules": [{"itemid": "19", "key_": "lld.both", "templateid": "919", "origin": "100"}], "prototypes": [], "triggers": []},
+               "rules": [{"itemid": "19", "key_": "lld.both", "templateid": "919", "origin": "100"}],
+               "prototypes": [{"itemid": "191", "key_": "disc[{#X}]", "templateid": "9191", "value_type": "3", "origin": "100", "discoveryRule": {"itemid": "19"}}],
+               "triggers": []},
       "old_tpl": {"100": {"host": "Old", "macros": {}}},
-      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {}, "lld": ["lld.both"], "macros": {}},
-      "expect": {"actions": {"disc[1]": "KEEP"}, "refused": 1, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {}, "lld": ["lld.both"], "protos": {"disc[{#X}]": "3"}, "macros": {}},
+      "expect": {"actions": {"disc[1]": "KEEP"}, "rules": {"lld.both": "ADOPT"}, "refused": 0, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
+    },
+    {
+      "name": "a discovery rule in both whose prototype changes value type under the same key: refused",
+      "unlink": true,
+      "snap": {"host": {"hostid": "1", "host": "ztest-h", "parentTemplates": [{"templateid": "100", "host": "Old"}], "macros": []},
+               "items": [{"itemid": "18", "key_": "disc[1]", "templateid": "0", "value_type": "0", "flags": "4", "origin": null}],
+               "rules": [{"itemid": "19", "key_": "lld.both", "templateid": "919", "origin": "100"}],
+               "prototypes": [{"itemid": "191", "key_": "disc[{#X}]", "templateid": "9191", "value_type": "0", "origin": "100", "discoveryRule": {"itemid": "19"}}],
+               "triggers": []},
+      "old_tpl": {"100": {"host": "Old", "macros": {}}},
+      "target": {"templates": [{"templateid": "200", "host": "New"}], "missing": [], "keys": {}, "lld": ["lld.both"], "protos": {"disc[{#X}]": "3"}, "macros": {}},
+      "expect": {"actions": {"disc[1]": "KEEP"}, "rules": {"lld.both": "REFUSE"}, "refused": 1, "unlink": ["100"], "link": ["200"], "macros": [], "manual": 0}
     },
     {
       "name": "unlink_old false while a key must move: refused (the old template would keep it)",

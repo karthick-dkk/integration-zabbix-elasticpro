@@ -78,7 +78,7 @@ final class TemplateMove {
 		sort($oldIds);
 		$link = array_values(array_diff($targetIds, $linked));
 		sort($link);
-		$plan = ['host' => $host['host'], 'hostid' => (string) $host['hostid'], 'refused' => [], 'items' => [], 'macros' => [],
+		$plan = ['host' => $host['host'], 'hostid' => (string) $host['hostid'], 'refused' => [], 'items' => [], 'rules' => [], 'macros' => [],
 			'manual' => [], 'unlink' => $oldIds, 'link' => $link, 'triggers' => [], 'notes' => []];
 		if ($target['missing']) {
 			$plan['refused'][] = 'new template(s) not in Zabbix — import them first: '.implode(', ', $target['missing']);
@@ -140,18 +140,41 @@ final class TemplateMove {
 			}
 			$plan['items'][] = $row;
 		}
+		// Discovery rules of the old template, as the script plans them. Checked on 7.0.31: the link
+		// adopts a rule with the same key as it adopts an item — same rule id, the rule and its
+		// prototypes templated again, the discovered items left as they are — unless a prototype
+		// changes its value type under the same key, which would convert what was discovered.
 		$lld = array_flip(array_map('strval', $target['lld']));
+		$protos = $target['protos'] ?? [];
 		foreach ($snap['rules'] ?? [] as $r) {
-			if (in_array((string) ($r['origin'] ?? ''), $oldIds, true) && isset($lld[(string) $r['key_']])) {
-				$plan['refused'][] = 'discovery rule '.$r['key_'].' is in both the old and the new template';
+			if (!in_array((string) ($r['origin'] ?? ''), $oldIds, true)) {
+				continue;
 			}
+			$row = ['itemid' => (string) $r['itemid'], 'key' => (string) $r['key_']];
+			if (!isset($lld[(string) $r['key_']])) {
+				$row += ['action' => 'KEEP', 'why' => 'no equivalent rule in the new templates: stays a host rule with its items'];
+			}
+			else {
+				$bad = array_values(array_filter($snap['prototypes'] ?? [], fn($p) => (string) ($p['discoveryRule']['itemid'] ?? '') === (string) $r['itemid']
+					&& array_key_exists((string) $p['key_'], $protos) && (string) $protos[(string) $p['key_']] !== (string) ($p['value_type'] ?? '')));
+				if ($bad) {
+					$plan['refused'][] = 'discovery rule '.$r['key_'].' is in both templates and its prototype '.$bad[0]['key_'].' is '.$vt($bad[0]['value_type'] ?? '')
+						.' here, '.$vt($protos[(string) $bad[0]['key_']]).' in the new template: the link would adopt the rule and convert the items it discovered';
+					$row += ['action' => 'REFUSE', 'why' => 'prototype value type differs under the same key'];
+				}
+				else {
+					$row += ['action' => 'ADOPT', 'why' => 'same key: the link adopts the rule, its prototypes and the items it discovered'];
+				}
+			}
+			$plan['rules'][] = $row;
 		}
 		$origins = array_column(array_map(fn($i) => ['id' => (string) $i['itemid'], 'o' => $i['origin'] ?? null], $snap['items']), 'o', 'id');
 		$inheritedAdopt = array_filter($plan['items'], fn($x) => $x['action'] === 'ADOPT'
 			&& in_array((string) ($origins[$x['itemid']] ?? ''), $oldIds, true));
+		$ruleAdopt = array_filter($plan['rules'], fn($x) => $x['action'] === 'ADOPT');
 		if (!$unlink) {
 			$plan['unlink'] = [];
-			if ($inheritedAdopt) {
+			if ($inheritedAdopt || $ruleAdopt) {
 				$plan['refused'][] = 'keys must move from the old template to the new one, which needs the old template unlinked (unlink_old is false for this generation)';
 			}
 		}
@@ -292,6 +315,10 @@ final class TemplateMove {
 		$out = _s('unlink %1$s without clear (its items stay, with their history), then link %2$s: %3$s items adopted, %4$s kept as host items',
 			implode(', ', array_map($name, $plan['unlink'])), implode(', ', array_map($name, $plan['link'])) ?: _('nothing new'),
 			$count('ADOPT'), $count('KEEP'));
+		$rules = array_column(array_filter($plan['rules'] ?? [], fn($x) => $x['action'] === 'ADOPT'), 'key');
+		if ($rules) {
+			$out .= '; '._s('discovery rules adopted with their items: %1$s', implode(', ', $rules));
+		}
 		if ($plan['macros']) {
 			$out .= '; '._s('macros copied to the host: %1$s', implode(', ', array_column($plan['macros'], 'macro')));
 		}
@@ -317,8 +344,8 @@ final class TemplateMove {
 			'hostids' => [$hostid]]) ?: [];
 		$rules = API::DiscoveryRule()->get(['output' => array_values(array_unique(array_merge(['itemid', 'key_', 'templateid'], self::MACRO_FIELDS))),
 			'hostids' => [$hostid]]) ?: [];
-		$protos = $rules ? (API::ItemPrototype()->get(['output' => array_values(array_unique(array_merge(['itemid', 'key_', 'templateid'], self::MACRO_FIELDS))),
-			'hostids' => [$hostid]]) ?: []) : [];
+		$protos = $rules ? (API::ItemPrototype()->get(['output' => array_values(array_unique(array_merge(['itemid', 'key_', 'templateid', 'value_type'], self::MACRO_FIELDS))),
+			'hostids' => [$hostid], 'selectDiscoveryRule' => ['itemid']]) ?: []) : [];
 		$triggers = API::Trigger()->get(['output' => ['triggerid', 'description', 'templateid', 'status', 'expression', 'recovery_expression'],
 			'hostids' => [$hostid], 'selectItems' => ['itemid']]) ?: [];
 		// Where each inherited object comes from: its templateid is the object on the directly
@@ -367,6 +394,7 @@ final class TemplateMove {
 		$ids = array_column($found, 'templateid');
 		$keys = [];
 		$lld = [];
+		$protos = [];
 		$macros = [];
 		if ($ids) {
 			foreach (API::Item()->get(['output' => ['key_', 'value_type'], 'templateids' => $ids]) ?: [] as $i) {
@@ -375,6 +403,9 @@ final class TemplateMove {
 			foreach (API::DiscoveryRule()->get(['output' => ['key_'], 'templateids' => $ids]) ?: [] as $r) {
 				$lld[] = (string) $r['key_'];
 			}
+			foreach (API::ItemPrototype()->get(['output' => ['key_', 'value_type'], 'templateids' => $ids]) ?: [] as $p) {
+				$protos[$p['key_']] = (string) $p['value_type'];
+			}
 			foreach ($found as $t) {
 				foreach ($t['macros'] ?? [] as $m) {
 					$macros[$m['macro']] = [(string) $m['type'] === '1' ? null : ($m['value'] ?? ''), (string) $m['type']];
@@ -382,7 +413,7 @@ final class TemplateMove {
 			}
 		}
 		return ['templates' => array_map(fn($t) => ['templateid' => (string) $t['templateid'], 'host' => $t['host']], $found),
-			'missing' => $missing, 'keys' => $keys, 'lld' => array_values(array_unique($lld)), 'macros' => $macros];
+			'missing' => $missing, 'keys' => $keys, 'lld' => array_values(array_unique($lld)), 'protos' => $protos, 'macros' => $macros];
 	}
 
 	/* ------------------------------------ writing ------------------------------------ */
@@ -422,18 +453,26 @@ final class TemplateMove {
 			$done[] = _s('Linked %1$s to "%2$s".', implode(', ', array_map(fn($id) => '"'.($templateNames[$id] ?? $id).'"', $plan['link'])), $plan['host']);
 		}
 		$v = self::verify($plan, $snap);
-		if ($v['lost'] || $v['not_adopted']) {
-			throw new Exception(_s('"%1$s" was moved but does not check out: %2$s item(s) gone (%3$s), %4$s not adopted (%5$s). Nothing was deleted by this page; see docs/MIGRATION.md → Rollback.',
-				$plan['host'], count($v['lost']), implode(', ', $v['lost']), count($v['not_adopted']), implode(', ', $v['not_adopted'])));
+		if ($v['lost'] || $v['not_adopted'] || $v['rules_not_adopted']) {
+			throw new Exception(_s('"%1$s" was moved but does not check out: %2$s item(s) gone (%3$s), %4$s not adopted (%5$s), %6$s discovery rule(s) not adopted (%7$s). Nothing was deleted by this page; see docs/MIGRATION.md → Rollback.',
+				$plan['host'], count($v['lost']), implode(', ', $v['lost']), count($v['not_adopted']), implode(', ', $v['not_adopted']),
+				count($v['rules_not_adopted']), implode(', ', $v['rules_not_adopted'])));
 		}
 		$done[] = _s('"%1$s" checked: every item it had is still there (%2$s), %3$s now from the new templates.',
 			$plan['host'], $v['before'], $v['adopted']);
 		return $done;
 	}
 
-	/** Every item id the host had still exists; every ADOPT row is now inherited. */
+	/** Every item id the host had still exists; every ADOPT row — item or discovery rule — is now inherited. */
 	public static function verify(array $plan, array $snap): array {
 		$after = array_column(API::Item()->get(['output' => ['itemid', 'key_', 'templateid'], 'hostids' => [$plan['hostid']]]) ?: [], null, 'itemid');
+		$rules = array_column(API::DiscoveryRule()->get(['output' => ['itemid', 'key_', 'templateid'], 'hostids' => [$plan['hostid']]]) ?: [], null, 'itemid');
+		$rulesNotAdopted = [];
+		foreach ($plan['rules'] ?? [] as $x) {
+			if ($x['action'] === 'ADOPT' && (!isset($rules[$x['itemid']]) || (string) $rules[$x['itemid']]['templateid'] === '0')) {
+				$rulesNotAdopted[] = $x['key'];
+			}
+		}
 		$lost = [];
 		foreach ($snap['items'] as $i) {
 			if (!isset($after[(string) $i['itemid']])) {
@@ -453,7 +492,7 @@ final class TemplateMove {
 				$adopted++;
 			}
 		}
-		return ['lost' => $lost, 'not_adopted' => $notAdopted, 'before' => count($snap['items']), 'adopted' => $adopted];
+		return ['lost' => $lost, 'not_adopted' => $notAdopted, 'rules_not_adopted' => $rulesNotAdopted, 'before' => count($snap['items']), 'adopted' => $adopted];
 	}
 
 	/** Refuse, before a request is built, any parameter that would clear or delete. */

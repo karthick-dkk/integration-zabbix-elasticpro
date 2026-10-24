@@ -12,6 +12,7 @@ from this project alone).
 | `template-elasticpro-client-plan.yaml` | **ElasticPro client plan** — the volume report per cluster (the Volume widget's columns come from it) | the plan scraper |
 | `template-elasticpro-log-delay.yaml` | **ElasticPro log delay** — the scheduled log-delay measurement | the core's delay sink |
 | `template-elasticpro-request-gate.yaml` | **ElasticPro request gate by Zabbix trapper**: ElasticPro's own request gate (in flight, queued, wait p95, refusals, memory), from one trapper item | the core's push (`ZABBIX_METRICS_HOST`, ElasticPro 0.3.24+) |
+| `template-elasticpro-cluster-health.yaml` | **ElasticPro cluster health**: health, service, node count, shard and per-node (JVM heap, latency, thread pools, restarts) items and alerts for one cluster, under the keys of Zabbix's stock Elasticsearch template; plus the daily indices-size check | the Zabbix server or proxy, polling Elasticsearch over HTTP (modules 2.1.8+) |
 
 Import: *Data collection → Templates → Import*, or `deploy/zabbix/setup/zbx_phase34.py` in the
 ElasticPro repository, which imports all four in order. Then `master/import.py` here, then
@@ -19,7 +20,8 @@ ElasticPro repository, which imports all four in order. Then `master/import.py` 
 
 ## ElasticPro request gate by Zabbix trapper
 
-Unlike the four above, this one is written here and this file is its source. The ElasticPro core
+Unlike the four above, this one is written here and this file is its source (so is the cluster
+health template below). The ElasticPro core
 (0.3.24 or later) pushes one JSON value a minute to the trapper item `elasticpro.gate.raw` by the
 Zabbix API's `history.push`, once `ZABBIX_METRICS_HOST` in its `config.txt` names the host this
 template is linked to. Every other item is a dependent item of that one, read with JSONPath.
@@ -53,6 +55,62 @@ After import:
 3. Set `ZABBIX_METRICS_HOST=<host's technical name>` in ElasticPro's `config.txt` and run
    `deploy/deploy.sh --apply-config`.
 4. Adjust the `{$ELASTICPRO.GATE.*}` macros on the host if the defaults do not suit.
+
+## ElasticPro cluster health
+
+Written here, like the request gate. Cluster Management links it to every cluster host asked
+over HTTP (slot `health` on the Roles page's template mapping; a cluster reached through a jump
+host gets the jump host template instead). `Elasticsearch Cluster by HTTP EP` collects nothing
+on purpose; this is the template that alerts.
+
+What it carries — the stock-core subset of Zabbix 7.0's "Elasticsearch Cluster by HTTP", keys,
+value types, preprocessing and trigger expressions unchanged:
+
+- four HTTP masters (`es.cluster.get_health`, `es.cluster.get_stats`, `es.cluster.get_stats_http`,
+  `es.nodes.get_stats`), the two simple checks (`net.tcp.service[...]`, `net.tcp.service.perf[...]`),
+  their 25 dependents and the calculated file-store figures (`es.nodes.fs.pused_in_bytes`,
+  `es.nodes.fs.used_in_bytes`, `es.nodes.data.fs.used`) — 39 items;
+- `es.nodes.discovery` (one HTTP poll of `_nodes/_all/nodes` an hour) with 46 item prototypes,
+  10 trigger prototypes and 5 graph prototypes per node;
+- 15 triggers: health RED (Disaster) / UNKNOWN (High) / YELLOW (Info, shipped disabled), service
+  down (Disaster) and response time (Warning, depends on service down), node count decreased /
+  increased (High), initializing and unassigned shards, only two master nodes (shipped disabled),
+  cluster restarted, not enough space for resharding (shipped disabled) and for resharding shards,
+  and the indices-size check's two: yesterday's `logstash-*` indices above `{$INDICES.MAX.SIZE}` GB
+  or below `{$INDICES.MIN.SIZE}` GB (Average, closed by hand);
+- `es.indices-check` (`_cat/indices`, once a day at 01:00, summed by its JavaScript preprocessing)
+  with the 3d/7d/30d averages and 30d sum;
+- the "ES: Cluster health" graph and the two value maps its items use.
+
+Macros it declares: the thresholds — `{$ELASTICSEARCH.FETCH_LATENCY.MAX.WARN}`,
+`FLUSH_LATENCY.MAX.WARN`, `INDEXING_LATENCY.MAX.WARN`, `QUERY_LATENCY.MAX.WARN` (ms),
+`HEAP_USED.MAX.WARN` / `.CRIT` (%), `RESPONSE_TIME.MAX.WARN` (s), `{$INDICES.MAX.SIZE}` /
+`{$INDICES.MIN.SIZE}` (GB). It declares **neither** the connection macros
+(`{$ELASTICSEARCH.SCHEME}`, `{$ELASTICSEARCH.HOST}`, `{$ELASTICSEARCH.PORT}` — the always-linked
+`Elasticsearch Cluster by HTTP EP` template owns them, Cluster Management sets them on the host)
+**nor** the credentials (`{$ELASTICSEARCH.USERNAME}`, `{$ELASTICSEARCH.PASSWORD}`): those come
+from the host, or from ElasticPro's default credential (global macros), and a template that
+defined the password macro would hide that default for every cluster it is linked to (Cluster
+Management flags exactly that as "default credential hidden by a template"). The validator's
+five "used but not defined" warnings for them are expected.
+
+Two things to know:
+
+- `es.cluster.get_stats_http` is a second, more frequent poll of `_cluster/stats` that nothing
+  depends on; it is kept under its key so a moved host keeps the item. The older template's URL
+  had the query string in front of the path (and so asked for the root document); here it asks
+  for `_cluster/stats`.
+- On a **single-node** cluster the "not enough space for resharding shards" trigger divides by
+  `number_of_data_nodes - 1`, which is zero, so Zabbix reports it as unknown ("division by
+  zero"). That is the stock expression; disable it on such a host, or on the template if every
+  cluster is a single node.
+
+After import: nothing to set on the template. Save (or adopt) the client in Cluster Management
+and the template is linked; or link it by hand beside `Elasticsearch Cluster by HTTP EP`. A
+cluster host that still carries an older copy of the stock Elasticsearch template is moved onto
+this one with `../tools/migrate-templates.py`, which unlinks the old template without clear and
+lets this one adopt every item, the discovery rule and the per-node items with their history
+(`../docs/MIGRATION.md`, "A cluster on an older Elasticsearch template").
 
 ## Moving existing hosts onto these templates
 

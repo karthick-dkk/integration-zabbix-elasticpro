@@ -29,10 +29,10 @@
       "name": "old-cluster-template",
       "mode": "replace",
       "old_templates": ["<OLD ELASTICSEARCH CLUSTER TEMPLATE>"],
-      "new_templates": ["Elasticsearch Cluster by HTTP EP", "ElasticPro client plan", "ElasticPro alerts",
-                        "ElasticPro log delay", "ElasticPro cluster devices"],
-      "_unlink_old": "false: none of its metric keys exists in the ElasticPro templates, so nothing moves; the new templates are linked beside it. true retires it: its items stay on the host as host items, with their history, and the macros they use are copied to the host.",
-      "unlink_old": false
+      "new_templates": ["Elasticsearch Cluster by HTTP EP", "ElasticPro cluster health", "ElasticPro client plan",
+                        "ElasticPro alerts", "ElasticPro log delay", "ElasticPro cluster devices"],
+      "_unlink_old": "true: ElasticPro cluster health carries the stock es.* keys and the es.nodes.discovery rule, so the link adopts those items, the rule and the discovered node items with their history; everything else the old template had stays on the host as host items, and the macros they use are copied to the host. false links the new templates beside it, which the script allows only when no key is shared (leave ElasticPro cluster health out of new_templates for that).",
+      "unlink_old": true
     },
     {
       "name": "old-cluster-template-to-jump-host",

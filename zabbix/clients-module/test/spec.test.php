@@ -115,7 +115,7 @@ namespace Modules\EpClients\Test {
 	check('every slot defaults to the name ElasticPro ships', Roles::templateNames() === $shipped
 		&& Roles::defaultTemplate() === Roles::DEFAULT_TEMPLATE && Roles::clusterTemplate() === Roles::DEFAULT_CLUSTER_TEMPLATE, Roles::templateNames());
 	check('the slot table covers every template the page writes or looks for',
-		array_keys(Roles::TEMPLATE_SLOTS) === ['cluster', 'agent', 'master', 'devices', 'jump', 'jump_ulm', 'ulm', 'plan', 'alerts', 'delay']);
+		array_keys(Roles::TEMPLATE_SLOTS) === ['cluster', 'health', 'agent', 'master', 'devices', 'jump', 'jump_ulm', 'ulm', 'plan', 'alerts', 'delay']);
 	check('no slot starts out mapped', Roles::templateAliases() === array_map(fn($x) => [], Roles::TEMPLATE_SLOTS));
 	Roles::saveTemplateNames(['agent' => 'Linux by Zabbix agent -ACME', 'cluster' => '']);
 	check('a name set in the settings is used', Roles::defaultTemplate() === 'Linux by Zabbix agent -ACME' && is_file($dir.'/templates.json'));
@@ -146,8 +146,10 @@ namespace Modules\EpClients\Test {
 		Reconciler::masterTemplates() === array_merge(['ACME client master', Roles::TEMPLATE_SLOTS['master'][0]],
 			Reconciler::LEGACY_MASTER_TEMPLATES), Reconciler::masterTemplates());
 	check('the templates linked to a cluster host follow the mapping',
-		Reconciler::clusterTemplates() === ['ACME ES cluster', 'ACME plan', Roles::TEMPLATE_SLOTS['alerts'][0],
+		Reconciler::clusterTemplates() === ['ACME ES cluster', Roles::TEMPLATE_SLOTS['health'][0], 'ACME plan', Roles::TEMPLATE_SLOTS['alerts'][0],
 			Roles::TEMPLATE_SLOTS['delay'][0], Roles::TEMPLATE_SLOTS['devices'][0]], Reconciler::clusterTemplates());
+	check('the health template goes to HTTP clusters only: a jump-host cluster cannot be asked over HTTP',
+		in_array('health', Reconciler::OWN_CLUSTER_SLOTS, true) && !in_array('health', Reconciler::JUMP_CLUSTER_SLOTS, true));
 	check('a writer never uses an extra name', !in_array('Elasticsearch Cluster by HTTP OLD',
 		[MasterTemplate::name(), ClusterTemplate::name(), DevicesTemplate::name(), JumpTemplate::name(), JumpTemplate::ulmName()], true));
 	// Zabbix keeps hosts and templates in one namespace where a name is unique, so two slots
