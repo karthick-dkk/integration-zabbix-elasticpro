@@ -4,6 +4,35 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.9
+
+QA pass over every module, template and macro on a live Zabbix 7.0.31 (modules 2.1.8, ElasticPro
+0.3.29): every page, widget, dashboard, link and the Zabbix → ElasticPro sign-in hand-off checked;
+the six templates imported, re-imported and fed with payloads by `tools/test/template_live_test.py`
+(124 checks, 0 failed). Three fixes, nothing else changed:
+
+- **ElasticPro cluster health: the two "not enough space for resharding" triggers no longer go
+  unknown on a cluster with one data node.** The stock expression divides the used space by
+  (data nodes − 1), which is a division by zero with one data node; Zabbix then marked the
+  trigger unknown ("Cannot evaluate expression: division by zero") and the Unknown-triggers
+  report named it on every single-node cluster. The expressions now multiply instead of divide
+  and evaluate only with two or more data nodes — with one there is nowhere to reshard to. Same
+  outcome on every cluster with two or more data nodes.
+- **ElasticPro cluster health: the daily indices-size check never reports 0 B for an answer it
+  could not read.** Its preprocessing returned 0 on any error (`catch → return 0`) and skipped
+  sizes that were not numbers, so an authentication error, a proxy page or a changed listing
+  format showed up as "yesterday's indices are below the daily minimum" — a measurement that was
+  never taken. The step now fails on an empty answer, on anything that is not the
+  `_cat/indices` listing it asked for, and on a size that is not a number of bytes; the item
+  goes unsupported with that reason and both size triggers go unknown. 0 is returned only when
+  the listing parsed and no index carries yesterday's date, which is a real figure.
+- **Cluster Management: the client page no longer warns `Undefined array key "full_in"`** when
+  rendered without the storage forecast (seen in the view tests; the live page always had it).
+
+Known on the test Zabbix, not changed here: a client whose roles have no servers yet shows the
+master host's per-role aggregates as unsupported ("no input data for function" — Zabbix's
+`sum(last_foreach(...))` over an empty set), which is Zabbix saying unknown rather than 0.
+
 ## 2.1.8
 
 - **New template `ElasticPro cluster health`** (`templates/template-elasticpro-cluster-health.yaml`): the cluster's own alerts, ElasticPro-owned. Health RED/UNKNOWN/YELLOW, service down and response time, node count changes, initializing and unassigned shards, cluster restarted, resharding space, per-node JVM heap, query/indexing/fetch/flush latency, thread-pool rejections and node restarts (`es.nodes.discovery`, 46 item / 10 trigger / 5 graph prototypes), plus the daily `es.indices-check` with its `{$INDICES.MAX.SIZE}` / `{$INDICES.MIN.SIZE}` triggers — 39 items, 15 triggers, under the keys of Zabbix's stock "Elasticsearch Cluster by HTTP", so a cluster moved off an older copy of that template keeps every stored value. It declares the threshold macros only: connection macros stay with `Elasticsearch Cluster by HTTP EP`, credentials with the host or the default credential (a template defining the password macro would hide it). Validator: 0 errors; the five "used but not defined" warnings for those macros are expected.

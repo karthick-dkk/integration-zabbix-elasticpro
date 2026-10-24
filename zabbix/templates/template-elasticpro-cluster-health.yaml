@@ -355,36 +355,38 @@ zabbix_export:
             - type: JAVASCRIPT
               parameters:
                 - |
-                  try {
-                      var lines = value.trim().split('\n');
-
-                      // calculate yesterday (YYYY.MM.DD)
-                      var d = new Date();
-                      d.setDate(d.getDate() - 1);
-
-                      var yyyy = d.getFullYear();
-                      var mm = ('0' + (d.getMonth() + 1)).slice(-2);
-                      var dd = ('0' + d.getDate()).slice(-2);
-
-                      var yesterday = yyyy + '.' + mm + '.' + dd;
-
-                      var sum = 0;
-
-                      lines.forEach(function(line) {
-                          var parts = line.trim().split(/\s+/);
-                          var indexName = parts[0];
-                          var sizeBytes = parseInt(parts[1], 10);
-
-                          if (indexName.endsWith('-' + yesterday)) {
-                              sum += sizeBytes;
-                          }
-                      });
-
-                      return sum;
-
-                  } catch (e) {
-                      return 0;
+                  // Sum of the primary store size of every logstash index dated yesterday, from
+                  // _cat/indices?v&h=index,pri.store.size&bytes=b. An answer that is not that
+                  // listing, or a size that is not a number, fails the step (the item goes
+                  // unsupported and the size triggers unknown) rather than reporting 0 B — a
+                  // 0 here would alarm as "indices smaller than the daily minimum", which is a
+                  // measurement, not a failure. 0 is returned only when the listing parsed and
+                  // no index carries yesterday's date.
+                  var lines = String(value).split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+                  if (!lines.length) {
+                      throw 'empty answer from _cat/indices';
                   }
+                  var header = lines[0].split(/\s+/);
+                  if (header[0] !== 'index' || header[1] !== 'pri.store.size') {
+                      throw 'not a _cat/indices listing: ' + lines[0].slice(0, 80);
+                  }
+
+                  var d = new Date();
+                  d.setDate(d.getDate() - 1);
+                  var yesterday = d.getFullYear() + '.' + ('0' + (d.getMonth() + 1)).slice(-2) + '.' + ('0' + d.getDate()).slice(-2);
+
+                  var sum = 0;
+                  for (var i = 1; i < lines.length; i++) {
+                      var parts = lines[i].split(/\s+/);
+                      if (parts[0].slice(-(yesterday.length + 1)) !== '-' + yesterday) {
+                          continue;
+                      }
+                      if (!/^\d+$/.test(parts[1] || '')) {
+                          throw 'no size in bytes for index ' + parts[0] + ': ' + (parts[1] === undefined ? 'missing' : parts[1]);
+                      }
+                      sum += parseInt(parts[1], 10);
+                  }
+                  return sum;
           timeout: 20s
           url: '{$ELASTICSEARCH.SCHEME}://{$ELASTICSEARCH.HOST}:{$ELASTICSEARCH.PORT}/_cat/indices?v&index=logstash*&h=index,pri.store.size&bytes=b'
           triggers:
@@ -2083,19 +2085,19 @@ zabbix_export:
               newvalue: Up
   triggers:
     - uuid: 817d6e81856b4a91b8db807e9040c3ed
-      expression: (last(/ElasticPro cluster health/es.nodes.fs.total_in_bytes)-last(/ElasticPro cluster health/es.nodes.fs.available_in_bytes))/(last(/ElasticPro cluster health/es.cluster.number_of_data_nodes)-1)>last(/ElasticPro cluster health/es.nodes.fs.available_in_bytes)
+      expression: last(/ElasticPro cluster health/es.cluster.number_of_data_nodes)>1 and (last(/ElasticPro cluster health/es.nodes.fs.total_in_bytes)-last(/ElasticPro cluster health/es.nodes.fs.available_in_bytes))>last(/ElasticPro cluster health/es.nodes.fs.available_in_bytes)*(last(/ElasticPro cluster health/es.cluster.number_of_data_nodes)-1)
       name: 'Elasticsearch: Cluster does not have enough space for resharding'
       status: DISABLED
       priority: HIGH
-      description: There is not enough disk space for index resharding.
+      description: 'There is not enough disk space for index resharding. The used space, spread over the other data nodes, would not fit in what is free. Evaluated only with two or more data nodes: with one there is nowhere to reshard to, and the old expression divided by zero and went unknown.'
       tags:
         - tag: scope
           value: capacity
     - uuid: 7908e58f0c47401e86fa9f4728cc9db2
-      expression: (last(/ElasticPro cluster health/es.nodes.fs.total_in_bytes)-last(/ElasticPro cluster health/es.nodes.fs.available_in_bytes))/(last(/ElasticPro cluster health/es.cluster.number_of_data_nodes)-1)> min(/ElasticPro cluster health/es.nodes.fs.available_in_bytes,50m)
+      expression: last(/ElasticPro cluster health/es.cluster.number_of_data_nodes)>1 and (last(/ElasticPro cluster health/es.nodes.fs.total_in_bytes)-last(/ElasticPro cluster health/es.nodes.fs.available_in_bytes))>min(/ElasticPro cluster health/es.nodes.fs.available_in_bytes,50m)*(last(/ElasticPro cluster health/es.cluster.number_of_data_nodes)-1)
       name: 'Elasticsearch: Cluster does not have enough space for resharding shards'
       priority: WARNING
-      description: There is not enough disk space for index resharding.
+      description: 'There is not enough disk space for index resharding. The used space, spread over the other data nodes, would not fit in the least free space seen in 50 minutes. Evaluated only with two or more data nodes: with one there is nowhere to reshard to, and the old expression divided by zero and went unknown.'
       tags:
         - tag: scope
           value: capacity
