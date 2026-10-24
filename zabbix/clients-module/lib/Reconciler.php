@@ -40,9 +40,11 @@ class Reconciler {
 	 * Ours, which the page links to a cluster host. Every one of them is a name a site may have
 	 * changed: they are slots in Roles::TEMPLATE_SLOTS, read through ownClusterTemplates()
 	 * rather than listed here, because until the mapping existed only the Elasticsearch one
-	 * could be pointed elsewhere and the other three were spelled out in PHP.
+	 * could be pointed elsewhere and the other three were spelled out in PHP. 'health' is the
+	 * cluster's own alerts over HTTP (Roles::DEFAULT_HEALTH_TEMPLATE); a cluster reached through
+	 * a jump host cannot be asked over HTTP, so JUMP_CLUSTER_SLOTS does not carry it.
 	 */
-	public const OWN_CLUSTER_SLOTS = ['plan', 'alerts', 'delay', 'devices'];
+	public const OWN_CLUSTER_SLOTS = ['health', 'plan', 'alerts', 'delay', 'devices'];
 	/** Through a jump host, these replace the HTTP ones on the cluster host. */
 	public const JUMP_CLUSTER_SLOTS = ['jump', 'plan', 'alerts', 'delay'];
 	public const ULM_TEMPLATE = Roles::TEMPLATE_SLOTS['ulm'][0];

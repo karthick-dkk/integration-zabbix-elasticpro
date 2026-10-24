@@ -42,6 +42,16 @@ class Roles {
 	public const DEFAULT_CLUSTER_TEMPLATE = 'Elasticsearch Cluster by HTTP EP';
 
 	/**
+	 * The template with the cluster's health, service, node, shard and per-node alerts, linked
+	 * beside DEFAULT_CLUSTER_TEMPLATE (which collects nothing). Its items keep the keys of
+	 * Zabbix's stock Elasticsearch template, so a cluster moved off an older copy of that
+	 * template keeps its history; shipped in this repository as templates/
+	 * template-elasticpro-cluster-health.yaml and imported by hand or by master/import.py's
+	 * instructions, not written by this module.
+	 */
+	public const DEFAULT_HEALTH_TEMPLATE = 'ElasticPro cluster health';
+
+	/**
 	 * Every template this module names, as slot => [shipped name, whether install() writes it].
 	 *
 	 * One definition. templateNames(), templateAliases(), saveTemplateNames() and the mapping
@@ -56,6 +66,7 @@ class Roles {
 	 */
 	public const TEMPLATE_SLOTS = [
 		'cluster' => [self::DEFAULT_CLUSTER_TEMPLATE, true],
+		'health' => [self::DEFAULT_HEALTH_TEMPLATE, false],
 		'agent' => [self::DEFAULT_TEMPLATE, false],
 		'master' => ['ElasticPro client master', true],
 		'devices' => ['ElasticPro cluster devices', true],
@@ -69,7 +80,7 @@ class Roles {
 
 	/**
 	 * Who each template is for. The Roles page shows this beside the mapping, because what a
-	 * name change will and will not reach is otherwise guesswork — and because two of the ten
+	 * name change will and will not reach is otherwise guesswork — and because two of the eleven
 	 * slots are read by nothing in the frontend at all, which is worth saying out loud.
 	 *
 	 * TEMPLATE_USED_BY is resolved BY NAME: a mapping that points at the wrong template leaves
@@ -91,6 +102,7 @@ class Roles {
 
 	public const TEMPLATE_USED_BY = [
 		'cluster' => ['clients', 'import'],
+		'health' => ['clients', 'import'],
 		'agent' => ['clients', 'roles', 'import'],
 		'master' => ['clients', 'capacity', 'resources', 'volume'],
 		'devices' => ['clients'],

@@ -122,8 +122,8 @@ role template, no tag — "role unknown", and the host is not adopted until a ro
 **Template generations.** The ElasticPro cluster template, the name before the rename, and any
 other name — a cluster host whose items include the Elasticsearch health check
 (`es.cluster.get_health`) under a template name no setting knows is still found, and the template
-is named. Adopting links **five templates directly to the cluster host, in one host.massadd**:
-the ElasticPro cluster template, client plan, alerts, log delay and cluster devices — not nested in
+is named. Adopting links **six templates directly to the cluster host, in one host.massadd**:
+the ElasticPro cluster template, cluster health, client plan, alerts, log delay and cluster devices — not nested in
 one template (a nested link is invisible to `host.get templateids`, which is how the ElasticPro
 core and this module find clusters). An older template stays linked beside, items and history as
 they are. A role host whose old agent template gives it the keys the role's template carries is

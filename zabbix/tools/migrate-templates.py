@@ -20,7 +20,9 @@ behaviours of Zabbix 7.0 make a lossless move possible, and each was checked on 
   * A host item's key can be changed (item.update key_) once it is no longer inherited; the
     id, and so the history and trends, stay.
   * Linking a template to a host that already has an item with the same key ADOPTS that item:
-    same id, now inherited from the template, history kept.
+    same id, now inherited from the template, history kept. A discovery rule with the same key
+    is adopted the same way: same rule id, the rule and its prototypes templated again, the
+    items it discovered untouched.
 
 So, per host (mode "replace"): copy the macros the kept items need to host level, unlink the
 old template WITHOUT clear, rename each host item whose old key maps to a key of the new
@@ -35,8 +37,9 @@ by key and adopts the new uuids instead of creating second, empty items beside t
 WHAT IS REFUSED. A rename onto a key whose value type differs: Zabbix adopts it anyway and
 converts the item, and the values stored under the old type stop being visible (checked: 1
 value before, 0 after). A host on which linking would fail (the key already comes from a third
-template) or would silently convert a host item. An LLD rule whose key the new template also
-uses. Each is reported with its reason and the host is left exactly as it was.
+template) or would silently convert a host item. A discovery rule in both templates whose
+prototype has another value type under the same key: the link would adopt the rule and convert
+the discovered items. Each is reported with its reason and the host is left exactly as it was.
 
 WHAT IS NEVER DONE. Nothing is deleted: no item, trigger, host, group, macro or value. Old
 triggers stay as host triggers; --retire-old-triggers DISABLES (never deletes) the ones that
@@ -348,7 +351,8 @@ def snapshot_host(api, hostid, since=None, count=True):
     items = api.call("item.get", {"hostids": [hostid], "output": ["itemid", "key_", "name", "templateid", "value_type",
                                                                     "flags", "type", "status"] + MACRO_FIELDS})
     rules = api.call("discoveryrule.get", {"hostids": [hostid], "output": ["itemid", "key_", "templateid"] + MACRO_FIELDS})
-    protos = api.call("itemprototype.get", {"hostids": [hostid], "output": ["itemid", "key_", "templateid"] + MACRO_FIELDS}) if rules else []
+    protos = api.call("itemprototype.get", {"hostids": [hostid], "output": ["itemid", "key_", "templateid", "value_type"] + MACRO_FIELDS,
+                                            "selectDiscoveryRule": ["itemid"]}) if rules else []
     triggers = api.call("trigger.get", {"hostids": [hostid], "output": ["triggerid", "description", "templateid", "status",
                                                                          "expression", "recovery_expression"],
                                          "selectItems": ["itemid"], "selectFunctions": "extend"})
@@ -387,16 +391,18 @@ def targets(api, names):
                                       "selectMacros": ["macro", "value", "type"]})
     missing = sorted(set(names) - {t["host"] for t in found})
     ids = [t["templateid"] for t in found]
-    keys, lld, macros = {}, set(), {}
+    keys, lld, protos, macros = {}, set(), {}, {}
     if ids:
         for i in api.call("item.get", {"templateids": ids, "output": ["key_", "value_type"]}):
             keys[i["key_"]] = i["value_type"]
         for r in api.call("discoveryrule.get", {"templateids": ids, "output": ["key_"]}):
             lld.add(r["key_"])
+        for p in api.call("itemprototype.get", {"templateids": ids, "output": ["key_", "value_type"]}):
+            protos[p["key_"]] = p["value_type"]
         for t in found:
             for m in t["macros"]:
                 macros[m["macro"]] = (m.get("value"), m["type"])
-    return {"templates": found, "missing": missing, "keys": keys, "lld": lld, "macros": macros}
+    return {"templates": found, "missing": missing, "keys": keys, "lld": lld, "protos": protos, "macros": macros}
 
 
 # --------------------------------------------------------------------------- planning (pure)
@@ -412,7 +418,7 @@ def plan_replace(snap, gen, old_tpl, target, unlink=True):
     linked = {t["templateid"] for t in host["parentTemplates"]}
     target_ids = {t["templateid"] for t in target["templates"]}
     old_ids = set(old_tpl) & linked
-    plan = {"host": host["host"], "hostid": host["hostid"], "refused": [], "items": [], "macros": [], "manual": [],
+    plan = {"host": host["host"], "hostid": host["hostid"], "refused": [], "items": [], "rules": [], "macros": [], "manual": [],
             "unlink": sorted(old_ids), "link": sorted(target_ids - linked), "triggers": [], "notes": []}
     if target["missing"]:
         plan["refused"].append("new template(s) not in Zabbix — import them first: " + ", ".join(target["missing"]))
@@ -469,15 +475,35 @@ def plan_replace(snap, gen, old_tpl, target, unlink=True):
             else:
                 row.update(action="UNTOUCHED", why="from another template")
         plan["items"].append(row)
+    # Discovery rules of the old template. Checked on 7.0.31: the link adopts a rule with the
+    # same key as it adopts an item — same rule id, the rule and its prototypes templated again,
+    # the discovered items (flags 4) left as they are — unless a prototype changes its value type
+    # under the same key, which would convert what was discovered; that host is refused.
+    protos = target.get("protos", {})
     for r in snap["rules"]:
-        if r["origin"] in old_ids and r["key_"] in target["lld"]:
-            plan["refused"].append(f"discovery rule {r['key_']} is in both the old and the new template")
+        if r["origin"] not in old_ids:
+            continue
+        row = {"itemid": r["itemid"], "key": r["key_"]}
+        if r["key_"] not in target["lld"]:
+            row.update(action="KEEP", why="no equivalent rule in the new templates: stays a host rule with its items")
+        else:
+            bad = [p for p in snap["prototypes"] if (p.get("discoveryRule") or {}).get("itemid") == r["itemid"]
+                   and p["key_"] in protos and protos[p["key_"]] != p.get("value_type")]
+            if bad:
+                plan["refused"].append(f"discovery rule {r['key_']} is in both templates and its prototype {bad[0]['key_']} is "
+                                       f"{VT_LABEL.get(bad[0].get('value_type'))} here, {VT_LABEL.get(protos[bad[0]['key_']])} in the new "
+                                       "template: the link would adopt the rule and convert the items it discovered")
+                row.update(action="REFUSE", why="prototype value type differs under the same key")
+            else:
+                row.update(action="ADOPT", why="same key: the link adopts the rule, its prototypes and the items it discovered")
+        plan["rules"].append(row)
     renames = [x for x in plan["items"] if x["action"] == "RENAME"]
     inherited_adopt = [x for x in plan["items"] if x["action"] == "ADOPT"
                        and next((i for i in snap["items"] if i["itemid"] == x["itemid"]), {}).get("origin") in old_ids]
+    rule_adopt = [x for x in plan["rules"] if x["action"] == "ADOPT"]
     if not unlink:
         plan["unlink"] = []
-        if renames or inherited_adopt:
+        if renames or inherited_adopt or rule_adopt:
             plan["refused"].append("keys must move from the old template to the new one, which needs the old "
                                    "template unlinked (unlink_old is false for this generation)")
 
@@ -688,6 +714,8 @@ def print_plan(p, verbose):
     keep = [x for x in p["items"] if x["action"] == "KEEP"]
     if keep and not verbose:
         print(f"   KEEP    {len(keep)} item(s) stay on the host as host items with their history (--verbose lists them)")
+    for x in p.get("rules", []):
+        print(f"   {x['action']:7} discovery rule {x['key']}  {x['why']}")
     for m in p["macros"]:
         print(f"   MACRO   {m['macro']} ({MACRO_TYPE[m['type']]}) at host level — {m['why']}")
     for m in p["manual"]:
@@ -723,10 +751,14 @@ def print_in_place(p, verbose):
 
 # ----------------------------------------------------------------------------------- commit
 
-def verify(api, before, hostid, renamed):
+def verify(api, before, hostid, renamed, rules=None):
     after = snapshot_host(api, hostid, count=False)
     ids = {i["itemid"]: i for i in after["items"]}
     lost = [i["key_"] for i in before["items"] if i["itemid"] not in ids]
+    # An adopted discovery rule: same id, inherited again. Its discovered items are among the
+    # host's items, so a lost one shows up in lost_items like any other.
+    rule_ids = {r["itemid"]: r for r in after["rules"]}
+    rules_not_adopted = [k for rid, k in (rules or {}).items() if rid not in rule_ids or rule_ids[rid]["templateid"] == "0"]
     fewer, rows = [], []
     for i in before["items"]:
         a = ids.get(i["itemid"])
@@ -739,13 +771,13 @@ def verify(api, before, hostid, renamed):
         rows.append({"itemid": i["itemid"], "key_before": i["key_"], "key_after": a["key_"],
                      "inherited_after": a["templateid"] != "0", "before": n_before, "after": n_after})
     not_adopted = [k for iid, (k, nk) in renamed.items() if iid in ids and ids[iid]["templateid"] == "0"]
-    return {"lost_items": lost, "fewer_values": fewer, "not_adopted": not_adopted, "rows": rows,
+    return {"lost_items": lost, "fewer_values": fewer, "not_adopted": not_adopted, "rules_not_adopted": rules_not_adopted, "rows": rows,
             "new_items": [i["key_"] for i in after["items"] if i["itemid"] not in {b["itemid"] for b in before["items"]}]}
 
 
 def commit_replace(api, p, snap, gen, retire, journal):
     j = {"kind": "replace", "hostid": p["hostid"], "host": p["host"], "macros": [], "unlinked": [], "renamed": [],
-         "linked": [], "disabled_triggers": [], "done": False}
+         "linked": [], "adopted_rules": [], "disabled_triggers": [], "done": False}
     journal["steps"].append(j)
     for m in p["macros"]:
         r = api.call("usermacro.create", {"hostid": p["hostid"], "macro": m["macro"], "value": m["value"] or "",
@@ -766,7 +798,9 @@ def commit_replace(api, p, snap, gen, retire, journal):
     if p["link"]:
         api.call("host.massadd", {"hosts": [{"hostid": p["hostid"]}], "templates": [{"templateid": t} for t in p["link"]]})
         j["linked"] = p["link"]
-    res = verify(api, snap, p["hostid"], renamed)
+    adopted_rules = {x["itemid"]: x["key"] for x in p.get("rules", []) if x["action"] == "ADOPT"}
+    j["adopted_rules"] = sorted(adopted_rules.values())
+    res = verify(api, snap, p["hostid"], renamed, adopted_rules)
     if retire:
         after = snapshot_host(api, p["hostid"], count=False)
         target_ids = set(p["link"]) | {t for t in (t["templateid"] for t in snap["host"]["parentTemplates"]) if t not in p["unlink"]}
@@ -944,11 +978,12 @@ def main(argv=None):
                 if a.commit:
                     res = commit_replace(api, p, snap, g, a.retire_old_triggers, journal)
                     p["result"] = res
-                    ok = not res["lost_items"] and not res["fewer_values"] and not res["not_adopted"]
+                    ok = not res["lost_items"] and not res["fewer_values"] and not res["not_adopted"] and not res["rules_not_adopted"]
                     print(f"   verify: {'ok' if ok else 'PROBLEM'} — items lost {len(res['lost_items'])}, items with fewer "
                           f"values {len(res['fewer_values'])}, renamed but not adopted {len(res['not_adopted'])}, "
+                          f"discovery rules not adopted {len(res['rules_not_adopted'])}, "
                           f"new (empty) items from the new templates {len(res['new_items'])}")
-                    for x in res["fewer_values"] + res["not_adopted"] + res["lost_items"]:
+                    for x in res["fewer_values"] + res["not_adopted"] + res["rules_not_adopted"] + res["lost_items"]:
                         print(f"     ! {x}")
                     print(f"   {'item':48} {'values before':>13} {'after':>8}")
                     for r in res["rows"]:

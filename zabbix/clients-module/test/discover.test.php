@@ -108,6 +108,9 @@ namespace Modules\EpClients\Test {
 		$e = $case['expect'];
 		$acts = array_column($p['items'], 'action', 'key');
 		check($case['name'].': actions', $acts === $e['actions'], $acts);
+		if (isset($e['rules'])) {
+			check($case['name'].': discovery rules', array_column($p['rules'], 'action', 'key') === $e['rules'], $p['rules']);
+		}
 		check($case['name'].': refusals', count($p['refused']) === $e['refused'], $p['refused']);
 		check($case['name'].': unlink and link', $p['unlink'] === $e['unlink'] && $p['link'] === $e['link'], [$p['unlink'], $p['link']]);
 		check($case['name'].': macros copied', array_column($p['macros'], 'macro') === $e['macros'], $p['macros']);

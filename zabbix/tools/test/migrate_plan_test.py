@@ -43,7 +43,7 @@ GEN = {"name": "t", "mode": "replace", "keys": {"old.exact": "new.exact"}, "key_
 TARGET = {"templates": [{"templateid": NEW, "host": "New"}], "missing": [],
           "keys": {"same.key": "3", "newp.a": "3", "newp.f": "3", "new.exact": "0", "newp.taken": "3", "own.key": "3",
                    "own.float": "3", "third.key": "3"},
-          "lld": {"new.lld"}, "macros": {"{$NEWM.PASS}": ("", "1"), "{$SHARED}": ("x", "0")}}
+          "lld": {"new.lld"}, "protos": {"p[{#X}]": "3"}, "macros": {"{$NEWM.PASS}": ("", "1"), "{$SHARED}": ("x", "0")}}
 OLD_TPL = {OLD: {"host": "Old", "macros": {"{$URL}": ("http://old", "0"), "{$SECRET}": (None, "1"),
                                           "{$SHARED}": ("x", "0"), "{$UNUSED}": ("u", "0")}}}
 
@@ -77,6 +77,8 @@ class SharedCases(unittest.TestCase):
                 p = mig.plan_replace(snap, gen, old, target, unlink=case["unlink"])
                 e = case["expect"]
                 self.assertEqual({r["key"]: r["action"] for r in p["items"]}, e["actions"])
+                if "rules" in e:
+                    self.assertEqual({r["key"]: r["action"] for r in p["rules"]}, e["rules"])
                 self.assertEqual(len(p["refused"]), e["refused"], p["refused"])
                 self.assertEqual(p["unlink"], e["unlink"])
                 self.assertEqual(p["link"], e["link"])
@@ -130,7 +132,9 @@ class ReplacePlan(unittest.TestCase):
         cases = {
             "value type": snap([item("1", "own.float", vt="0")]),
             "third template": snap([item("1", "third.key", OTHER)], linked=(OLD, OTHER)),
-            "discovery rule": snap([], rules=[{"itemid": "50", "key_": "new.lld", "templateid": "950", "origin": OLD}]),
+            "discovery rule, prototype type differs": snap([], rules=[{"itemid": "50", "key_": "new.lld", "templateid": "950", "origin": OLD}],
+                                                           protos=[{"itemid": "51", "key_": "p[{#X}]", "templateid": "951", "origin": OLD,
+                                                                    "value_type": "0", "discoveryRule": {"itemid": "50"}}]),
             "not linked": snap([], linked=()),
         }
         for why, s in cases.items():
@@ -138,6 +142,19 @@ class ReplacePlan(unittest.TestCase):
                 self.assertTrue(mig.plan_replace(s, GEN, OLD_TPL, TARGET)["refused"])
         missing = dict(TARGET, missing=["New"])
         self.assertTrue(mig.plan_replace(snap([]), GEN, OLD_TPL, missing)["refused"])
+
+    def test_discovery_rule_in_both_is_adopted(self):
+        # Checked on 7.0.31: the link re-adopts a same-key rule, its prototypes and discovered items.
+        rule = {"itemid": "50", "key_": "new.lld", "templateid": "950", "origin": OLD}
+        proto = {"itemid": "51", "key_": "p[{#X}]", "templateid": "951", "origin": OLD, "value_type": "3", "discoveryRule": {"itemid": "50"}}
+        p = mig.plan_replace(snap([item("8", "p[a]", flags="4")], rules=[rule], protos=[proto]), GEN, OLD_TPL, TARGET)
+        self.assertEqual(p["refused"], [])
+        self.assertEqual([(r["key"], r["action"]) for r in p["rules"]], [("new.lld", "ADOPT")])
+        self.assertEqual(by_key(p)["p[a]"]["action"], "KEEP")                       # discovered: stays with its rule
+        other = mig.plan_replace(snap([], rules=[dict(rule, key_="old.only.lld")]), GEN, OLD_TPL, TARGET)
+        self.assertEqual([(r["key"], r["action"]) for r in other["rules"]], [("old.only.lld", "KEEP")])
+        # Without the unlink the old template would keep the rule: refused like a key that must move.
+        self.assertTrue(any("unlinked" in r for r in mig.plan_replace(snap([], rules=[rule], protos=[proto]), GEN, OLD_TPL, TARGET, unlink=False)["refused"]))
 
     def test_no_unlink_means_no_moves(self):
         s = snap([item("2", "oldp.a", OLD)])
@@ -254,8 +271,8 @@ class Guard(unittest.TestCase):
 class Exports(unittest.TestCase):
     def test_scanner_matches_the_templates(self):
         files = sorted(glob.glob(os.path.join(HERE, "..", "..", "templates", "*.yaml")))
-        # the four copied from ElasticPro, and the request gate template written here
-        self.assertEqual(len(files), 5)
+        # the four copied from ElasticPro, and the request gate and cluster health templates written here
+        self.assertEqual(len(files), 6)
         for f in files:
             text = read(f)
             k = mig._keys_from_yaml_scan(text)

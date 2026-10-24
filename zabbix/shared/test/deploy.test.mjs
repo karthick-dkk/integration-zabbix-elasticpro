@@ -2,7 +2,7 @@
  * The two set-up scripts and the numbers the manifests must agree with. Nothing here talks to a
  * Zabbix: these are the properties that were wrong in a way no test would have noticed — a
  * re-run that exited 1, a dashboard built with no group filter, a template list that had two of
- * its ten slots, and a refresh rate drifting from the settings default.
+ * its eleven slots, and a refresh rate drifting from the settings default.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -65,7 +65,10 @@ test('the set-up script knows every template slot the Roles page can map', () =>
   const block = py.slice(py.indexOf('TEMPLATE_DEFAULTS = {'), py.indexOf('}', py.indexOf('TEMPLATE_DEFAULTS = {')));
   const pySlots = [...block.matchAll(/"([a-z_]+)":/g)].map((m) => m[1]);
   // Two of ten before: a site that mapped "ElasticPro alerts" was told by this script to import
-  // a template it had deliberately renamed.
+  // a template it had deliberately renamed. The health template's constant is read like
+  // cluster's and agent's, so the eleventh slot is compared by name below too.
+  const health = roles.match(/DEFAULT_HEALTH_TEMPLATE = '([^']+)'/)[1];
+  assert.ok(block.includes(`"health": "${health}"`), `health: import.py must ship "${health}"`);
   assert.deepEqual(pySlots, slots, 'master/import.py must name the same slots as Roles::TEMPLATE_SLOTS');
   // And each shipped name must be the one PHP ships, or the two disagree about what to look for.
   // Read from the TEMPLATE_SLOTS block alone: the same keys appear in TEMPLATE_USED_BY.
@@ -78,7 +81,7 @@ test('the set-up script knows every template slot the Roles page can map', () =>
       checked++;
     }
   }
-  // cluster and agent name their shipped value through a constant, so eight of ten are literals.
+  // cluster, health and agent name their shipped value through a constant, so eight of eleven are literals.
   assert.equal(checked, 8, 'the shipped names actually got compared');
 });
 

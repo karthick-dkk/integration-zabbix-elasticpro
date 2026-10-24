@@ -22,7 +22,9 @@ does make a lossless move possible (each was checked on Zabbix 7.0.31, and
 2. A host item that is no longer inherited can have its **key renamed**; the id, the history and
    the trends stay.
 3. **Linking** a template to a host that already has an item with the same key **adopts** that
-   item: same id, now inherited from the template, history kept.
+   item: same id, now inherited from the template, history kept. A **discovery rule** with the
+   same key is adopted the same way: same rule id, the rule and its prototypes inherited again,
+   the items it discovered left exactly as they are.
 
 So the order per host is: copy the macros the remaining items need to host level → unlink the
 old template (without clear) → rename the keys that map onto keys of the new template → link
@@ -42,10 +44,10 @@ instead of failing with "Trigger … already exists" or creating empty second it
 | The new key has a different value type (e.g. FLOAT → UNSIGNED) | A renamed key: the item is **kept apart** under its old key. Zabbix would adopt it and convert it, and the values stored under the old type would stop being visible (checked on 7.0.31: 1 value before, 0 after). The new template's item starts empty beside it. The **same** key with another type cannot be kept apart — after the unlink the link would adopt it anyway — so the host is **refused**. |
 | The key already comes from a third template on the host | The host is **refused** — the link would fail. |
 | A host item of your own has the new key but another value type | The host is **refused** — the link would convert it. |
-| A discovery rule key is in both the old and the new template | The host is **refused**. |
+| A discovery rule key is in both the old and the new template | **Adopted** like an item: same rule id, its prototypes and the items it discovered kept. **Refused** only when a prototype has another value type under the same key — the link would adopt the rule and convert what it discovered. |
 | An old item has no equivalent in the new templates | It stays on the host as a host item, still collecting, with its history (the macros it uses are copied to the host first). |
 | A secret macro is needed at host level or under a new name | Listed as **BY HAND**. Nobody can read a secret's value through the API, so it is never copied, guessed or blanked. |
-| Old triggers | Kept. Old triggers on items that moved are listed as duplicate candidates; `--retire-old-triggers` **disables** (never deletes) the ones a new template trigger duplicates on the same items. |
+| Old triggers | Kept. An old trigger with the **same name and expression** as one of the new template's is adopted by the link like its items — same trigger id, enabled/disabled as it was — which is what happened to all 15 of the cluster health template's on the real run (nothing left to retire). The others stay host triggers; those on items that moved are listed as duplicate candidates, and `--retire-old-triggers` **disables** (never deletes) the ones a new template trigger duplicates on the same items. |
 | An old template linked through another template | Not touched (the plan says "not linked directly"). Unlink it from the parent template first. |
 
 Refused hosts are left exactly as they were and the run exits 1 so a script notices.
@@ -97,6 +99,28 @@ The old names are on *Data collection → Templates* (and on each host's *Templa
 older ElasticPro install is involved, the ElasticPro repository's
 `deploy/zabbix/setup/zbx_rename.py` lists the prefixes earlier releases used.
 
+### A cluster on an older Elasticsearch template
+
+The usual case. A cluster host carries a copy of Zabbix's "Elasticsearch Cluster by HTTP" under
+some site-specific name, and the ElasticPro templates beside it. `templates/
+template-elasticpro-cluster-health.yaml` has the stock-core items, the nodes discovery and the
+alerts under the **same keys**, so the move is a `replace` generation with no key map at all:
+
+```json
+{"name": "old-cluster-template", "mode": "replace",
+ "old_templates": ["<the old Elasticsearch template's technical name>"],
+ "new_templates": ["Elasticsearch Cluster by HTTP EP", "ElasticPro cluster health",
+                   "ElasticPro client plan", "ElasticPro alerts", "ElasticPro log delay", "ElasticPro cluster devices"],
+ "unlink_old": true}
+```
+
+The health items, the `es.nodes.discovery` rule with its 46 prototypes and the per-node items it
+discovered are adopted (same ids). Everything the old template had that the health template does
+not — capacity and volume figures, ILM/SLM status, its dashboard — stays on the host as host items
+with their history, and the macros they use are copied to the host first. The old template is
+unlinked, not deleted. Checked on Zabbix 7.0.31 on a real cluster host: 210 items before and after,
+every id unchanged, 0 values lost.
+
 ## 2. Dry run
 
 ```bash
@@ -112,6 +136,8 @@ and the templates it would unlink and link:
    RENAME  oldprefix.cluster.status -> es.cluster.status  [UNSIGNED, 20160 values]  renamed, then adopted by the link
    ADOPT   es.cluster.number_of_nodes  [UNSIGNED, 20160 values]  same key: the link adopts it
    KEEP    41 item(s) stay on the host as host items with their history
+   ADOPT   discovery rule es.nodes.discovery  same key: the link adopts the rule, its prototypes and the items it discovered
+   KEEP    discovery rule es.cluster.get_ilm_policy  no equivalent rule in the new templates: stays a host rule with its items
    MACRO   {$ES.INDEX.PATTERN} (text) at host level — kept items use it; it came from the old template
    BY HAND {$ELASTICSEARCH.PASSWORD}: secret on the old template, used by kept items — set it on the host by hand
    unlink (without clear): Old Elasticsearch template
@@ -125,6 +151,7 @@ and the templates it would unlink and link:
 | `KEEP` | Stays a host item with its history (reason given). |
 | `CURRENT` | Already from a new template. |
 | `UNTOUCHED` | Belongs to neither — left alone. |
+| `ADOPT discovery rule` | Same rule key in the new template: the link takes over the rule, its prototypes and the items it discovered (same ids). `KEEP discovery rule`: stays a host rule. |
 | `REFUSE` | This host cannot be moved safely; see the REFUSED line. |
 
 `--count-since-days N` counts only the last N days of values, which is faster on big hosts.
@@ -136,7 +163,8 @@ python3 migrate-templates.py --map migrate-map.json --host cluster-01 --commit -
 ```
 
 Look at the `verify:` line it prints: items lost, items with fewer values, renamed items not
-adopted — all three must be 0 — and the before/after value counts of every renamed item. Then
+adopted, discovery rules not adopted — all four must be 0 — and the before/after value counts of
+every renamed item. Then
 in the frontend: *Monitoring → Latest data* for the host shows the renamed items with their
 old values; a graph of one of them runs straight through the moment of the migration.
 
@@ -171,6 +199,12 @@ the new names first; macros set on hosts are never touched.
   host triggers, which stay; point them at the new ones when you retire the old.
 - Old host items that are no longer wanted can be disabled — or deleted, which deletes their
   history; that decision is yours and this script never makes it.
+- **Value maps of kept items.** Zabbix 7.0 keeps no host-level copy of a template's value maps:
+  an inherited item points at the template's. A kept item that used one of the old template's
+  (on the real run, `es.cluster.get_ilm` with "SLM status") shows the raw number after the
+  unlink, because the reference is cleared with it. Display only, no value is touched; create the
+  value map on the host and set it on the item if you want the words back. Adopted items take the
+  new template's value maps.
 - Clocks: trapper values carry the sender's clock. If the ElasticPro scraper's machine and the
   Zabbix server disagree (the test VM was 23 minutes behind), the `nodata()` staleness triggers
   fire or stay quiet at the wrong time. Run NTP on both.
@@ -200,5 +234,5 @@ python3 -m unittest test/migrate_plan_test.py                          # no Zabb
 
 The live test builds an old and a new template, pushes values into a host, and runs the real
 command line through dry run, commit, a second dry run and rollback, then an in-place upgrade
-with `--import`, checking item ids and value counts at every step. It passed 35/35 on Zabbix
-7.0.31.
+with `--import`, checking item ids and value counts at every step — including a discovery rule both
+templates carry, with a discovered item. It passed 46/46 on Zabbix 7.0.31.
