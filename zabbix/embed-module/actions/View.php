@@ -97,6 +97,21 @@ class View extends CController {
 		return $names;
 	}
 
+	/**
+	 * The name of this user's Zabbix role ("Admin role", or one the site made). Read from the
+	 * database like the groups, for the same reason: it decides what the person becomes in
+	 * ElasticPro (its role map), so it must not depend on who is asking.
+	 */
+	private function roleName(): ?string {
+		$roleid = CWebUser::$data['roleid'] ?? null;
+		if ($roleid === null || (string) $roleid === '' || (string) $roleid === '0') {
+			return null;
+		}
+		$row = DBfetch(DBselect('SELECT r.name FROM role r WHERE r.roleid='.zbx_dbstr($roleid)));
+		$name = is_array($row) ? trim((string) ($row['name'] ?? '')) : '';
+		return $name === '' ? null : $name;
+	}
+
 	private function theme(): string {
 		return function_exists('getUserTheme')
 			? (string) getUserTheme(CWebUser::$data)
@@ -133,7 +148,8 @@ class View extends CController {
 		$error = '';
 
 		if ($sso->isConfigured()) {
-			$code = $sso->mintCode((string) CWebUser::$data['username'], (int) $this->getUserType(), $this->groups());
+			$code = $sso->mintCode((string) CWebUser::$data['username'], (int) $this->getUserType(), $this->groups(),
+				$this->roleName(), (int) (CWebUser::$data['roleid'] ?? 0) ?: null);
 			if ($code !== null) {
 				$url = $sso->frameUrl($code, $page, $this->theme(), $this->trouble());
 			}

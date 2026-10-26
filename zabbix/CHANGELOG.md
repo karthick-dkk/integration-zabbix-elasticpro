@@ -4,6 +4,10 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.13
+
+**ElasticPro operators add, edit, disable and enable clients in Cluster Management; the sign-in names the Zabbix role.** Until now only a Zabbix Super admin or someone ElasticPro calls an *admin* could change anything here; everyone else read. A Zabbix Admin (or User) whom ElasticPro calls an **operator** now adds, edits, clones, disables, enables and sets maintenance on clients — Decommission, Restore, Delete for good, Discover, Import / export, Roles, Settings and the master template stay an admin's, and their buttons are not offered to an operator. Same signed question to ElasticPro, same trust rules (https with verification, a loopback core or a `trusted_plain_hosts` host), same pre-check of the person's Zabbix rights before anything is written. For a person ElasticPro has never seen sign in, the answer's `zabbix_role` — what ElasticPro's role map (its Accounts page, ElasticPro 0.3.40) would make them — now counts, instead of this module's own copy of the shipped mapping. Both the sign-in (ElasticPro module) and the role question (this module) now send the Zabbix role's name (`zabbix_role`, and `zabbix_roleid` at sign-in), so an ElasticPro admin can map a site's own Zabbix role to an ElasticPro role; an older ElasticPro ignores the extra fields and goes by the user type as before. Read-only pages say *"Editing needs an ElasticPro operator role (or Zabbix Super admin)."* Needs ElasticPro 0.3.40 for the role map; works with earlier cores.
+
 ## 2.1.12
 
 **Cluster Management asks for the master template rewrite that 2.1.11 needed.** 2.1.11 changed

@@ -4,7 +4,7 @@
 	"type": "widget",
 	"name": "ElasticPro volume report",
 	"namespace": "EpVolume",
-	"version": "2.1.12",
+	"version": "2.1.13",
 	"author": "ElasticPro",
 	"description": "The Volume report's client plan, one row per cluster host, laid out as in ElasticPro: volume per day, live storage and backup storage. Columns come from the ElasticPro client plan template, and any other item of the cluster host can be added: renamed, hidden, reordered, now or average, minimum, maximum or change over a window, shown as a value, bar, coloured cell or text, indicators, sparkline or badge. Coloured at the plan template's macros or at each column's own thresholds. Search, sort, group headers by plan, totals, a Type filter, CSV and Excel export.",
 	"widget": {

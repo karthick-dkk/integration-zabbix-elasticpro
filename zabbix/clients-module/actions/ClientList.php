@@ -15,6 +15,9 @@ use Modules\EpClients\Lib\{ClientSpec, ClientState, ClusterSecret, DefaultCreden
  */
 class ClientList extends Base {
 
+	/** An operator's page: add, edit, disable, enable, maintenance (EpRole). */
+	protected const NEEDS = \Modules\EpClients\Lib\EpRole::NEED_OPERATOR;
+
 	protected const READ_ONLY_OK = true;
 
 	protected function init(): void {
@@ -216,6 +219,9 @@ class ClientList extends Base {
 			'store_ok' => $writable,
 			'forecast' => Settings::forecast($cfg),
 			'can_write' => $this->canWrite(),
+			// Discover, Import, Roles and the master template are an admin's; an operator's list
+			// offers Add client and the client pages, and nothing that would only deny them.
+			'can_remove' => $this->canRemove(),
 			'write_note' => $this->writeNote(),
 			'store_dir' => Store::dir(),
 			// Backups are Super admins' only (BackupList::checkPermissions), whatever ElasticPro

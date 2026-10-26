@@ -1,6 +1,6 @@
 # Cluster Management (Zabbix 7.0 module)
 
-**Cluster Management** (Super admins and ElasticPro admins; other Zabbix Admins read-only — see [Who may edit](#who-may-edit)): every client, its status, whether
+**Cluster Management** (Super admins, ElasticPro admins and — to add, edit, disable and enable — ElasticPro operators; other Zabbix Admins read-only — see [Who may edit](#who-may-edit)): every client, its status, whether
 its monitoring is set up and working, open problems, when its storage fills, and the last change —
 add, edit, clone, disable, maintenance, decommission, bulk import, backups, roles.
 
@@ -194,28 +194,30 @@ group again.
 **Read-only for Zabbix Admins who may not edit.** They see the list and client pages for the
 clients whose hosts they may read — no buttons, the form disabled, nothing from the page's own
 records (removed or changed hosts), which know about hosts beyond their permissions — and a line
-saying why: *"Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role:
-operator."*
+saying why: *"Editing needs an ElasticPro operator role (or Zabbix Super admin). Your ElasticPro
+role: user."*
 
 ## Who may edit
 
 ElasticPro's role decides (decision of 2026-10-22, reversing "Zabbix wins" for roles only — Zabbix
-still owns the hosts and host groups):
+still owns the hosts and host groups; operators since 2.1.13):
 
 | Zabbix user type | ElasticPro says | Cluster Management |
 |---|---|---|
-| Super admin | (not asked) | edits |
-| Admin or User | `admin`, not blocked or locked, signed answer over https with verification, a loopback core or a `trusted_plain_hosts` host | edits — within their Zabbix rights (below); never Backups or Re-create |
-| Admin | `operator`, `user`, `guest`, blocked or locked | reads |
-| Admin | never seen them sign in (`role: null`) | reads — the Zabbix mapping makes a Zabbix Admin an operator |
+| Super admin | (not asked) | everything |
+| Admin or User | `admin`, not blocked or locked, signed answer over https with verification, a loopback core or a `trusted_plain_hosts` host | everything but Backups and Re-create — within their Zabbix rights (below) |
+| Admin or User | `operator`, the same conditions | adds, edits, clones, disables, enables and sets maintenance on clients; not Decommission, Restore, Delete for good, Discover, Import / export, Roles, Settings or the master template |
+| Admin | `user`, `guest`, blocked or locked | reads |
+| Admin or User | never seen them sign in (`role: null`) | as what ElasticPro's role map (its Accounts page) would make them at a first sign-in (`zabbix_role` in the answer) — under the shipped map a Zabbix Admin is an operator, a Zabbix User a user |
 | Admin | could not be asked | reads, and the page says *"ElasticPro could not be asked who may edit; only Super admins can edit until it answers."* (the reason goes to the server log) |
-| User | anything but `admin` | nothing (as before) |
+| User | `user`, `guest`, blocked, locked, or could not be asked | nothing (as before) |
 
 The question goes to the ElasticPro core with the **ElasticPro** module's pairing (`modules/elasticpro`,
 id `elasticpro`), signed with the scheme and the code (`SsoClient::sign()`) of the sign-in:
 
 - **Request.** `GET {core_url}/sso/zabbix/role?claim=<rawurlencode(JSON)>`, the JSON being exactly
-  `{"zabbix_user":…,"zabbix_user_type":…,"ts":…,"nonce":"<32 hex>"}` (a fresh nonce per question),
+  `{"zabbix_user":…,"zabbix_user_type":…,"zabbix_role":"<the Zabbix role's name>","ts":…,"nonce":"<32 hex>"}`
+  (a fresh nonce per question; `zabbix_role` only when the user has one, from 2.1.13),
   with `X-Zabbix-Module-Signature: hex HMAC-SHA256(JSON, secret)`. The core checks the signature, the
   clock (±60 s) and the nonce (16–128 characters, never used before — a reused one is 401 `replayed`)
   and answers for `<user>@zabbix`; nothing is created by asking.

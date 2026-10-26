@@ -15,6 +15,9 @@ use Modules\EpClients\Lib\{ClusterSecret, WriteCheck};
  */
 class ClientSave extends Base {
 
+	/** An operator's page: add, edit, disable, enable, maintenance (EpRole). */
+	protected const NEEDS = \Modules\EpClients\Lib\EpRole::NEED_OPERATOR;
+
 	protected function checkInput(): bool {
 		$fields = ['name' => 'required|string', 'mode' => 'required|in add,edit', 'es_password' => 'string', 'es_password_action' => 'string',
 			'merge' => 'array', 'confirm_delete' => 'string'];

@@ -8,13 +8,14 @@ use Modules\ElasticPro\Lib\Settings as EmbedSettings;
 use Modules\ElasticPro\Lib\SsoClient;
 
 /**
- * Who may edit Cluster Management: a Zabbix Super admin, or someone ElasticPro calls an admin.
+ * Who may edit Cluster Management: a Zabbix Super admin, or someone ElasticPro calls an operator
+ * (add, edit, disable, enable, maintenance) or an admin (also decommission, restore, delete for
+ * good, Discover, Roles, Settings, Import).
  *
- * ElasticPro's role is the authority (decision cf6faa2e, 2026-10-22). A Zabbix Admin whose
- * ElasticPro account an ElasticPro administrator made an admin edits here; a Zabbix Admin whom
- * ElasticPro calls an operator reads. Zabbix still decides what that person may write in Zabbix —
- * the pre-check (WriteCheck) refuses a save their Zabbix rights do not cover, before anything
- * changes.
+ * ElasticPro's role is the authority (decision cf6faa2e, 2026-10-22; operators since 2.1.13). A
+ * Zabbix Admin whom ElasticPro calls an operator adds and edits clients here; one ElasticPro calls
+ * a user reads. Zabbix still decides what that person may write in Zabbix — the pre-check
+ * (WriteCheck) refuses a save their Zabbix rights do not cover, before anything changes.
  *
  * The question goes to the ElasticPro core server to server, the way the ElasticPro module's
  * sign-in does, under the same pairing secret:
@@ -22,11 +23,13 @@ use Modules\ElasticPro\Lib\SsoClient;
  *   GET {core_url}/sso/zabbix/role?claim=<JSON, URL-encoded>
  *   X-Zabbix-Module-Signature: <hex HMAC-SHA256 of the exact JSON bytes>
  *
- * where the JSON is {"zabbix_user", "zabbix_user_type", "ts", "nonce"} (nonce: 32 hex characters,
- * fresh for every question). The core checks the signature, the clock (±60 s) and that the nonce
- * is new, and answers {role, pinned, source, disabled, locked, nonce, ts} for <user>@zabbix, or
- * role null when it has never seen that person sign in — then the Zabbix mapping applies (a
- * Zabbix Admin is an operator there), which is never an admin. Nothing is created by asking.
+ * where the JSON is {"zabbix_user", "zabbix_user_type", "zabbix_role"?, "ts", "nonce"} (nonce: 32
+ * hex characters, fresh for every question; zabbix_role is the Zabbix role's name, sent from
+ * 2.1.13). The core checks the signature, the clock (±60 s) and that the nonce is new, and answers
+ * {role, zabbix_role, pinned, source, disabled, locked, nonce, ts} for <user>@zabbix — role null
+ * when it has never seen that person sign in; zabbix_role is then what ElasticPro's role map (its
+ * Accounts page) would make them at their first sign-in, and that is what counts. Nothing is
+ * created by asking.
  *
  * The answer is believed only when ElasticPro signed it: the core sends
  *   X-ElasticPro-Signature: <hex HMAC-SHA256 of ts + "\n" + nonce + "\n" + the exact body bytes>
@@ -108,9 +111,44 @@ final class EpRole {
 		self::$current = $role;
 	}
 
-	/** The ElasticPro role Zabbix's mapping gives a user type: what a first sign-in would make. */
+	/**
+	 * The ElasticPro role the shipped mapping gives a user type: what a first sign-in would make
+	 * under a core too old to answer `zabbix_role` itself (the role map on ElasticPro's Accounts
+	 * page decides there).
+	 */
 	public static function zabbixRole(int $type): ?string {
 		return [1 => 'user', 2 => 'operator', 3 => 'admin'][$type] ?? null;
+	}
+
+	/** ElasticPro's roles in order; a role may do what a lower one may. */
+	public const RANK = ['guest' => 0, 'user' => 1, 'operator' => 2, 'admin' => 3];
+
+	/** What a page or action needs: operator (add, edit, disable) or admin (the rest). */
+	public const NEED_OPERATOR = 'operator';
+	public const NEED_ADMIN = 'admin';
+
+	/** The sentence a read-only page starts with, for what it needs. */
+	public static function needsLine(string $need): string {
+		return $need === self::NEED_ADMIN
+			? _('This needs an ElasticPro admin role (or Zabbix Super admin).')
+			: _('Editing needs an ElasticPro operator role (or Zabbix Super admin).');
+	}
+
+	/**
+	 * The name of this Zabbix user's role ("Admin role", or one the site made), for the question
+	 * to ElasticPro — whose role map may name it. Null outside a Zabbix request (the tests).
+	 */
+	public static function zabbixRoleName(): ?string {
+		if (!class_exists('CWebUser', false) || !function_exists('DBselect') || !function_exists('DBfetch') || !function_exists('zbx_dbstr')) {
+			return null;
+		}
+		$roleid = \CWebUser::$data['roleid'] ?? null;
+		if ($roleid === null || $roleid === '' || $roleid === 0 || $roleid === '0') {
+			return null;
+		}
+		$row = DBfetch(DBselect('SELECT r.name FROM role r WHERE r.roleid='.zbx_dbstr($roleid)));
+		$name = is_array($row) ? trim((string) ($row['name'] ?? '')) : '';
+		return $name === '' ? null : $name;
 	}
 
 	/** How many consumed nonces a session remembers; each is checked once, so a few suffice. */
@@ -123,10 +161,13 @@ final class EpRole {
 	/** Plain-http hosts trusted when the ElasticPro module does not say (older module, or nothing stored). */
 	public const DEFAULT_PLAIN_HOSTS = ['ep-core'];
 
-	/** The exact bytes that are signed and sent. */
-	public static function claim(string $user, int $type, int $ts, string $nonce): string {
-		return (string) json_encode(['zabbix_user' => $user, 'zabbix_user_type' => $type, 'ts' => $ts, 'nonce' => $nonce],
-			JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+	/** The exact bytes that are signed and sent. The role name goes in only when there is one. */
+	public static function claim(string $user, int $type, int $ts, string $nonce, ?string $role = null): string {
+		$body = ['zabbix_user' => $user, 'zabbix_user_type' => $type];
+		if ($role !== null && trim($role) !== '') {
+			$body['zabbix_role'] = trim($role);
+		}
+		return (string) json_encode($body + ['ts' => $ts, 'nonce' => $nonce], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 	}
 
 	/**
@@ -135,8 +176,8 @@ final class EpRole {
 	 *
 	 * @return array{url: string, json: string, headers: string[]}
 	 */
-	public static function request(string $core_url, string $secret, string $user, int $type, int $ts, string $nonce, callable $sign): array {
-		$json = self::claim($user, $type, $ts, $nonce);
+	public static function request(string $core_url, string $secret, string $user, int $type, int $ts, string $nonce, callable $sign, ?string $role = null): array {
+		$json = self::claim($user, $type, $ts, $nonce, $role);
 		return [
 			'url' => rtrim($core_url, '/').self::PATH.'?claim='.rawurlencode($json),
 			'json' => $json,
@@ -181,30 +222,31 @@ final class EpRole {
 	 * What ElasticPro says about this Zabbix user, from the session when the answer is young
 	 * enough (any age when $fresh is false), otherwise asked now and kept.
 	 *
-	 * @return array{asked: bool, role: ?string, pinned: bool, source: ?string, disabled: bool, locked: bool,
-	 *               trusted: bool, error: ?string, at: int}
+	 * @param string|null $role  the Zabbix role's name, when known (zabbixRoleName())
+	 * @return array{asked: bool, role: ?string, zabbix_role: ?string, pinned: bool, source: ?string, disabled: bool,
+	 *               locked: bool, trusted: bool, error: ?string, at: int}
 	 */
-	public function answer(string $user, int $type, bool $fresh = true): array {
-		$key = $user."\n".$type;
+	public function answer(string $user, int $type, bool $fresh = true, ?string $role = null): array {
+		$key = $user."\n".$type."\n".(string) $role;
 		if (isset($this->memo[$key])) {
 			return $this->memo[$key];
 		}
 		$now = (int) ($this->clock)();
 		$kept = ($this->load)();
 		$kept = is_array($kept) ? $kept : [];
-		if (($kept['user'] ?? null) === $user && (int) ($kept['type'] ?? -1) === $type
+		if (($kept['user'] ?? null) === $user && (int) ($kept['type'] ?? -1) === $type && ($kept['role_name'] ?? null) === $role
 				&& is_array($kept['answer'] ?? null) && (!$fresh || $now - (int) ($kept['answer']['at'] ?? 0) < self::TTL)) {
 			return $this->memo[$key] = $kept['answer'];
 		}
 		// The consumed nonces outlive a change of user: they are this session's, not one answer's.
 		$nonces = is_array($kept['nonces'] ?? null) ? $kept['nonces'] : [];
-		$answer = $this->ask($user, $type, $now, $nonces);
+		$answer = $this->ask($user, $type, $now, $nonces, $role);
 		// The detailed reason (core_url, the curl error, the core's own message) goes to the server
 		// log; the page shows a person who is not a Super admin only the fixed line (decide()).
 		if (($answer['error'] ?? null) !== null) {
 			($this->log)('ElasticPro Cluster Management: the role lookup for "'.$user.'" was not acted on: '.$answer['error']);
 		}
-		($this->save)(['user' => $user, 'type' => $type, 'answer' => $answer,
+		($this->save)(['user' => $user, 'type' => $type, 'role_name' => $role, 'answer' => $answer,
 			'nonces' => array_slice($nonces, -self::NONCES_KEPT)]);
 		return $this->memo[$key] = $answer;
 	}
@@ -215,8 +257,8 @@ final class EpRole {
 	 *
 	 * @param string[] $nonces  the nonces this session has consumed; the one used here is added
 	 */
-	private function ask(string $user, int $type, int $now, array &$nonces): array {
-		$out = ['asked' => false, 'role' => null, 'pinned' => false, 'source' => null, 'disabled' => false,
+	private function ask(string $user, int $type, int $now, array &$nonces, ?string $role = null): array {
+		$out = ['asked' => false, 'role' => null, 'zabbix_role' => null, 'pinned' => false, 'source' => null, 'disabled' => false,
 			'locked' => false, 'trusted' => false, 'error' => null, 'at' => $now];
 		$s = ($this->settings)();
 		if (isset($s['error'])) {
@@ -225,7 +267,7 @@ final class EpRole {
 		}
 		$secret = (string) $s['secret'];
 		$nonce = (string) ($this->nonce)();
-		$req = self::request((string) $s['core_url'], $secret, $user, $type, $now, $nonce, $this->sign);
+		$req = self::request((string) $s['core_url'], $secret, $user, $type, $now, $nonce, $this->sign, $role);
 		$r = ($this->transport)($req['url'], $req['headers'], (bool) ($s['verify_tls'] ?? true));
 		if ((int) ($r['status'] ?? 0) === 0) {
 			$out['error'] = 'ElasticPro did not answer at '.rtrim((string) $s['core_url'], '/').': '.((string) ($r['error'] ?? '') ?: 'no answer');
@@ -253,6 +295,8 @@ final class EpRole {
 		$role = $data['role'] ?? null;
 		$out['asked'] = true;
 		$out['role'] = is_string($role) && in_array($role, ['admin', 'operator', 'user', 'guest'], true) ? $role : null;
+		$zr = $data['zabbix_role'] ?? null;
+		$out['zabbix_role'] = is_string($zr) && in_array($zr, ['admin', 'operator', 'user', 'guest'], true) ? $zr : null;
 		$out['pinned'] = ($data['pinned'] ?? false) === true;
 		$out['source'] = is_string($data['source'] ?? null) ? $data['source'] : null;
 		$out['disabled'] = ($data['disabled'] ?? false) === true;
@@ -270,21 +314,26 @@ final class EpRole {
 	 * read-only notes all come from here.
 	 *
 	 * @param array|null $answer  answer() for this user; ignored for a Super admin.
+	 * @param string $need  NEED_OPERATOR (add, edit, disable, enable, maintenance) or NEED_ADMIN (the rest)
 	 * @return array{write: bool, why: string, role: ?string, note: ?string, hint: ?string, detail: ?string}
-	 *   why: super | elasticpro_admin | elasticpro_role | untrusted | unasked | no_type
+	 *   why: super | elasticpro_admin | elasticpro_operator | elasticpro_role | untrusted | unasked | no_type
+	 *
+	 * The role is ElasticPro's answer for the account, or — for a person it has never seen —
+	 * what its role map would make them at their first sign-in (`zabbix_role`, signed like the
+	 * rest; the shipped mapping only under a core too old to say). A role that is enough for
+	 * `need`, not blocked or locked, over a connection that can be trusted, writes.
 	 *
 	 * When ElasticPro could not be asked, or its answer cannot be trusted, the person (never a
 	 * Super admin: they are not asked) sees only the fixed UNASKED / UNTRUSTED line and no hint:
 	 * the reason names core_url, a curl error or the core's own message, which is the server's
 	 * business, not theirs. The reason stays in `detail` and in the server log (answer()).
 	 */
-	public static function decide(int $type, ?array $answer): array {
+	public static function decide(int $type, ?array $answer, string $need = self::NEED_ADMIN): array {
 		if ($type == USER_TYPE_SUPER_ADMIN) {
 			return ['write' => true, 'why' => 'super', 'role' => null, 'note' => null, 'hint' => null, 'detail' => null];
 		}
 		if (!in_array($type, [USER_TYPE_ZABBIX_ADMIN, USER_TYPE_ZABBIX_USER], true)) {
-			return ['write' => false, 'why' => 'no_type', 'role' => null,
-				'note' => _('Editing needs an ElasticPro admin role (or Zabbix Super admin).'), 'hint' => null, 'detail' => null];
+			return ['write' => false, 'why' => 'no_type', 'role' => null, 'note' => self::needsLine($need), 'hint' => null, 'detail' => null];
 		}
 		if ($answer === null || !($answer['asked'] ?? false)) {
 			return ['write' => false, 'why' => 'unasked', 'role' => null, 'note' => _(self::UNASKED), 'hint' => null,
@@ -292,30 +341,32 @@ final class EpRole {
 		}
 		$role = $answer['role'];
 		$mapped = $role === null;
-		$role = $role ?? self::zabbixRole($type);
+		$role = $role ?? ($answer['zabbix_role'] ?? null) ?? self::zabbixRole($type);
 		$blocked = ($answer['disabled'] ?? false) || ($answer['locked'] ?? false);
-		if ($role === 'admin' && !$blocked && !$mapped) {
+		$enough = $role !== null && (self::RANK[$role] ?? -1) >= (self::RANK[$need] ?? self::RANK[self::NEED_ADMIN]);
+		if ($enough && !$blocked) {
 			if (!($answer['trusted'] ?? false)) {
-				// An admin over a connection that could have been altered on the way is not acted on.
-				return ['write' => false, 'why' => 'untrusted', 'role' => 'admin', 'note' => _(self::UNTRUSTED), 'hint' => null,
+				// A role over a connection that could have been altered on the way is not acted on.
+				return ['write' => false, 'why' => 'untrusted', 'role' => $role, 'note' => _(self::UNTRUSTED), 'hint' => null,
 					'detail' => (string) ($answer['error'] ?? self::INSECURE)];
 			}
-			return ['write' => true, 'why' => 'elasticpro_admin', 'role' => 'admin', 'note' => null, 'hint' => null, 'detail' => null];
+			return ['write' => true, 'why' => $role === 'admin' ? 'elasticpro_admin' : 'elasticpro_operator', 'role' => $role,
+				'note' => null, 'hint' => null, 'detail' => null];
 		}
 		$said = $mapped
-			? _s('Your ElasticPro role: %1$s (from your Zabbix user type — ElasticPro has not seen you sign in yet).', (string) $role)
+			? _s('Your ElasticPro role: %1$s (from your Zabbix role — ElasticPro has not seen you sign in yet).', (string) $role)
 			: ($blocked
 				? _s('Your ElasticPro role: %1$s, but the account is %2$s in ElasticPro.', (string) $role,
 					($answer['disabled'] ?? false) ? _('blocked') : _('locked'))
 				: _s('Your ElasticPro role: %1$s.', (string) $role));
 		return ['write' => false, 'why' => 'elasticpro_role', 'role' => $role,
-			'note' => _('Editing needs an ElasticPro admin role (or Zabbix Super admin).').' '.$said, 'hint' => null, 'detail' => null];
+			'note' => self::needsLine($need).' '.$said, 'hint' => null, 'detail' => null];
 	}
 
 	/** decide() for this user, asking (or reading the session) only when the type needs it. */
-	public function decision(string $user, int $type, bool $fresh = true): array {
+	public function decision(string $user, int $type, bool $fresh = true, string $need = self::NEED_ADMIN, ?string $role = null): array {
 		$ask = in_array($type, [USER_TYPE_ZABBIX_ADMIN, USER_TYPE_ZABBIX_USER], true);
-		return self::decide($type, $ask ? $this->answer($user, $type, $fresh) : null);
+		return self::decide($type, $ask ? $this->answer($user, $type, $fresh, $role) : null, $need);
 	}
 
 	/**
@@ -323,9 +374,9 @@ final class EpRole {
 	 * person's ElasticPro role, or that ElasticPro could not be asked), then the reason it could
 	 * not be asked when there is one. The views all draw it from here.
 	 */
-	public static function noteLines(?array $write_note): array {
+	public static function noteLines(?array $write_note, string $need = self::NEED_OPERATOR): array {
 		[$note, $hint] = ($write_note ?? []) + [null, null];
-		$out = [$note ?? _('Read only. Editing needs an ElasticPro admin role (or Zabbix Super admin).')];
+		$out = [$note ?? _('Read only.').' '.self::needsLine($need)];
 		if ($hint !== null && $hint !== '') {
 			$out[] = _s('Why: %1$s.', rtrim((string) $hint, '.'));
 		}

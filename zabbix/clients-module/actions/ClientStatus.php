@@ -13,6 +13,9 @@ use Modules\EpClients\Lib\{Lifecycle, WriteCheck};
  */
 class ClientStatus extends Base {
 
+	/** An operator's page: add, edit, disable, enable, maintenance (EpRole). */
+	protected const NEEDS = \Modules\EpClients\Lib\EpRole::NEED_OPERATOR;
+
 	private const OPS = ['disable', 'enable', 'decommission', 'restore', 'maintenance', 'end_maintenance'];
 
 	protected function checkInput(): bool {
@@ -35,6 +38,11 @@ class ClientStatus extends Base {
 		$words = ['disable' => _('Disable'), 'enable' => _('Enable'), 'decommission' => _('Decommission'), 'restore' => _('Restore'),
 			'maintenance' => _('Maintenance'), 'end_maintenance' => _('End maintenance')];
 		try {
+			// Decommissioning and restoring are an admin's (EpRole): an operator disables, enables
+			// and sets maintenance.
+			if (in_array($op, ['decommission', 'restore'], true) && !$this->canRemove()) {
+				throw new Exception(_('Decommissioning or restoring a client needs an ElasticPro admin role (or Zabbix Super admin).'));
+			}
 			// Every client asked about first, so a refusal changes none of them.
 			$needs = WriteCheck::none();
 			if ($this->getUserType() != USER_TYPE_SUPER_ADMIN) {

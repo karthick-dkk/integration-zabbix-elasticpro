@@ -66,7 +66,7 @@ if ($editing) {
 			.($data['maintenance']['reason'] !== '' ? ' — '.$data['maintenance']['reason'] : '');
 	}
 	$acts = $ro ? ($client['masterid'] !== null ? [\Modules\EpClients\Lib\ClientActions::dashboard($client, 'ep-abtn')] : [])
-		: \Modules\EpClients\Lib\ClientActions::forClient($client, 'ep-abtn');
+		: \Modules\EpClients\Lib\ClientActions::forClient($client, 'ep-abtn', (bool) ($data['can_remove'] ?? true));
 	$html[] = '<div class="ep-head"><div class="ep-head-id"><span class="ep-head-name">'.$e($field('name')).'</span>'
 		.'<span class="ep-st '.$badge_class.'" id="ep-status">'.$e($badge_label).'</span>'
 		.($sub !== '' ? '<span class="ep-head-sub">'.$e($sub).'</span>' : '').'</div>'
