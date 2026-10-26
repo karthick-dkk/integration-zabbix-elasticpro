@@ -86,15 +86,34 @@ namespace Modules\EpClients\Test {
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin']));
 	check('a Zabbix Admin whom ElasticPro calls an admin edits', $d['write'] && $d['why'] === 'elasticpro_admin' && $d['note'] === null);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator']));
-	check('a Zabbix Admin whom ElasticPro calls an operator reads', !$d['write'] && $d['role'] === 'operator');
-	check('and is told why, with their ElasticPro role', $d['note'] === 'Editing needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.', $d['note']);
+	check('a Zabbix Admin whom ElasticPro calls an operator does not do what needs an admin', !$d['write'] && $d['role'] === 'operator');
+	check('and is told why, with their ElasticPro role', $d['note'] === 'This needs an ElasticPro admin role (or Zabbix Super admin). Your ElasticPro role: operator.', $d['note']);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator']), EpRole::NEED_OPERATOR);
+	check('but adds and edits clients, which is an operator\'s (2.1.13)', $d['write'] && $d['why'] === 'elasticpro_operator' && $d['role'] === 'operator' && $d['note'] === null, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'operator']), EpRole::NEED_OPERATOR);
+	check('a Zabbix User whom ElasticPro calls an operator too — ElasticPro decides', $d['write']);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'user']), EpRole::NEED_OPERATOR);
+	check('a user reads even an operator\'s page, and is told the operator bar', !$d['write']
+		&& $d['note'] === 'Editing needs an ElasticPro operator role (or Zabbix Super admin). Your ElasticPro role: user.', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'trusted' => false, 'error' => EpRole::INSECURE]), EpRole::NEED_OPERATOR);
+	check('an operator over an untrusted connection is not acted on either', !$d['write'] && $d['why'] === 'untrusted' && $d['role'] === 'operator', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'disabled' => true]), EpRole::NEED_OPERATOR);
+	check('a blocked operator reads', !$d['write'] && strpos((string) $d['note'], 'blocked in ElasticPro') !== false, $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'admin']));
 	check('a Zabbix User whom ElasticPro calls an admin edits too — ElasticPro decides', $d['write']);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'user']));
 	check('a Zabbix User whom ElasticPro calls a user reads', !$d['write'] && strpos((string) $d['note'], 'Your ElasticPro role: user.') !== false, $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null]));
-	check('never seen by ElasticPro: the Zabbix mapping, and a Zabbix Admin is an operator there', !$d['write'] && $d['role'] === 'operator'
-		&& strpos((string) $d['note'], 'from your Zabbix user type') !== false, $d);
+	check('never seen by ElasticPro, and the core did not say: the shipped mapping, a Zabbix Admin is an operator there', !$d['write'] && $d['role'] === 'operator'
+		&& strpos((string) $d['note'], 'from your Zabbix role') !== false, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null]), EpRole::NEED_OPERATOR);
+	check('and that mapped operator adds and edits clients', $d['write'] && $d['why'] === 'elasticpro_operator', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => 'admin']));
+	check('never seen, but ElasticPro\'s role map says admin: an admin', $d['write'] && $d['why'] === 'elasticpro_admin' && $d['role'] === 'admin', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => 'user']), EpRole::NEED_OPERATOR);
+	check('never seen, and the role map says user: reads, whatever the shipped mapping said', !$d['write'] && $d['role'] === 'user', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'user', 'zabbix_role' => 'admin']), EpRole::NEED_OPERATOR);
+	check('an account ElasticPro has seen goes by its own role, not the map\'s', !$d['write'] && $d['role'] === 'user', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'disabled' => true]));
 	check('an admin blocked in ElasticPro does not edit, and is told so', !$d['write'] && strpos((string) $d['note'], 'blocked in ElasticPro') !== false, $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'locked' => true]));
@@ -115,7 +134,8 @@ namespace Modules\EpClients\Test {
 	$d = EpRole::decide(4, null);
 	check('a guest never edits', !$d['write'] && $d['why'] === 'no_type');
 	check('the read-only lines are the note, then the reason', EpRole::noteLines(['A.', 'b']) === ['A.', 'Why: b.']
-		&& EpRole::noteLines([null, null]) === ['Read only. Editing needs an ElasticPro admin role (or Zabbix Super admin).']
+		&& EpRole::noteLines([null, null]) === ['Read only. Editing needs an ElasticPro operator role (or Zabbix Super admin).']
+		&& EpRole::noteLines([null, null], EpRole::NEED_ADMIN) === ['Read only. This needs an ElasticPro admin role (or Zabbix Super admin).']
 		&& EpRole::noteLines(null) === EpRole::noteLines([null, null]));
 
 	/* ---------------------------- the request, byte for byte ---------------------------- */
@@ -139,6 +159,9 @@ namespace Modules\EpClients\Test {
 	check('a name with spaces and non-ASCII letters is carried as it is signed',
 		EpRole::claim('Zoë Admin', 2, 5, 'abc') === '{"zabbix_user":"Zoë Admin","zabbix_user_type":2,"ts":5,"nonce":"abc"}');
 	check('a fresh nonce per question: 32 hex characters by default', preg_match('/"nonce":"[0-9a-f]{32}"/', (new EpRole([]))::claim('a', 2, 1, bin2hex(random_bytes(16)))) === 1);
+	check('the role\'s name goes in when there is one, before ts (2.1.13)',
+		EpRole::claim('Zoë Admin', 2, 5, 'abc', ' ES owners ') === '{"zabbix_user":"Zoë Admin","zabbix_user_type":2,"zabbix_role":"ES owners","ts":5,"nonce":"abc"}'
+		&& EpRole::claim('a', 2, 5, 'abc', '') === EpRole::claim('a', 2, 5, 'abc'));
 	check('the consumed nonce is kept in the session', in_array(sprintf('%032x', $nonceSeq), $session['nonces'] ?? [], true), $session);
 	check('TLS is verified as the pairing says', $sent[0]['tls'] === true);
 

@@ -9,6 +9,9 @@ use Modules\EpClients\Lib\{ClusterSecret, DefaultCredential, Discovery, Forecast
 /** The form: empty for a new client, filled for one that exists or a cluster host being taken on. */
 class ClientEdit extends Base {
 
+	/** An operator's page: add, edit, disable, enable, maintenance (EpRole). */
+	protected const NEEDS = \Modules\EpClients\Lib\EpRole::NEED_OPERATOR;
+
 	protected const READ_ONLY_OK = true;
 
 	protected function init(): void {
@@ -147,6 +150,8 @@ class ClientEdit extends Base {
 			'errors' => $errors,
 			'cloned_from' => $clonedFrom,
 			'can_write' => $c->canWrite(),
+			// Decommission, Restore and Delete for good stay an admin's.
+			'can_remove' => $c->canRemove(),
 			'write_note' => $c->writeNote(),
 			'done' => $done
 		]);

@@ -67,6 +67,22 @@ class SsoClient {
 	 *
 	 * @return array{status: int, data: ?array, error: string}  status 0 = never answered.
 	 */
+	/**
+	 * What Zabbix vouches for at a sign-in. The role's name and id go in when they are known
+	 * (2.1.13 on): ElasticPro's role map may name the role, and names a site's own roles; an
+	 * ElasticPro too old to read them ignores them and goes by the user type as before.
+	 */
+	public static function claim(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null): array {
+		$body = ['username' => $username, 'zabbix_user_type' => $user_type, 'groups' => array_values($groups)];
+		if ($role !== null && trim($role) !== '') {
+			$body['zabbix_role'] = trim($role);
+		}
+		if ($roleid !== null && $roleid > 0) {
+			$body['zabbix_roleid'] = $roleid;
+		}
+		return $body + ['ts' => time(), 'nonce' => bin2hex(random_bytes(16))];
+	}
+
 	public static function postSigned(string $url, string $secret, string $body, bool $verify_tls,
 			int $timeout = 5): array {
 		return self::request($url, $verify_tls, $timeout, [
@@ -114,18 +130,12 @@ class SsoClient {
 	 * @param string[] $groups  Names of the Zabbix user groups this user is in.
 	 * @return string|null      A one-time code, or null (see lastError()).
 	 */
-	public function mintCode(string $username, int $user_type, array $groups): ?string {
+	public function mintCode(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null): ?string {
 		if (!$this->isConfigured()) {
 			$this->last_error = 'the module is not configured';
 			return null;
 		}
-		$body = json_encode([
-			'username' => $username,
-			'zabbix_user_type' => $user_type,
-			'groups' => array_values($groups),
-			'ts' => time(),
-			'nonce' => bin2hex(random_bytes(16)),
-		], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		$body = json_encode(self::claim($username, $user_type, $groups, $role, $roleid), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 		if ($body === false) {
 			$this->last_error = 'could not encode the request';
 			return null;

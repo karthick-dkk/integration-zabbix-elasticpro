@@ -64,19 +64,21 @@ class ClientActions {
 	 *
 	 * @param array $c  name, status, maintenance (or null), removed, changed, masterid
 	 * @param string $button  the class of each button
+	 * @param bool $admin  false for an ElasticPro operator: no Decommission, Restore, Delete for
+	 *                     good, Re-create, Accept removal or Put back — those are an admin's (EpRole)
 	 * @return string[]  HTML, one per action
 	 */
-	public static function forClient(array $c, string $button = 'ep-link'): array {
+	public static function forClient(array $c, string $button = 'ep-link', bool $admin = true): array {
 		$name = $c['name'];
 		$v = ['client' => $name];
 		$acts = [];
 		if ($c['status'] === 'active') {
-			if ($c['removed']) {
+			if ($c['removed'] && $admin) {
 				$acts[] = self::post('ep.clients.recreate', _n('Re-create %1$s', 'Re-create %1$s', count($c['removed'])), $v + ['op' => 'recreate'], '', $button);
 				$acts[] = self::post('ep.clients.recreate', _('Accept removal'), $v + ['op' => 'accept'],
 					_s('Accept that these hosts are gone from "%1$s"? %2$s', $name, implode(', ', array_column($c['removed'], 'name'))), $button);
 			}
-			if ($c['changed'] ?? []) {
+			if (($c['changed'] ?? []) && $admin) {
 				$acts[] = self::post('ep.clients.recreate', _('Put back'), $v + ['op' => 'putback'],
 					_s('Rename and regroup the hosts of "%1$s" changed outside this page, as the page last saw them?', $name), $button);
 			}
@@ -91,12 +93,12 @@ class ClientActions {
 		}
 		elseif ($c['status'] === 'disabled') {
 			$acts[] = self::post('ep.clients.status', _('Enable'), $v + ['op' => 'enable'], '', $button);
-			$acts[] = self::post('ep.clients.status', _('Decommission'), $v + ['op' => 'decommission'],
+			if ($admin) $acts[] = self::post('ep.clients.status', _('Decommission'), $v + ['op' => 'decommission'],
 				_s('Decommission "%1$s"? It leaves the main list and the reports; its hosts stay, not monitored, with their history. You can restore it later. A backup is taken first.', $name), $button.' ep-danger');
 		}
 		else {
-			$acts[] = self::post('ep.clients.status', _('Restore'), $v + ['op' => 'restore'], '', $button);
-			$acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-delete="'.self::e($name).'">'.self::e(_('Delete for good…')).'</button>';
+			if ($admin) $acts[] = self::post('ep.clients.status', _('Restore'), $v + ['op' => 'restore'], '', $button);
+			if ($admin) $acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-delete="'.self::e($name).'">'.self::e(_('Delete for good…')).'</button>';
 		}
 		// Last, and for every status: taking the client out of ElasticPro does not depend on whether it is monitored.
 		$acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-release="'.self::e($name).'" title="'.self::e(_('Take it out of Cluster Management only; no host is touched in Zabbix')).'">'

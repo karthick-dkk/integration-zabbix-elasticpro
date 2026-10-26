@@ -38,6 +38,9 @@ foreach ($data['clients'] as $c) {
 $sevNames = [5 => ['D', 'disaster'], 4 => ['H', 'high'], 3 => ['A', 'average'], 2 => ['W', 'warning'], 1 => ['I', 'info']];
 
 $ro = !($data['can_write'] ?? true);
+// An ElasticPro operator adds and edits clients; Discover, Import / export, Roles and the master
+// template stay an admin's, so their buttons are not offered to someone they would only deny.
+$admin = !$ro && (bool) ($data['can_remove'] ?? true);
 $html = [];
 $html[] = '<div class="ep-l'.($ro ? ' ep-ro' : '').'">';
 if ($ro) {
@@ -54,7 +57,7 @@ if (!$data['store_ok']) {
 if ($data['template'] !== 'current') {
 	$html[] = '<div class="ep-note ep-warn">'.$e($data['template'] === 'missing' ? _('The master template is not in Zabbix yet. Every client\'s master host is linked to it: its capacity figures, alerts and dashboard come from there. Write it once, before adding clients; nothing is written until you press the button.')
 		: _('The templates were written for other roles or an older version. Write them again so every client follows the current ones.')).' '
-		.($ro ? '' : $post('ep.clients.template.install', _('Write master template'), [], '', 'ep-btn-alt')).'</div>';
+		.($admin ? $post('ep.clients.template.install', _('Write master template'), [], '', 'ep-btn-alt') : '').'</div>';
 }
 
 $missingN = count(array_filter($data['clients'], fn($c) => !empty($c['missing'])));
@@ -223,14 +226,16 @@ $html[] = '</div>';
 // Backups stays with Super admins (BackupList), so an ElasticPro admin who is a Zabbix Admin edits
 // here without a Backups button that would only answer "Access denied" — as the menu does.
 $controls = new CList();
-if (!$ro) {
+if ($admin) {
 	$controls->addItem(new CRedirectButton(_('Discover clusters'), $url('ep.clients.discover')))
 		->addItem(new CRedirectButton(_('Import / export'), $url('ep.clients.import')));
 	if (($data['backups'] ?? null) !== null) {
 		$controls->addItem(new CRedirectButton(_s('Backups (%1$s)', $data['backups']), $url('ep.clients.backups')));
 	}
-	$controls->addItem(new CRedirectButton(_('Roles'), $url('ep.clients.roles')))
-		->addItem(new CRedirectButton(_('Add client'), $url('ep.clients.edit')));
+	$controls->addItem(new CRedirectButton(_('Roles'), $url('ep.clients.roles')));
+}
+if (!$ro) {
+	$controls->addItem(new CRedirectButton(_('Add client'), $url('ep.clients.edit')));
 }
 (new CHtmlPage())->setTitle(_('Cluster Management'))->setControls((new CTag('nav', true, $controls))->setAttribute('aria-label', _('Content controls')))
 	->addItem(new CObject(implode("\n", $html)))->show();

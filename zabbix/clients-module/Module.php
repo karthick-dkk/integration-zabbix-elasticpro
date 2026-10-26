@@ -64,16 +64,21 @@ class Module extends CoreModule {
 		}
 		$type = (int) CWebUser::getType();
 		// Super admins see everything without asking. Zabbix Admins see the pages that only show,
-		// and the rest when ElasticPro calls them an admin; a Zabbix User sees the section only then.
+		// and the rest when ElasticPro calls them an admin; a Zabbix User sees the section when
+		// ElasticPro calls them an operator (they add and edit clients) or an admin.
 		$may_edit = $type == USER_TYPE_SUPER_ADMIN;
+		$may_show = $may_edit || $type == USER_TYPE_ZABBIX_ADMIN;
 		if (!$may_edit && in_array($type, [USER_TYPE_ZABBIX_ADMIN, USER_TYPE_ZABBIX_USER], true)) {
 			// On this module's own pages the answer is fresh, as the page itself decides; on every
 			// other Zabbix page the last answer is used, and ElasticPro is asked only when there is
 			// none yet — so browsing Zabbix costs one question per session, not one a minute.
 			$own = strncmp($action->getAction(), 'ep.clients.', 11) === 0;
-			$may_edit = EpRole::current()->decision((string) (CWebUser::$data['username'] ?? ''), $type, $own)['write'];
+			$user = (string) (CWebUser::$data['username'] ?? '');
+			$name = EpRole::zabbixRoleName();
+			$may_edit = EpRole::current()->decision($user, $type, $own, EpRole::NEED_ADMIN, $name)['write'];
+			$may_show = $may_show || $may_edit || EpRole::current()->decision($user, $type, $own, EpRole::NEED_OPERATOR, $name)['write'];
 		}
-		if (!$may_edit && $type != USER_TYPE_ZABBIX_ADMIN) {
+		if (!$may_show) {
 			return;
 		}
 		$this->added = true;

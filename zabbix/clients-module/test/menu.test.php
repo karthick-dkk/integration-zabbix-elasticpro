@@ -196,7 +196,8 @@ namespace Modules\EpClients\Test {
 	check('a Zabbix Admin whom ElasticPro calls an operator: the two that only show', $labels($menu) === ['Cluster Management', 'Settings'], $labels($menu));
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_USER);
-	check('a Zabbix User whom ElasticPro calls an operator: nothing', $labels($menu) === null);
+	check('a Zabbix User whom ElasticPro calls an operator: the two that only show, too — they add and edit clients (2.1.13)',
+		$labels($menu) === ['Cluster Management', 'Settings'], $labels($menu));
 	$reply = ['status' => 0, 'data' => null, 'error' => 'Connection refused'];
 	$session = null; elasticpro();
 	$menu = run(sidebar(), USER_TYPE_ZABBIX_ADMIN);
@@ -224,7 +225,8 @@ namespace Modules\EpClients\Test {
 
 	/* ---------------- Backups and the register: Super admins only, whatever ElasticPro says ---------------- */
 	// The pages themselves, not only the sidebar: Zabbix answers 403 when checkPermissions() is false.
-	foreach (['Base', 'BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate', 'RoleList', 'RoleSave', 'TemplateInstall', 'DiscoverList', 'DiscoverApply'] as $a) {
+	foreach (['Base', 'BackupList', 'BackupDownload', 'BackupRestore', 'ClientRecreate', 'RoleList', 'RoleSave', 'TemplateInstall', 'DiscoverList', 'DiscoverApply',
+			'ClientRemove', 'SettingsSave', 'ImportApply', 'ClientList', 'ClientEdit', 'ClientSave', 'ClientStatus'] as $a) {
 		require_once __DIR__.'/../actions/'.$a.'.php';
 	}
 	$allowed = function (string $class): bool {
@@ -248,8 +250,12 @@ namespace Modules\EpClients\Test {
 	$reply = ['status' => 200, 'data' => ['ok' => true, 'role' => 'operator'], 'error' => ''];
 	$session = null; elasticpro();
 	\CWebUser::$type = USER_TYPE_ZABBIX_ADMIN;
-	foreach (['DiscoverList', 'DiscoverApply'] as $a) {
+	foreach (['DiscoverList', 'DiscoverApply', 'ClientRemove', 'RoleSave', 'SettingsSave', 'ImportApply', 'TemplateInstall'] as $a) {
 		check("a Zabbix Admin whom ElasticPro calls an operator is refused $a", !$allowed('Modules\\EpClients\\Actions\\'.$a));
+	}
+	// …but adds, edits, disables and enables clients: those actions ask for an operator (2.1.13).
+	foreach (['ClientList', 'ClientEdit', 'ClientSave', 'ClientStatus'] as $a) {
+		check("a Zabbix Admin whom ElasticPro calls an operator may open $a", $allowed('Modules\\EpClients\\Actions\\'.$a));
 	}
 	\CWebUser::$type = USER_TYPE_SUPER_ADMIN;
 	$menu = run(sidebar(), USER_TYPE_SUPER_ADMIN);

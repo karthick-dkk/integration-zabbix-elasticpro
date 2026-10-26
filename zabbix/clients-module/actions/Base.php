@@ -34,6 +34,12 @@ abstract class Base extends CController {
 
 	/** Pages that only show (the list, a client's page) are open to Zabbix Admins too, read-only. */
 	protected const READ_ONLY_OK = false;
+	/**
+	 * What this action needs of the person's ElasticPro role: admin unless the action says
+	 * operator (add, edit, disable, enable, maintenance — ClientList, ClientEdit, ClientSave,
+	 * ClientStatus). EpRole::decide() is the one rule.
+	 */
+	protected const NEEDS = EpRole::NEED_ADMIN;
 
 	protected function checkPermissions(): bool {
 		return $this->canWrite() || (static::READ_ONLY_OK && $this->getUserType() == USER_TYPE_ZABBIX_ADMIN);
@@ -41,7 +47,16 @@ abstract class Base extends CController {
 
 	/** Who may edit — EpRole::decide(), asked once per request with a fresh answer. */
 	public function writeDecision(): array {
-		return $this->decision ?? ($this->decision = EpRole::current()->decision($this->user(), (int) $this->getUserType()));
+		return $this->decision ?? ($this->decision = EpRole::current()->decision($this->user(), (int) $this->getUserType(), true,
+			static::NEEDS, EpRole::zabbixRoleName()));
+	}
+
+	/**
+	 * Whether this person may do the admin-level things on a page an operator may otherwise
+	 * edit: decommission, restore, delete for good. The same answer, held to the higher bar.
+	 */
+	public function canRemove(): bool {
+		return EpRole::current()->decision($this->user(), (int) $this->getUserType(), true, EpRole::NEED_ADMIN, EpRole::zabbixRoleName())['write'];
 	}
 
 	/**
@@ -52,7 +67,7 @@ abstract class Base extends CController {
 		return $this->getUserType() == USER_TYPE_SUPER_ADMIN;
 	}
 
-	/** A Zabbix Super admin, or someone ElasticPro calls an admin. */
+	/** A Zabbix Super admin, or someone ElasticPro calls what this action needs (NEEDS). */
 	public function canWrite(): bool {
 		return $this->writeDecision()['write'];
 	}
