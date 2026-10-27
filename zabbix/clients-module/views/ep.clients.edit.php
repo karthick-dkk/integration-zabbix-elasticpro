@@ -450,7 +450,7 @@ $html[] = '</div>';
 $html[] = ($ro ? '</fieldset>' : '').'</form>';
 // The Maintenance and Delete dialogs the header's buttons open, outside the form: a dialog of its own, posting for itself.
 if ($editing && !$ro) {
-	$html[] = \Modules\EpClients\Lib\ClientActions::dialogs(true);
+	$html[] = \Modules\EpClients\Lib\ClientActions::dialogs(true, !$ro && (bool) ($data['can_remove'] ?? true));
 }
 $html[] = '</div>';
 

@@ -65,7 +65,8 @@ class ClientActions {
 	 * @param array $c  name, status, maintenance (or null), removed, changed, masterid
 	 * @param string $button  the class of each button
 	 * @param bool $admin  false for an ElasticPro operator: no Decommission, Restore, Delete for
-	 *                     good, Re-create, Accept removal or Put back — those are an admin's (EpRole)
+	 *                     good, Remove only in ElasticPro, Re-create, Accept removal or Put back —
+	 *                     those are an admin's (EpRole); the server refuses them to anyone else
 	 * @return string[]  HTML, one per action
 	 */
 	public static function forClient(array $c, string $button = 'ep-link', bool $admin = true): array {
@@ -100,9 +101,12 @@ class ClientActions {
 			if ($admin) $acts[] = self::post('ep.clients.status', _('Restore'), $v + ['op' => 'restore'], '', $button);
 			if ($admin) $acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-delete="'.self::e($name).'">'.self::e(_('Delete for good…')).'</button>';
 		}
-		// Last, and for every status: taking the client out of ElasticPro does not depend on whether it is monitored.
-		$acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-release="'.self::e($name).'" title="'.self::e(_('Take it out of Cluster Management only; no host is touched in Zabbix')).'">'
-			.self::e(_('Remove only in ElasticPro…')).'</button>';
+		// Last, and for every status: taking the client out of ElasticPro does not depend on whether
+		// it is monitored. It is a removal all the same, so an admin's (ClientRelease refuses others).
+		if ($admin) {
+			$acts[] = '<button type="button" class="'.$button.' ep-danger" data-open-release="'.self::e($name).'" title="'.self::e(_('Take it out of Cluster Management only; no host is touched in Zabbix')).'">'
+				.self::e(_('Remove only in ElasticPro…')).'</button>';
+		}
 		return $acts;
 	}
 
@@ -123,10 +127,12 @@ class ClientActions {
 	}
 
 	/**
-	 * The maintenance dialog (one client, or the ticked ones on the list) and the delete-for-good
-	 * dialog; with $release, the dialog of "Remove only in ElasticPro" too (the client's page only).
+	 * The maintenance dialog (one client, or the ticked ones on the list) and, for an admin, the
+	 * delete-for-good dialog; with $release, the dialog of "Remove only in ElasticPro" too (the
+	 * client's page only). An operator gets the maintenance dialog alone: the page offers them no
+	 * button that would open the other two, so it does not carry them either.
 	 */
-	public static function dialogs(bool $release = false): string {
+	public static function dialogs(bool $release = false, bool $admin = true): string {
 		$e = fn($v) => self::e($v);
 		$h = '<dialog id="ep-maint" class="ep-dialog"><form method="post" action="'.$e(self::url('ep.clients.status')).'">'.self::csrf('ep.clients.status')
 			.'<input type="hidden" name="op" value="maintenance"><div id="ep-maint-who"></div>'
@@ -144,6 +150,9 @@ class ClientActions {
 			.'<p class="ep-sub">'.$e(_('Creates a Zabbix maintenance on the client\'s host group: every host, and any added during it. Problems stay visible, marked as in maintenance. It ends by itself.')).'</p>'
 			.'<div class="ep-dfoot"><button type="button" class="ep-btn-alt" data-close>'.$e(_('Cancel')).'</button><button type="submit">'.$e(_('Start maintenance')).'</button></div></form></dialog>';
 
+		if (!$admin) {
+			return $h;
+		}
 		// Delete for good: the name typed to confirm.
 		$h .= '<dialog id="ep-delete" class="ep-dialog"><form method="post" action="'.$e(self::url('ep.clients.remove')).'">'.self::csrf('ep.clients.remove')
 			.'<input type="hidden" name="client" id="d-client"><h3>'.$e(_('Delete for good')).'</h3>'
