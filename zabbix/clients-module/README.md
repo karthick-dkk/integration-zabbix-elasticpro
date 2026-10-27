@@ -206,7 +206,7 @@ still owns the hosts and host groups; operators since 2.1.13):
 |---|---|---|
 | Super admin | (not asked) | everything |
 | Admin or User | `admin`, not blocked or locked, signed answer over https with verification, a loopback core or a `trusted_plain_hosts` host | everything but Backups and Re-create — within their Zabbix rights (below) |
-| Admin or User | `operator`, the same conditions | adds, edits, clones, disables, enables and sets maintenance on clients; not Decommission, Restore, Delete for good, Discover, Import / export, Roles, Settings or the master template |
+| Admin or User | `operator`, the same conditions | adds, edits, clones, disables, enables and sets maintenance on clients; not Decommission, Restore, Delete for good, Remove only in ElasticPro, Discover, Import / export, Roles, Settings or the master template (since 2.1.14 the page offers none of their buttons or links) |
 | Admin | `user`, `guest`, blocked or locked | reads |
 | Admin or User | never seen them sign in (`role: null`) | as what ElasticPro's role map (its Accounts page) would make them at a first sign-in (`zabbix_role` in the answer) — under the shipped map a Zabbix Admin is an operator, a Zabbix User a user |
 | Admin | could not be asked | reads, and the page says *"ElasticPro could not be asked who may edit; only Super admins can edit until it answers."* (the reason goes to the server log) |

@@ -68,8 +68,9 @@ $html[] = '<div class="ep-tools">'
 	.'<div class="ep-seg" role="group" aria-label="'.$e(_('Filter')).'">'
 	.'<button type="button" data-filter="all" aria-pressed="true">'.$e(_('All')).'<span class="ep-c">'.count($data['clients']).'</span></button>'
 	.'<button type="button" data-filter="missing" aria-pressed="false">'.$e(_('Missing')).'<span class="ep-c">'.$missingN.'</span></button>'
-	.'<a href="'.$e($url('ep.clients.discover')).'" title="'.$e(_('Hosts not yet adopted are on Discover, not here.')).'">'.$e(_('Not adopted'))
-		.'<span class="ep-c">'.($data['not_adopted'] === null ? '?' : (int) $data['not_adopted']).'</span></a>'
+	.($admin ? '<a href="'.$e($url('ep.clients.discover')).'" title="'.$e(_('Hosts not yet adopted are on Discover, not here.')).'">'
+		: '<span title="'.$e(_('Hosts not yet adopted: an administrator brings them in on Discover.')).'">').$e(_('Not adopted'))
+		.'<span class="ep-c">'.($data['not_adopted'] === null ? '?' : (int) $data['not_adopted']).'</span>'.($admin ? '</a>' : '</span>')
 	.'<button type="button" data-filter="old" aria-pressed="false">'.$e(_('Old templates')).'<span class="ep-c">'.$oldN.'</span></button>'
 	.'</div>'
 	.'<label class="ep-status"><span class="ep-sub">'.$e(_('Status')).'</span><select id="ep-status">'
@@ -124,7 +125,8 @@ foreach ($shown as $col) {
 $head .= '<th class="ep-act">'.$e(_('Edit')).'</th>';
 $html[] = '<div class="ep-table-wrap"><table class="ep-t"><thead><tr>'.$head.'</tr></thead><tbody>';
 if (!$data['clients']) {
-	$html[] = '<tr><td colspan="'.(count($shown) + 3).'" class="ep-empty">'.$e(_('No clients yet. Discover the clusters Zabbix already has, add one, or import a workbook.')).'</td></tr>';
+	$html[] = '<tr><td colspan="'.(count($shown) + 3).'" class="ep-empty">'.$e($admin ? _('No clients yet. Discover the clusters Zabbix already has, add one, or import a workbook.')
+		: _('No clients yet. Add one; an administrator can discover the clusters Zabbix already has, or import a workbook.')).'</td></tr>';
 }
 $ago = function (?int $t) use ($now, $e): string {
 	if ($t === null) {
@@ -207,9 +209,10 @@ $hiddenRoles = array_values(array_map(fn($col) => $col['label'], array_filter($c
 $html[] = '<div class="ep-foot">'
 	.'<div class="ep-sumline"><b>'.$e(_n('%1$s client', '%1$s clients', count($data['clients']))).'</b><span class="ep-sub" aria-hidden="true">·</span>'
 	.'<button type="button" class="ep-link" data-filter="missing">'.$e(_n('%1$s with missing pieces', '%1$s with missing pieces', $missingN)).'</button><span class="ep-sub" aria-hidden="true">·</span>'
-	.'<a href="'.$e($url('ep.clients.discover')).'">'.($data['not_adopted'] === null ? $e(_('hosts not adopted: see')) : '<b>'.$e(_n('%1$s host not adopted', '%1$s hosts not adopted', (int) $data['not_adopted'])).'</b>')
-	.' → '.$e(_('Discover')).'</a></div>'
-	.'<div class="ep-sub"><span id="ep-showing" data-of="'.count($data['clients']).'"></span> '.$e(_('Hosts not yet adopted are on Discover, not here.'))
+	.($admin ? '<a href="'.$e($url('ep.clients.discover')).'">'.($data['not_adopted'] === null ? $e(_('hosts not adopted: see')) : '<b>'.$e(_n('%1$s host not adopted', '%1$s hosts not adopted', (int) $data['not_adopted'])).'</b>')
+		.' → '.$e(_('Discover')).'</a>'
+		: '<span>'.($data['not_adopted'] === null ? $e(_('hosts not adopted: unknown')) : '<b>'.$e(_n('%1$s host not adopted', '%1$s hosts not adopted', (int) $data['not_adopted'])).'</b>').'</span>').'</div>'
+	.'<div class="ep-sub"><span id="ep-showing" data-of="'.count($data['clients']).'"></span> '.$e($admin ? _('Hosts not yet adopted are on Discover, not here.') : _('Hosts not yet adopted: an administrator brings them in on Discover.'))
 	.($hiddenRoles ? ' <b>'.$e(_n('%1$s role column hidden:', '%1$s role columns hidden:', count($hiddenRoles))).'</b> '.$e(implode(', ', $hiddenRoles)).'. '
 		.$e(_('No listed client has a server in them; each appears by itself once one does.')) : '').'</div>'
 	.'<div class="ep-key ep-sub"><b>'.$e(_('Key')).'</b> <span><span class="ep-cnt">5</span> '.$e(_('servers in that role; hover for IP · server name')).'</span> '
@@ -219,7 +222,7 @@ $html[] = '<div class="ep-foot">'
 	.'</div>';
 
 if (!$ro) {
-	$html[] = \Modules\EpClients\Lib\ClientActions::dialogs();
+	$html[] = \Modules\EpClients\Lib\ClientActions::dialogs(false, $admin);
 }
 $html[] = '</div>';
 

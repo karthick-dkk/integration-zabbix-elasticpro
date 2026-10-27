@@ -225,6 +225,22 @@ namespace Modules\EpClients\Test {
 	check('it is offered for every status', str_contains(render('ep.clients.edit', $edit(['status' => 'disabled'])), 'data-open-release="acme"')
 		&& str_contains(render('ep.clients.edit', $edit(['status' => 'decommissioned'])), 'data-open-release="acme"'));
 	check('the list does not offer it', !str_contains($lb, 'data-open-release') && !str_contains($lb, 'id="ep-release"'));
+	/* ---- an ElasticPro operator (can_remove false): edits, no removals, no links to admin pages ---- */
+	$ope = body(render('ep.clients.edit', $edit(['can_remove' => false])));
+	check('operator: Maintenance, Disable, Clone and Dashboard, but no Remove only in ElasticPro and no removal dialogs',
+		str_contains($ope, 'data-open-maint="acme"') && str_contains($ope, 'name="op" value="disable"') && str_contains($ope, '>Clone<') && str_contains($ope, 'host.dashboard.view')
+		&& str_contains($ope, 'id="ep-maint"') && !str_contains($ope, 'data-open-release') && !str_contains($ope, 'id="ep-release"') && !str_contains($ope, 'id="ep-delete"'), $ope);
+	$opg = body(render('ep.clients.edit', $edit(['status' => 'decommissioned', 'can_remove' => false])));
+	check('operator: a decommissioned client offers neither Restore nor Delete for good', !str_contains($opg, 'name="op" value="restore"') && !str_contains($opg, 'data-open-delete') && !str_contains($opg, 'id="ep-delete"'));
+	$opl = body(render('ep.clients.list', ['can_remove' => false] + $listData(true)));
+	check('operator: the list links nowhere an operator is refused — no Discover, Import, Roles, Backups or master template, no delete dialog',
+		!str_contains($opl, 'ep.clients.discover') && !str_contains($opl, 'ep.clients.import') && !str_contains($opl, 'ep.clients.roles') && !str_contains($opl, 'ep.clients.backups')
+		&& !str_contains($opl, 'ep.clients.template.install') && !str_contains($opl, 'id="ep-delete"') && str_contains($opl, 'id="ep-maint"') && str_contains($opl, 'id="ep-bulk"'), $opl);
+	check('operator: the Not adopted count stays, as text, and the footer says who brings hosts in',
+		str_contains($opl, '>Not adopted<span class="ep-c">3</span></span>') && str_contains($opl, 'an administrator brings them in on Discover') && !str_contains($opl, '→ Discover'));
+	$ope0 = body(render('ep.clients.list', ['can_remove' => false, 'clients' => []] + $listData(true)));
+	check('operator: the empty list does not send them to Discover', str_contains($ope0, 'No clients yet. Add one; an administrator can discover') && !str_contains($ope0, 'ep.clients.discover'));
+	check('admin: the list still links to Discover and carries the delete dialog', str_contains($lb, 'ep.clients.discover') && str_contains($lb, 'id="ep-delete"') && str_contains($lb, '→ Discover'));
 	$off = render('ep.clients.edit', $edit(['status' => 'disabled']));
 	check('disabled: the badge, and Enable and Decommission instead of Disable', str_contains($off, 'ep-st-off') && str_contains($off, '>Disabled<') && str_contains($off, 'name="op" value="enable"')
 		&& str_contains($off, 'name="op" value="decommission"') && !str_contains(body($off), 'name="op" value="disable"'));

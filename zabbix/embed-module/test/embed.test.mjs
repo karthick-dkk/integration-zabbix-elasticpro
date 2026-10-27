@@ -67,5 +67,7 @@ test('sync-role.json: the one API identity, read methods plus history.push and n
     assert.ok(/^[a-z]+\.get$/.test(m) || m === 'history.push', `${m} is neither a read method nor history.push`);
   }
   assert.ok(spec.methods.includes('history.push'), 'history.push is missing (the request gate push needs it)');
+  // The core lists the Zabbix roles for its role map (Accounts page) with the paired token.
+  assert.ok(spec.methods.includes('role.get'), 'role.get is missing (the role map lists Zabbix roles with it)');
   assert.equal(new Set(spec.methods).size, spec.methods.length);
 });

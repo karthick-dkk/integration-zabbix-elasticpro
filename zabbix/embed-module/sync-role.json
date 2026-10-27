@@ -6,6 +6,15 @@
     "noFrontendGroup": "No access to the frontend",
     "scriptTokenName": "elasticpro",
     "pairedTokenPrefix": "elasticpro-paired-",
-    "_methods_comment": "Read methods for the cluster sync, plus history.push for the core's own request figures (ZABBIX_METRICS_HOST, template ElasticPro request gate by Zabbix trapper). The role is Super admin type, so history.push lets this token write to any trapper item in Zabbix; it still cannot change configuration.",
-    "methods": ["host.get", "template.get", "usergroup.get", "usermacro.get", "hostgroup.get", "item.get", "history.push"]
+    "_methods_comment": "Read methods for the cluster sync, plus history.push for the core's own request figures (ZABBIX_METRICS_HOST, template ElasticPro request gate by Zabbix trapper). The role is Super admin type, so history.push lets this token write to any trapper item in Zabbix; it still cannot change configuration. role.get lets the core list the Zabbix roles for its role map (Accounts page, ElasticPro 0.3.40); a site paired before 2.1.14 gets it by pairing again (the pairing updates the role) or by adding role.get to the role by hand.",
+    "methods": [
+        "host.get",
+        "template.get",
+        "usergroup.get",
+        "usermacro.get",
+        "hostgroup.get",
+        "item.get",
+        "history.push",
+        "role.get"
+    ]
 }
