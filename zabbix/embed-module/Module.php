@@ -12,7 +12,7 @@ use Zabbix\Core\CModule as CoreModule;
  * Adds "ElasticPro" to the Zabbix main menu, right after Monitoring.
  *
  * The menu offers the pages people open from Zabbix directly: Clusters, Indices, Snapshots,
- * REST console and, for Super admins, Config (Cluster Management, the Clients module, joins
+ * REST console, Play and, for Super admins, Config (Cluster Management, the Clients module, joins
  * them). Every other page — Alerts, Nodes & shards, Live logs, Volume report, Automation,
  * Accounts — is reached inside ElasticPro, from its own tabs, as when it runs on its own;
  * each still has its action, so a link to it (a Zabbix problem's troubleshoot link) works.
@@ -36,10 +36,15 @@ class Module extends CoreModule {
 		'volume'     => 'Volume report',
 		'console'    => 'REST console',
 		'automation' => 'Automation',
+		'play'       => 'Play',
 	];
 
-	/** The pages in the Zabbix menu, in menu order. The rest are tabs inside the app. */
-	public const MENU = ['overview', 'indices', 'snapshots', 'console'];
+	/**
+	 * The pages in the Zabbix menu, in menu order. The rest are tabs inside the app. Play is the
+	 * NOC wall display (ElasticPro 0.3.47+, `#/play`); the "ElasticPro Play" dashboard widget
+	 * (play-widget, installed as `ep_play`) opens the same page through PlayFrame.
+	 */
+	public const MENU = ['overview', 'indices', 'snapshots', 'console', 'play'];
 
 	/** Pages only a Super admin is offered. */
 	public const ADMIN_PAGES = [
@@ -48,6 +53,11 @@ class Module extends CoreModule {
 	];
 
 	public function init(): void {
+		// The guest user has no ElasticPro role (Lib\SignIn::mayOpen): offer nothing it is refused.
+		require_once __DIR__.'/lib/SignIn.php';
+		if (!Lib\SignIn::mayOpen()) {
+			return;
+		}
 		$items = [];
 		// The other pages' actions stay aliases of Clusters, so the menu marks where you are.
 		$others = array_map(fn($id) => 'elasticpro.'.$id, array_diff(array_keys(self::PAGES), self::MENU));

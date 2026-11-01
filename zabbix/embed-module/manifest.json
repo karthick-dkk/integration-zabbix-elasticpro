@@ -2,7 +2,7 @@
     "manifest_version": 2.0,
     "id": "elasticpro",
     "name": "ElasticPro",
-    "version": "2.1.14",
+    "version": "2.1.15",
     "namespace": "ElasticPro",
     "author": "ElasticPro",
     "url": "https://github.com/karthick-dkk/elasticpro",
@@ -20,6 +20,8 @@
         "elasticpro.accounts":   { "class": "View", "view": "elasticpro.embed", "layout": "layout.htmlpage" },
         "elasticpro.settings":   { "class": "View", "view": "elasticpro.embed", "layout": "layout.htmlpage" },
         "elasticpro.troubleshoot": { "class": "View", "view": "elasticpro.embed", "layout": "layout.htmlpage" },
+        "elasticpro.play":       { "class": "View", "view": "elasticpro.embed", "layout": "layout.htmlpage" },
+        "elasticpro.play.frame": { "class": "PlayFrame", "layout": "layout.json" },
         "elasticpro.link.edit":   { "class": "LinkEdit", "view": "elasticpro.link.edit", "layout": "layout.htmlpage" },
         "elasticpro.link.update": { "class": "LinkUpdate" }
     },

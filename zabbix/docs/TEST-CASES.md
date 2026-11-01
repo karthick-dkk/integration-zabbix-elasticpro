@@ -12,6 +12,7 @@ PostgreSQL 16. Frontend root `/usr/share/zabbix` (there is **no** `ui/` subdirec
 | `ep_resources` | `ep_resources` | *Client resources* dashboard widget |
 | `ep_volume` | `ep_volume` | *Volume report* dashboard widget |
 | `elasticpro` | *third party* | embeds the ElasticPro web app; creates its own **ElasticPro** menu section in `init()` |
+| `ep_play` | `ep_play` | *ElasticPro Play* dashboard widget (2.1.15); signs in through `elasticpro` |
 
 **Audience.** A QA engineer with Zabbix Super admin and Zabbix Admin credentials and no knowledge
 of this codebase. Every expected value below is taken from the shipped code; where a judgement
@@ -740,6 +741,34 @@ CPU, memory and disk figures, one without a memory figure, and one with the item
 | TH-06 | Three views | View: List with bars / Table / Bar chart | Apply each | The same ranking drawn three ways; hosts link to Latest data; the level colours are the palette's | the design | P1 |
 | TH-07 | Warn / High | empty, then 50 / 70 | Apply | Empty follows Settings (placeholder says the value); typed applies to the percentages ranked; a client's own macros still win | precedence | P1 |
 | TH-08 | JVM heap from the cluster host | a client whose cluster host has *Elasticsearch Cluster by HTTP* (nodes discovered); servers without it | Rank by JVM heap | Each server whose host name is a node's name shows that node's heap; a node that names no server is listed as itself (*<client> · ES node*); with no Elasticsearch template linked anywhere the pane says so and names the template — never an empty list | where the item really is | **P1** |
+
+## 12c. Play inside Zabbix (2.1.15)
+
+Needs ElasticPro 0.3.47+ paired with this Zabbix, `elasticpro` and `ep_play` enabled, and three
+users: a Super admin, a Zabbix User in a group mapped to one cluster, and a user whose role denies
+the `elasticpro` module (*Users → User roles → Access to modules*). One dashboard with two *ElasticPro
+Play* widgets on page 1 and any widget on page 2. Use the browser's developer tools (Network,
+Elements) where a step says so.
+
+| ID | What | Precondition | Steps | Expected | Why it matters | Pri |
+|---|---|---|---|---|---|---|
+| PL-01 | Menu entry | any user who sees the ElasticPro menu | Open **ElasticPro → Play** | Play fills the main column, slides turning; the entry is highlighted; no login form; the browser tab reads *ElasticPro — Play* | the menu deliverable | **P1** |
+| PL-02 | Same scope as the pages | the Zabbix User | ElasticPro → Play | The Fleet wall shows only their cluster — the same set as ElasticPro → Clusters | no new permission model | **P1** |
+| PL-03 | Full screen saves nothing | PL-01; note `web.layout.mode` for the user (`SELECT value_int FROM profiles WHERE idx='web.layout.mode' AND userid=<id>`, none or 0) | Open `zabbix.php?action=elasticpro.play&fullscreen=1`, then close the tab **without pressing anything**; open any dashboard, Problems and Maps | Full screen: no sidebar, no header, an *Exit full screen* link (top right) that opens the normal page. Afterwards every page is in the normal layout and `web.layout.mode` is unchanged (no row, or the same value). No URL from the module carries `kiosk` | Zabbix saves `kiosk` into the profile on every request | **P1** |
+| PL-04 | Widget signs in | the Zabbix User, the dashboard | Open the dashboard; Network tab | One POST `zabbix.php?action=elasticpro.play.frame` per widget, answered `{"url": …, "origin": …}`; each widget shows Play; the widget's HTML (`widget.ep_play.view` answer) contains no `sso_code` | the HTML carries no code | **P1** |
+| PL-05 | CSRF checked | PL-04 | Replay the POST with `_csrf_token` removed or changed (curl with the session cookie) | Zabbix refuses it (not JSON with a `url`) | it mints a sign-in | **P1** |
+| PL-06 | Refresh keeps Play | widget *Refresh interval* 30 s | Wait two minutes | The slide engine is not restarted (the dots keep moving on; no new POST) | a wall display runs for hours | P2 |
+| PL-07 | Page out of view | page 2 exists | Go to page 2, wait, back to page 1 | On page 2 the Play frames are `about:blank` (Elements); back on page 1 each widget POSTs once more and shows Play | no hidden polling | P2 |
+| PL-08 | Session ended | PL-04 | Restart the ElasticPro core | Each widget signs itself in again within seconds (one POST each); no login form in a widget | reauth | **P1** |
+| PL-09 | Reauth loop ends | unpair, or change ElasticPro's pairing secret | Reload the dashboard and wait | After three attempts in a minute the widget shows **EP-703** and stops; the other widget does the same independently | no reload loop | P2 |
+| PL-10 | Not paired | remove the pairing (Administration → ElasticPro) | Open the dashboard as the Super admin, then as the Zabbix User | **EP-701** with *Pair it under Administration → ElasticPro* / *A Zabbix Super admin pairs it…* | same codes as the pages | P2 |
+| PL-11 | Module denied | the user whose role denies `elasticpro` | Open the dashboard | The widget says the ElasticPro module is not available, naming **both** causes (not enabled, or not allowed for your user role); no POST; ElasticPro → Play is not offered | Zabbix does not load a module a role denies | **P1** |
+| PL-12 | Module disabled | disable `elasticpro` | Open the dashboard | The same message as PL-11, naming Administration → General → Modules; no POST | says what fixes it | P2 |
+| PL-13 | Open full screen | PL-04 | Hover the widget, press *Open full screen* | A new tab with `elasticpro.play&fullscreen=1` (PL-03) | the link deliverable | P2 |
+| PL-14 | Headers unchanged | — | `curl -sI` ElasticPro's public URL | `Content-Security-Policy: frame-ancestors <paired Zabbix origin>` exactly as before the upgrade; Zabbix's own `X-Frame-Options` unchanged | nothing loosened | **P1** |
+| PL-15 | Older ElasticPro | ElasticPro < 0.3.47 | ElasticPro → Play | ElasticPro's own page for an unknown route (no Play) — note it; nothing in Zabbix breaks | needs 0.3.47 | P3 |
+| PL-16 | Guest | guest frontend access enabled (*Users → Authentication* / guest user enabled), the dashboard shared with the guests group | Open the dashboard and `zabbix.php?action=elasticpro.play` signed out (as guest); POST `elasticpro.play.frame` with guest's session | The widget says Play is not available to the guest user; the page is Zabbix's *Access denied*; the POST is refused; no ElasticPro menu; ElasticPro's Accounts page has **no** `guest@zabbix` | guest must not get an ElasticPro account | **P1** |
+| PL-17 | Refusal reason only for Super admins | stop the ElasticPro core, or point `core_url` at a dead address | Open ElasticPro → Play and the widget, as the Zabbix User, then as the Super admin | Zabbix User: *ElasticPro could not sign you in. (EP-702)* and *A Zabbix Super admin sees the reason…* — no core address; Super admin: the full reason (*could not reach ElasticPro at …*) | the reason can name the internal core address | P2 |
 
 ## 13. Regression watch-list
 
