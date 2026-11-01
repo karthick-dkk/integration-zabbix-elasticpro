@@ -20,10 +20,11 @@ use Modules\ElasticPro\Module;
  * and the Play widget share). Codes are single-use and cheap, and a page that carried a
  * long-lived session in its HTML would be a session anyone with the page source could reuse.
  *
- * `elasticpro.play` opens Play, ElasticPro's NOC wall display (`#/play`). With `kiosk=1`
- * (the Play widget's "Open full screen") it opens in Zabbix's kiosk mode, for this page
- * only: no sidebar, no header, and Zabbix's own "Normal view" button to leave it. The
- * person's saved layout mode is not changed.
+ * `elasticpro.play` opens Play, ElasticPro's NOC wall display (`#/play`). With `fullscreen=1`
+ * (the Play widget's "Open full screen") this one response is drawn without Zabbix's sidebar
+ * and header, with an "Exit full screen" link back to plain `elasticpro.play`. Not `kiosk=1`:
+ * Zabbix saves that parameter into the person's profile on every request (web.layout.mode),
+ * which would put every other page they open into kiosk mode too.
  */
 class View extends CController {
 
@@ -38,7 +39,7 @@ class View extends CController {
 	 * The troubleshoot action takes what a Zabbix problem says about itself, filled in by the
 	 * "Troubleshoot in ElasticPro" script. All of it is passed to the app as text, which
 	 * treats it as a hint — the cluster is still one this user can see, or none. The Play
-	 * page takes `kiosk`.
+	 * page takes `fullscreen`.
 	 */
 	protected function checkInput(): bool {
 		return $this->validateInput([
@@ -46,13 +47,13 @@ class View extends CController {
 			'client' => 'string',
 			'rule' => 'string',
 			'problem' => 'string',
-			'kiosk' => 'in 0,1',
+			'fullscreen' => 'in 0,1',
 		]);
 	}
 
-	/** Play asked for full screen (kiosk mode, this page only). */
-	private function kiosk(): bool {
-		return $this->page() === 'play' && (string) $this->getInput('kiosk', '0') === '1';
+	/** Play asked for full screen (this response only; nothing is saved). */
+	private function fullscreen(): bool {
+		return $this->page() === 'play' && (string) $this->getInput('fullscreen', '0') === '1';
 	}
 
 	/** The troubleshoot request, trimmed to what a URL should carry. */
@@ -77,8 +78,9 @@ class View extends CController {
 	}
 
 	protected function checkPermissions(): bool {
-		// Guests have no ElasticPro role at all.
-		if ($this->getUserType() < USER_TYPE_ZABBIX_USER) {
+		// Guests have no ElasticPro role at all (SignIn::mayOpen: nor the guest user, whose
+		// role is of the User type).
+		if (!SignIn::mayOpen()) {
 			return false;
 		}
 		if (array_key_exists($this->page(), Module::ADMIN_PAGES)) {
@@ -119,8 +121,9 @@ class View extends CController {
 			'configured' => $sign['configured'],
 			'frame_url' => $sign['url'],
 			'origin' => SignIn::origin($sign['public_url']),
-			'error' => $sign['error'],
-			'kiosk' => $this->kiosk(),
+			// The reason in full for a Super admin; ElasticPro's own codes only for anyone else.
+			'error' => SignIn::reason($sign['error'], $this->getUserType() == USER_TYPE_SUPER_ADMIN),
+			'fullscreen' => $this->fullscreen(),
 		]);
 		$response->setTitle('ElasticPro — '.($this->trouble() ? 'Troubleshoot' : $labels[$page]));
 		$this->setResponse($response);

@@ -6,7 +6,8 @@ use APP,
 	CControllerDashboardWidgetView,
 	CControllerResponseData,
 	CCsrfTokenHelper,
-	CUrl;
+	CUrl,
+	CWebUser;
 
 /**
  * ElasticPro Play in a dashboard widget: a frame sized to the widget, showing the same page as
@@ -43,8 +44,12 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'play' => null,
 			'user' => ['debug_mode' => $this->getDebugMode()]
 		];
-		if (!self::embedEnabled()) {
-			$data['error'] = _('ElasticPro Play opens through the ElasticPro module (installed as "elasticpro"), which is not enabled in this Zabbix. A Zabbix Super admin enables it under Administration → General → Modules, then pairs it under Administration → ElasticPro.');
+		if (CWebUser::isGuest()) {
+			// The guest user has no ElasticPro role; the ElasticPro module refuses it too.
+			$data['error'] = _('ElasticPro Play is not available to the guest user. Sign in to Zabbix to see it.');
+		}
+		elseif (!self::embedAvailable()) {
+			$data['error'] = self::unavailableMessage();
 		}
 		else {
 			$data['play'] = self::play(CCsrfTokenHelper::get(self::FRAME_ACTION));
@@ -52,9 +57,17 @@ class WidgetView extends CControllerDashboardWidgetView {
 		$this->setResponse(new CControllerResponseData($data));
 	}
 
-	/** Is the ElasticPro module there and enabled? Zabbix loads only the enabled modules. */
-	protected static function embedEnabled(): bool {
+	/**
+	 * Can this user reach the ElasticPro module? Zabbix loads only the modules that are enabled
+	 * AND that this user's role may access, so "no" has two causes this cannot tell apart.
+	 */
+	protected static function embedAvailable(): bool {
 		return APP::ModuleManager()->getModule(self::EMBED_MODULE) !== null;
+	}
+
+	/** Why the widget cannot open Play when the module is not loaded for this user: both causes. */
+	public static function unavailableMessage(): string {
+		return _('ElasticPro Play opens through the ElasticPro module (installed as "elasticpro"), which is not available to you: either it is not enabled in this Zabbix (a Zabbix Super admin enables it under Administration → General → Modules, then pairs it under Administration → ElasticPro), or your Zabbix user role does not allow it (Users → User roles → Access to modules).');
 	}
 
 	/**
@@ -68,7 +81,8 @@ class WidgetView extends CControllerDashboardWidgetView {
 			'csrf' => $csrf_token,
 			'full_url' => (new CUrl('zabbix.php'))
 				->setArgument('action', self::PAGE_ACTION)
-				->setArgument('kiosk', '1')
+				// Not `kiosk`: Zabbix would save that into the person's profile (web.layout.mode).
+				->setArgument('fullscreen', '1')
 				->getUrl()
 		];
 	}

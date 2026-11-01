@@ -1,7 +1,7 @@
 <?php declare(strict_types = 1);
 /**
  * @var CView $this
- * @var array $data  ['configured', 'frame_url', 'origin', 'error', 'kiosk']
+ * @var array $data  ['configured', 'frame_url', 'origin', 'error', 'fullscreen']
  *
  * Each failure here carries an error code from the module's range, 7xx (the core uses
  * 1xx-5xx, the ElasticPro page 6xx; docs/ERROR-CODES.md in the ElasticPro repository lists them all):
@@ -27,7 +27,11 @@ elseif ($data['frame_url'] === null) {
 	$body = (new CDiv([
 		new CTag('b', true, _('ElasticPro could not sign you in.').' (EP-702)'),
 		BR(),
-		$data['error']
+		// The reason in full for a Super admin; for other users only ElasticPro's own codes in it
+		// (SignIn::reason): it can name the core's internal address.
+		$data['error'] !== '' ? $data['error'] : null,
+		CWebUser::getType() == USER_TYPE_SUPER_ADMIN ? null
+			: [$data['error'] !== '' ? BR() : null, _('A Zabbix Super admin sees the reason on this page.')]
 	]))->addClass('ep-error');
 }
 else {
@@ -39,22 +43,30 @@ else {
 		->addClass('ep-frame');
 }
 
-// Play's "Open full screen" (kiosk=1): Zabbix's kiosk mode for this page only — no sidebar
-// and no header, with Zabbix's own "Normal view" button (layout.mode.js) to leave it. A Zabbix
-// without CView::setLayoutMode() opens the page in the normal layout instead.
-$layout_mode = ZBX_LAYOUT_NORMAL;
-if ($data['kiosk'] && method_exists($this, 'setLayoutMode')) {
+// Play's "Open full screen" (fullscreen=1): this one response is drawn without Zabbix's sidebar
+// and header — the view's layout mode, set for this response only (CView::setLayoutMode writes
+// nothing) — with our own "Exit full screen" link back to plain elasticpro.play. Zabbix's
+// `kiosk` URL parameter and its layout.mode.js are deliberately not used: Zabbix saves `kiosk`
+// into the person's profile (web.layout.mode) on every request, so every page they opened
+// afterwards would be in kiosk mode too. A Zabbix without CView::setLayoutMode() draws the page
+// in the normal layout.
+$fullscreen = $data['fullscreen'] && method_exists($this, 'setLayoutMode');
+if ($fullscreen) {
 	$this->enableLayoutModes();
 	$this->setLayoutMode(ZBX_LAYOUT_KIOSKMODE);
-	$this->addJsFile('layout.mode.js');
-	$layout_mode = $this->getLayoutMode();
 }
 
 // No setTitle(): that draws a heading over the frame, and the page is the frame. The
-// browser tab still gets the name, from the response (see View::doAction).
+// browser tab still gets the name, from the response (see View::doAction). The page itself stays
+// in the normal mode, so Zabbix adds none of its own kiosk controls.
 (new CHtmlPage())
-	->setWebLayoutMode($layout_mode)
-	->addItem((new CDiv($body))->addClass('ep-wrap')->addClass($layout_mode == ZBX_LAYOUT_KIOSKMODE ? 'ep-kiosk' : null))
+	->addItem((new CDiv([
+		$body,
+		$fullscreen
+			? (new CLink(_('Exit full screen'), (new CUrl('zabbix.php'))->setArgument('action', 'elasticpro.play')))
+				->addClass('ep-exit-full')
+			: null
+	]))->addClass('ep-wrap')->addClass($fullscreen ? 'ep-full' : null))
 	->show();
 $origin = $data['origin'];
 ?>
@@ -105,7 +117,12 @@ $origin = $data['origin'];
 	.wrapper main { padding: 0 !important; }
 	.ep-wrap { display: flex; flex: 1 1 auto; min-height: calc(100vh - 60px); }
 	.ep-frame { flex: 1 1 auto; width: 100%; min-height: calc(100vh - 60px); border: 0; }
-	.ep-wrap.ep-kiosk, .ep-kiosk .ep-frame { min-height: 100vh; }
+	.ep-wrap.ep-full, .ep-full .ep-frame { min-height: 100vh; }
+	.ep-wrap.ep-full { position: relative; }
+	.ep-exit-full { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 3px 10px; border-radius: 3px;
+	                font-size: 12px; background: rgba(0, 0, 0, .55); color: #fff !important; text-decoration: none;
+	                opacity: .35; transition: opacity .15s; }
+	.ep-exit-full:hover, .ep-exit-full:focus { opacity: 1; }
 	.ep-error { margin: 40px auto; max-width: 640px; padding: 14px 16px; border-radius: 4px;
 	             border: 1px solid #e45959; background: #fef6f6; color: #7a2020; line-height: 1.6; }
 </style>

@@ -74,6 +74,13 @@ test('the HTML carries no address, code or secret: the frame starts empty and th
   assert.match(php, /EMBED_MODULE = 'elasticpro'/);
   assert.match(php, /CCsrfTokenHelper::get\(self::FRAME_ACTION\)/, 'the POST carries this user\'s CSRF token for that action');
   assert.doesNotMatch(php, /SsoClient|mintCode|sso_code|DBselect/, 'the sign-in is the ElasticPro module\'s alone');
+  assert.match(php, /->setArgument\('fullscreen', '1'\)/, 'full screen without Zabbix\'s profile-saving `kiosk`');
+  assert.doesNotMatch(php, /setArgument\('kiosk'/);
+  // Zabbix loads only the modules that are enabled AND allowed for the user's role: name both.
+  const msg = php.slice(php.indexOf('function unavailableMessage('));
+  assert.match(msg, /not enabled in this Zabbix/);
+  assert.match(msg, /your Zabbix user role does not allow it/);
+  assert.match(php, /if \(CWebUser::isGuest\(\)\) \{/, 'the guest user is told, and nothing is asked');
   // The actions the widget names are the ElasticPro module's own.
   const embed = JSON.parse(fs.readFileSync(path.join(ROOT, 'embed-module/manifest.json'), 'utf8'));
   assert.equal(embed.id, 'elasticpro');
@@ -86,8 +93,8 @@ test('the HTML carries no address, code or secret: the frame starts empty and th
 const ORIGIN = 'https://ep.example.com:8443';
 const URL1 = `${ORIGIN}/?sso_code=c1&embed=1&zbx_theme=dark-theme#/play`;
 const BODY = '<div class="ep-play"><iframe class="ep-play-frame" title="ElasticPro Play" referrerpolicy="no-referrer"></iframe>'
-  + '<div class="ep-play-msg" hidden="hidden"></div><a class="ep-play-full" href="zabbix.php?action=elasticpro.play&amp;kiosk=1">Open full screen</a></div>';
-const PLAY = { frame_url: 'zabbix.php?action=elasticpro.play.frame', csrf_name: '_csrf_token', csrf: 'tok', full_url: 'zabbix.php?action=elasticpro.play&kiosk=1' };
+  + '<div class="ep-play-msg" hidden="hidden"></div><a class="ep-play-full" href="zabbix.php?action=elasticpro.play&amp;fullscreen=1">Open full screen</a></div>';
+const PLAY = { frame_url: 'zabbix.php?action=elasticpro.play.frame', csrf_name: '_csrf_token', csrf: 'tok', full_url: 'zabbix.php?action=elasticpro.play&fullscreen=1' };
 
 /** A dashboard with one Play widget; `answers` are what the ElasticPro module says, in turn. */
 function dashboard(lib, answers) {

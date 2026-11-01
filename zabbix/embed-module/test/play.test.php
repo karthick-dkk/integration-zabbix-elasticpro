@@ -45,6 +45,8 @@ namespace {
 	}
 	class CWebUser {
 		public static $type = USER_TYPE_ZABBIX_USER;
+		public static $guest = false;
+		public static function isGuest() { return self::$guest; }
 		public static $data = ['userid' => '7', 'username' => 'noc-alice', 'roleid' => '1', 'theme' => 'dark-theme'];
 		public static function getType() { return self::$type; }
 	}
@@ -110,6 +112,17 @@ namespace Modules\ElasticPro\Test {
 		$clusters = $ep->getSubMenu()->items[0];
 		check("user type $type: Play is its own entry, not an alias of Clusters", !in_array('elasticpro.play', $clusters->aliases, true), $clusters->aliases);
 	}
+	// The guest user (guest frontend access) has a role of the User type, and no ElasticPro role.
+	\CWebUser::$type = USER_TYPE_ZABBIX_USER;
+	\CWebUser::$guest = true;
+	$menu = new \CMenu();
+	foreach (['Dashboards', 'Monitoring', 'Administration'] as $label) { $menu->add((new \CMenuItem($label))->setSubMenu(new \CMenu())); }
+	\APP::$menu = $menu;
+	(new Module())->init();
+	check('the guest user is offered no ElasticPro menu', $menu->find('ElasticPro') === null);
+	check('the guest user may not be signed in', SignIn::mayOpen() === false);
+	\CWebUser::$guest = false;
+	check('a signed-in Zabbix User may', SignIn::mayOpen() === true);
 
 	/* ---------------- the one sign-in ---------------- */
 	\CWebUser::$type = USER_TYPE_ZABBIX_USER;
@@ -149,9 +162,16 @@ namespace Modules\ElasticPro\Test {
 	$a = PlayFrame::answer(['configured' => false, 'url' => null, 'error' => '', 'public_url' => ''], true);
 	check('not paired, to a Super admin: EP-701, pair it under Administration → ElasticPro',
 		($a['error']['code'] ?? '') === 'EP-701' && strpos($a['error']['message'], 'Pair it under Administration → ElasticPro') !== false, $a);
-	$a = PlayFrame::answer(['configured' => true, 'url' => null, 'error' => 'EP-410 the account is disabled', 'public_url' => 'https://ep.example.com'], false);
-	check('refused: EP-702, followed by the core\'s own reason', ($a['error']['code'] ?? '') === 'EP-702'
+	$a = PlayFrame::answer(['configured' => true, 'url' => null, 'error' => 'EP-410 the account is disabled', 'public_url' => 'https://ep.example.com'], true);
+	check('refused, to a Super admin: EP-702, followed by the core\'s own reason in full', ($a['error']['code'] ?? '') === 'EP-702'
 		&& $a['error']['message'] === 'ElasticPro could not sign you in.' && $a['error']['reason'] === 'EP-410 the account is disabled', $a);
+	$a = PlayFrame::answer(['configured' => true, 'url' => null, 'error' => 'EP-410 the account is disabled', 'public_url' => 'https://ep.example.com'], false);
+	check('refused, to anyone else: EP-702 and the core\'s code only', ($a['error']['code'] ?? '') === 'EP-702' && $a['error']['reason'] === 'EP-410', $a);
+	$dead = 'could not reach ElasticPro at http://ep-core:8765: Connection refused';
+	$a = PlayFrame::answer(['configured' => true, 'url' => null, 'error' => $dead, 'public_url' => 'https://ep.example.com'], false);
+	check('the core\'s internal address never reaches anyone but a Super admin', $a['error']['reason'] === '' && strpos(json_encode($a), 'ep-core') === false, $a);
+	check('a Super admin still sees it', PlayFrame::answer(['configured' => true, 'url' => null, 'error' => $dead, 'public_url' => ''], true)['error']['reason'] === $dead);
+	check('reason(): codes only, once each', SignIn::reason('EP-511 stale (EP-511), then EP-306 at http://10.0.0.1', false) === 'EP-511 EP-306', SignIn::reason('EP-511 stale (EP-511), then EP-306 at http://10.0.0.1', false));
 	$a = PlayFrame::answer(['configured' => true, 'url' => 'https://ep.example.com:8443/?sso_code=c&embed=1&zbx_theme=&#/play', 'error' => '', 'public_url' => 'https://ep.example.com:8443'], false);
 	check('signed in: the address and the only origin whose messages count', $a === ['url' => 'https://ep.example.com:8443/?sso_code=c&embed=1&zbx_theme=&#/play', 'origin' => 'https://ep.example.com:8443'], $a);
 
@@ -163,6 +183,9 @@ namespace Modules\ElasticPro\Test {
 	check('a Zabbix User may load Play, as they may open the ElasticPro pages', $may(USER_TYPE_ZABBIX_USER));
 	check('so may an Admin and a Super admin', $may(USER_TYPE_ZABBIX_ADMIN) && $may(USER_TYPE_SUPER_ADMIN));
 	check('nobody below a Zabbix User', !$may(0));
+	\CWebUser::$guest = true;
+	check('not the guest user, whose role is of the User type', !$may(USER_TYPE_ZABBIX_USER));
+	\CWebUser::$guest = false;
 
 	echo $passed, ' passed, ', $failed, ' failed', PHP_EOL;
 	exit($failed ? 1 : 0);

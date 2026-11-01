@@ -27,7 +27,7 @@ $view
 			->addClass('ep-play-full')
 			->setTarget('_blank')
 			->setAttribute('rel', 'noopener')
-			->setAttribute('title', _('ElasticPro → Play in Zabbix\'s kiosk mode, in a new tab'))
+			->setAttribute('title', _('ElasticPro → Play without Zabbix\'s sidebar and header, in a new tab'))
 	]))->addClass('ep-play'))
 	->setVar('ep_play', $data['play'])
 	->show();

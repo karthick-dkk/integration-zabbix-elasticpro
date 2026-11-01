@@ -53,6 +53,11 @@ class Module extends CoreModule {
 	];
 
 	public function init(): void {
+		// The guest user has no ElasticPro role (Lib\SignIn::mayOpen): offer nothing it is refused.
+		require_once __DIR__.'/lib/SignIn.php';
+		if (!Lib\SignIn::mayOpen()) {
+			return;
+		}
 		$items = [];
 		// The other pages' actions stay aliases of Clusters, so the menu marks where you are.
 		$others = array_map(fn($id) => 'elasticpro.'.$id, array_diff(array_keys(self::PAGES), self::MENU));

@@ -19,6 +19,30 @@ use CWebUser;
 final class SignIn {
 
 	/**
+	 * May this Zabbix user be signed in to ElasticPro at all? A Zabbix User or above, and never
+	 * the guest user: Zabbix gives guest a role of the User type, and with guest access to the
+	 * frontend a guest-visible page would otherwise sign `guest@zabbix` in. Guests have no
+	 * ElasticPro role. The one rule for the pages (View), PlayFrame and the menu.
+	 */
+	public static function mayOpen(): bool {
+		return (int) CWebUser::getType() >= USER_TYPE_ZABBIX_USER && !CWebUser::isGuest();
+	}
+
+	/**
+	 * What a refused sign-in may say to this user. A Super admin gets SsoClient's reason as it
+	 * is — it can name the core's internal address ("could not reach ElasticPro at
+	 * http://ep-core:8765: …"), which is theirs to see. Anyone else gets only ElasticPro's own
+	 * error codes found in it (EP-nnn), or nothing.
+	 */
+	public static function reason(string $error, bool $super_admin): string {
+		if ($super_admin) {
+			return $error;
+		}
+		preg_match_all('/\bEP-\d{3}\b/', $error, $m);
+		return implode(' ', array_values(array_unique($m[0])));
+	}
+
+	/**
 	 * The names of the user groups this user is in.
 	 *
 	 * Read from the database rather than through the API: `usergroup.get` answers

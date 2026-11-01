@@ -21,8 +21,9 @@ use Modules\ElasticPro\Lib\SignIn;
  *   {"error": {"code": "EP-701" | "EP-702", "message": "…", "reason": "…"}}
  * The codes are the ElasticPro page's (views/elasticpro.embed.php), worded the same way.
  *
- * Who may ask: whoever may open the ElasticPro pages (View) — any Zabbix user, as there.
- * No new permission: a Zabbix role that denies this module denies this action with it.
+ * Who may ask: whoever may open the ElasticPro pages (View, SignIn::mayOpen) — any Zabbix user
+ * but the guest, as there. No new permission: a Zabbix role that denies this module denies this
+ * action with it. The reason of a refusal goes in full only to a Super admin (SignIn::reason).
  */
 class PlayFrame extends CController {
 
@@ -31,7 +32,7 @@ class PlayFrame extends CController {
 	}
 
 	protected function checkPermissions(): bool {
-		return $this->getUserType() >= USER_TYPE_ZABBIX_USER;
+		return SignIn::mayOpen();
 	}
 
 	/** What the widget gets back, from what the sign-in answered. Pure, for the tests. */
@@ -49,7 +50,7 @@ class PlayFrame extends CController {
 			return ['error' => [
 				'code' => 'EP-702',
 				'message' => 'ElasticPro could not sign you in.',
-				'reason' => (string) $sign['error']
+				'reason' => SignIn::reason((string) $sign['error'], $super_admin)
 			]];
 		}
 		return ['url' => $sign['url'], 'origin' => SignIn::origin((string) $sign['public_url'])];

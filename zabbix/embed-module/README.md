@@ -36,9 +36,18 @@ saying so, where there is neither.
 ElasticPro 0.3.47+) in the page, like every other ElasticPro entry: same one-time code, same
 frame, same "sign me in again" handling, same error codes. It is offered to everyone who sees the
 ElasticPro menu; what they see in it is what ElasticPro gives their groups and role. With
-`&kiosk=1` the page opens in Zabbix's kiosk mode (no sidebar, no header) for that page only, and
-Zabbix's own *Normal view* button leaves it; the person's saved layout mode is not changed. A Zabbix
-whose views cannot set the layout mode per page opens it in the normal layout instead.
+`&fullscreen=1` that one response is drawn without Zabbix's sidebar and header, with an **Exit full
+screen** link back to the normal page. Not Zabbix's `kiosk=1`: Zabbix saves that parameter into the
+person's profile (`web.layout.mode`) on every request, so every page they opened afterwards would be
+in kiosk mode too; `fullscreen=1` saves nothing. A Zabbix whose views cannot set the layout mode per
+response draws it in the normal layout instead.
+
+Who may open any ElasticPro page, Play and the widget's action included (`SignIn::mayOpen`): a Zabbix
+User or above, never the guest user — Zabbix gives guest a role of the User type, so with guest
+access to the frontend a guest-visible page would otherwise sign `guest@zabbix` in. The guest user is
+not offered the ElasticPro menu. When ElasticPro refuses a sign-in (EP-702), a Super admin sees the
+reason in full; everyone else sees only ElasticPro's own codes in it (`SignIn::reason`), since the
+reason can name the core's internal address.
 
 The **ElasticPro Play** dashboard widget (`../play-widget/`, installed as `ep_play`) shows the same
 page in a dashboard. It does not sign in on its own: its script asks this module's

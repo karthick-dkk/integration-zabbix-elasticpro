@@ -23,8 +23,12 @@ There are no other settings. Which slides show, how long each stays and the zoom
 the widget offers none.
 
 **Open full screen** (bottom right, shown when the pointer is over the widget) opens
-**ElasticPro → Play** in Zabbix's kiosk mode in a new tab — no sidebar, no header; Zabbix's own
-*Normal view* button leaves it. The person's saved layout mode is not changed.
+**ElasticPro → Play** in a new tab without Zabbix's sidebar and header
+(`zabbix.php?action=elasticpro.play&fullscreen=1`); its **Exit full screen** link (top right) goes
+back to the normal page. This is not Zabbix's kiosk mode: Zabbix saves a `kiosk` URL parameter into
+the person's profile on every request, which would leave every page they opened afterwards in kiosk
+mode. `fullscreen=1` changes that one response and saves nothing — close the tab and Zabbix is as it
+was.
 
 ## How it signs in
 
@@ -37,11 +41,17 @@ code for that Zabbix user exactly as for its own pages (`embed-module/lib/SignIn
 - **Who sees what** is ElasticPro's decision, as on the ElasticPro pages: the user's groups and role
   decide their clusters. Two people looking at one dashboard each see their own Play.
 - **Who may see it**: whoever may open the ElasticPro pages. A Zabbix role that denies the
-  `elasticpro` module denies the widget's sign-in too, and the widget says so.
+  `elasticpro` module denies the widget's sign-in too, and the widget says so. The guest user (guest
+  access to the frontend) never: it has no ElasticPro role, and the widget says so.
+- **What a refusal says**: a Super admin sees ElasticPro's reason in full (it can name the core's
+  internal address); everyone else sees the codes only (EP-702, and ElasticPro's own code if it gave
+  one).
 - A dashboard page out of view empties its frame (Play stops polling); back in view it signs in
   afresh. "Sign in again" from Play is acted on at most three times a minute, then **EP-703**.
 
-What the widget can show instead of Play: *not enabled* (the ElasticPro module is not enabled),
+What the widget can show instead of Play: *not available* (the ElasticPro module is not enabled,
+or the user's role does not allow it — Zabbix does not load a module a role denies, so the widget
+cannot tell the two apart and names both), *not available to the guest user*,
 **EP-701** (not paired), **EP-702** (ElasticPro refused the sign-in, its own reason follows),
 **EP-703** (lost the session repeatedly — almost always the two sides no longer share a pairing
 secret; re-pair under *Administration → ElasticPro*).
@@ -49,6 +59,13 @@ secret; re-pair under *Administration → ElasticPro*).
 Framing: Play loads from ElasticPro's public address inside the Zabbix page, exactly as the
 ElasticPro pages do, so it works wherever they work: ElasticPro's `frame-ancestors` names the paired
 Zabbix origin. Nothing in Zabbix's or ElasticPro's headers changes for it.
+
+**"Sign me in again" and the origin.** The widget acts on Play's "sign me in again" message only
+when it comes from its own frame *and* from the origin of ElasticPro's public address as paired
+(`public_url`). If the frame actually lands somewhere else — an http address that redirects to
+https, a proxy that sends it to another host or port — the message's origin differs and is ignored
+by design; Play then shows ElasticPro's own expired-session state instead of signing in again. Pair
+with the address the browser really ends up on.
 
 ## Not offered: display links
 

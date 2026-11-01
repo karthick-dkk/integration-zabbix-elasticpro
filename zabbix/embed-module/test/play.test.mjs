@@ -46,21 +46,46 @@ test('one sign-in: the pages and the widget\'s action both go through lib/SignIn
   assert.doesNotMatch(page, /parse_url/);
 });
 
-test('the Play page: kiosk only for Play, only for this page, and only where Zabbix can', () => {
+test('the Play page: full screen only for Play, for this response only, and only where Zabbix can', () => {
   const view = read('actions/View.php');
-  assert.match(view, /'kiosk' => 'in 0,1'/);
-  assert.match(view, /\$this->page\(\) === 'play' && \(string\) \$this->getInput\('kiosk', '0'\) === '1'/);
+  assert.match(view, /'fullscreen' => 'in 0,1'/);
+  assert.match(view, /\$this->page\(\) === 'play' && \(string\) \$this->getInput\('fullscreen', '0'\) === '1'/);
   const page = read('views/elasticpro.embed.php');
-  assert.match(page, /if \(\$data\['kiosk'\] && method_exists\(\$this, 'setLayoutMode'\)\)/);
-  assert.match(page, /\$this->setLayoutMode\(ZBX_LAYOUT_KIOSKMODE\)/);
-  assert.doesNotMatch(page, /saveLayoutMode|web\.layout\.mode/, 'the person\'s saved layout mode is not touched');
-  assert.match(page, /addJsFile\('layout\.mode\.js'\)/, 'Zabbix\'s own Normal view button works');
+  assert.match(page, /\$fullscreen = \$data\['fullscreen'\] && method_exists\(\$this, 'setLayoutMode'\);/);
+  assert.match(page, /\$this->setLayoutMode\(ZBX_LAYOUT_KIOSKMODE\)/, 'the view\'s layout mode, this response only');
+  assert.doesNotMatch(page, /saveLayoutMode|CProfile|updateUserProfile|setWebLayoutMode/, 'nothing is saved, and the page draws no Zabbix kiosk controls');
+  assert.doesNotMatch(page, /addJsFile\('layout\.mode\.js'\)/, 'Zabbix\'s layout switcher strips only `kiosk` and saves the profile');
+  assert.match(page, /new CLink\(_\('Exit full screen'\), \(new CUrl\('zabbix\.php'\)\)->setArgument\('action', 'elasticpro\.play'\)\)/);
+});
+
+test('no code path sends Zabbix\'s `kiosk` URL parameter (Zabbix saves it into the person\'s profile)', () => {
+  // ZBase::setLayoutModeByUrl() runs on every zabbix.php request: any `kiosk` in the URL is
+  // written to web.layout.mode, and every page after is in kiosk mode.
+  const ROOT = path.resolve(MOD, '..');
+  const files = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (e.name !== 'test') walk(p); }
+      else if (/\.(php|js|json)$/.test(e.name)) files.push(p);
+    }
+  };
+  walk(MOD);
+  walk(path.join(ROOT, 'play-widget'));
+  assert.ok(files.length > 10);
+  for (const f of files) {
+    const src = fs.readFileSync(f, 'utf8');
+    for (const re of [/setArgument\(\s*['"]kiosk['"]/, /[?&]kiosk=/, /['"]kiosk['"]\s*(=>|:)/, /addJsFile\(\s*['"]layout\.mode\.js/, /ZBX_LAYOUT_MODE\b/]) {
+      assert.doesNotMatch(src, re, `${path.relative(ROOT, f)}: ${re}`);
+    }
+  }
 });
 
 test('the widget\'s action: POST with Zabbix\'s CSRF check left on, the page\'s codes, JSON only', () => {
   const frame = read('actions/PlayFrame.php');
   assert.doesNotMatch(frame, /disableCsrfValidation/, 'it mints a sign-in: Zabbix checks the CSRF token');
-  assert.match(frame, /getUserType\(\) >= USER_TYPE_ZABBIX_USER/, 'who may open the ElasticPro pages, nobody else');
+  assert.match(frame, /return SignIn::mayOpen\(\);/, 'who may open the ElasticPro pages, nobody else');
+  assert.match(frame, /'reason' => SignIn::reason\(/, 'the reason in full only to a Super admin');
   assert.match(frame, /->disableView\(\)/);
   // Its codes are the page's, worded as the page words them.
   const page = read('views/elasticpro.embed.php');
@@ -70,6 +95,15 @@ test('the widget\'s action: POST with Zabbix\'s CSRF check left on, the page\'s 
   }
   assert.ok(page.includes("_('ElasticPro could not sign you in.')") && frame.includes("'ElasticPro could not sign you in.'"));
   assert.doesNotMatch(frame, /secret|public_url' =>/, 'only the address and its origin go back');
+});
+
+test('guests and refusal reasons: one rule each, used by the pages, the action and the menu', () => {
+  const lib = read('lib/SignIn.php');
+  assert.match(lib, />= USER_TYPE_ZABBIX_USER && !CWebUser::isGuest\(\)/);
+  assert.match(read('actions/View.php'), /if \(!SignIn::mayOpen\(\)\) \{\n\t\t\treturn false;/);
+  assert.match(read('actions/View.php'), /'error' => SignIn::reason\(\$sign\['error'\], \$this->getUserType\(\) == USER_TYPE_SUPER_ADMIN\)/);
+  assert.match(read('Module.php'), /if \(!Lib\\SignIn::mayOpen\(\)\) \{\n\t\t\treturn;/);
+  assert.match(read('views/elasticpro.embed.php'), /A Zabbix Super admin sees the reason on this page\./);
 });
 
 test('ElasticPro only', () => {
