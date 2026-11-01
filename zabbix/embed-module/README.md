@@ -42,6 +42,11 @@ person's profile (`web.layout.mode`) on every request, so every page they opened
 in kiosk mode too; `fullscreen=1` saves nothing. A Zabbix whose views cannot set the layout mode per
 response draws it in the normal layout instead.
 
+Since 2.1.17 the Play page also has a **Full screen** button (top right, beside **Exit full screen**
+when that shows): its click asks the browser for full screen on the ElasticPro frame, Esc returns.
+Every ElasticPro frame carries `allow="clipboard-write; fullscreen"` and `allowfullscreen`, so
+ElasticPro's own button in Play works in it too. The button saves nothing in Zabbix.
+
 Who may open any ElasticPro page, Play and the widget's action included (`SignIn::mayOpen`): a Zabbix
 User or above, never the guest user — Zabbix gives guest a role of the User type, so with guest
 access to the frontend a guest-visible page would otherwise sign `guest@zabbix` in. The guest user is

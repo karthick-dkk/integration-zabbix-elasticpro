@@ -1,7 +1,7 @@
 <?php declare(strict_types = 1);
 /**
  * @var CView $this
- * @var array $data  ['configured', 'frame_url', 'origin', 'error', 'fullscreen']
+ * @var array $data  ['configured', 'frame_url', 'origin', 'error', 'fullscreen', 'play']
  *
  * Each failure here carries an error code from the module's range, 7xx (the core uses
  * 1xx-5xx, the ElasticPro page 6xx; docs/ERROR-CODES.md in the ElasticPro repository lists them all):
@@ -39,7 +39,10 @@ else {
 		->setAttribute('src', $data['frame_url'])
 		->setAttribute('title', 'ElasticPro')
 		->setAttribute('referrerpolicy', 'no-referrer')
-		->setAttribute('allow', 'clipboard-write')
+		// `fullscreen` lets ElasticPro's own Play full-screen button work in the frame, and lets the
+		// "Full screen" button below ask for it on the frame. Nothing else is added.
+		->setAttribute('allow', 'clipboard-write; fullscreen')
+		->setAttribute('allowfullscreen', 'allowfullscreen')
 		->addClass('ep-frame');
 }
 
@@ -62,6 +65,11 @@ if ($fullscreen) {
 (new CHtmlPage())
 	->addItem((new CDiv([
 		$body,
+		// The browser's own full screen of the frame; only Play has it, and only when there is a frame.
+		$data['play'] && $data['configured'] && $data['frame_url'] !== null
+			? (new CButton('ep-full-btn', _('Full screen')))->addClass(ZBX_STYLE_BTN_ALT)->addClass('ep-full-btn')
+				->setAttribute('title', _('ElasticPro Play fills the whole screen; Esc returns here'))
+			: null,
 		$fullscreen
 			? (new CLink(_('Exit full screen'), (new CUrl('zabbix.php'))->setArgument('action', 'elasticpro.play')))
 				->addClass('ep-exit-full')
@@ -70,6 +78,23 @@ if ($fullscreen) {
 	->show();
 $origin = $data['origin'];
 ?>
+<script>
+	/* ep-fullscreen: the "Full screen" button asks the browser for full screen on the frame, in
+	   its own click (a user gesture, which browsers require). Refused or unsupported: nothing
+	   happens and the page is as it was. Esc returns. */
+	(function () {
+		var btn = document.querySelector('.ep-full-btn'), frame = document.querySelector('.ep-frame');
+		if (!btn || !frame) return;
+		btn.addEventListener('click', function () {
+			var fn = frame.requestFullscreen || frame.webkitRequestFullscreen;
+			if (!fn) return;
+			try {
+				var r = fn.call(frame);
+				if (r && typeof r.catch === 'function') r.catch(function () {});
+			} catch (_) {}
+		});
+	})();
+</script>
 <script>
 	/* The app in the frame asks for this when its session ends — the core restarted, or it
 	   sat idle. Loading this page again mints a fresh one-time code for the same Zabbix user,
@@ -118,11 +143,17 @@ $origin = $data['origin'];
 	.ep-wrap { display: flex; flex: 1 1 auto; min-height: calc(100vh - 60px); }
 	.ep-frame { flex: 1 1 auto; width: 100%; min-height: calc(100vh - 60px); border: 0; }
 	.ep-wrap.ep-full, .ep-full .ep-frame { min-height: 100vh; }
-	.ep-wrap.ep-full { position: relative; }
+	.ep-wrap { position: relative; }
 	.ep-exit-full { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 3px 10px; border-radius: 3px;
 	                font-size: 12px; background: rgba(0, 0, 0, .55); color: #fff !important; text-decoration: none;
 	                opacity: .35; transition: opacity .15s; }
 	.ep-exit-full:hover, .ep-exit-full:focus { opacity: 1; }
+	/* Zabbix's own alternative-button look, small, top right (beside "Exit full screen" when shown). */
+	.ep-full-btn { position: absolute; top: 6px; right: 6px; z-index: 2; margin: 0; padding: 0 10px; height: 24px;
+	               font-size: 12px; line-height: 22px; opacity: .6; transition: opacity .15s; }
+	.ep-full-btn::before { content: "\2922"; margin-right: 6px; }
+	.ep-full-btn:hover, .ep-full-btn:focus { opacity: 1; }
+	.ep-full .ep-full-btn { right: 112px; }
 	.ep-error { margin: 40px auto; max-width: 640px; padding: 14px 16px; border-radius: 4px;
 	             border: 1px solid #e45959; background: #fef6f6; color: #7a2020; line-height: 1.6; }
 </style>

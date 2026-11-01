@@ -93,7 +93,7 @@ test('the HTML carries no address, code or secret: the frame starts empty and th
 const ORIGIN = 'https://ep.example.com:8443';
 const URL1 = `${ORIGIN}/?sso_code=c1&embed=1&zbx_theme=dark-theme#/play`;
 const BODY = '<div class="ep-play"><iframe class="ep-play-frame" title="ElasticPro Play" referrerpolicy="no-referrer"></iframe>'
-  + '<div class="ep-play-msg" hidden="hidden"></div><a class="ep-play-full" href="zabbix.php?action=elasticpro.play&amp;fullscreen=1">Open full screen</a></div>';
+  + '<div class="ep-play-msg" hidden="hidden"></div><div class="ep-play-tools"><button class="ep-play-full" type="button">Full screen</button><a class="ep-play-newtab" href="zabbix.php?action=elasticpro.play&amp;fullscreen=1">Open in new tab</a></div></div>';
 const PLAY = { frame_url: 'zabbix.php?action=elasticpro.play.frame', csrf_name: '_csrf_token', csrf: 'tok', full_url: 'zabbix.php?action=elasticpro.play&fullscreen=1' };
 
 /** A dashboard with one Play widget; `answers` are what the ElasticPro module says, in turn. */
@@ -219,4 +219,67 @@ test('frameOf, isReauth and retry, without a DOM', async () => {
   assert.equal(r.ok, true);
   assert.equal(W.retry(r.times, 4000).ok, false);
   assert.equal(W.retry(r.times, 61500).ok, true, 'a minute later, the first one has aged out');
+});
+
+test('the widget\'s Full screen is a button on its own frame; the new-tab link stays; the frame allows full screen', () => {
+  const view = read('views/widget.view.php');
+  assert.match(view, /new CButton\('ep-play-full', _\('Full screen'\)\)/);
+  assert.match(view, /new CLink\(_\('Open in new tab'\), \$data\['play'\]\['full_url'\]\)/);
+  assert.match(view, /setAttribute\('allow', 'clipboard-write; fullscreen'\)/);
+  assert.match(view, /setAttribute\('allowfullscreen', 'allowfullscreen'\)/);
+  assert.doesNotMatch(view, /onclick/i);
+  assert.doesNotMatch(read('assets/js/class.widget.js'), /innerHTML/);
+});
+
+test('Full screen: requestFullscreen on the widget\'s frame, prefix fallback, refusal is quiet; Esc keeps the lifecycle (DOM)', async (t) => {
+  const lib = jsdom(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  const d = dashboard(lib, [{ url: URL1, origin: ORIGIN }, { url: URL1.replace('c1', 'c2'), origin: ORIGIN }]);
+  d.widget.setContents({ body: BODY, ep_play: PLAY });
+  await d.settle();
+  const doc = d.w.document;
+  const btn = () => doc.querySelector('.ep-play-full');
+  const calls = [];
+
+  d.frame().requestFullscreen = function () { calls.push(this); return Promise.resolve(); };
+  btn().click();
+  assert.deepEqual(calls, [d.frame()], 'called on the widget\'s own frame');
+  assert.equal(d.asked.length, 1, 'no new sign-in, no reload');
+  assert.equal(d.frame().src, URL1);
+
+  // The browser says the frame is full screen, then that it is not (Esc): nothing is reloaded.
+  Object.defineProperty(doc, 'fullscreenElement', { configurable: true, get: () => d.frame() });
+  doc.dispatchEvent(new d.w.Event('fullscreenchange'));
+  assert.equal(d.widget._ep.full, true);
+  Object.defineProperty(doc, 'fullscreenElement', { configurable: true, get: () => null });
+  doc.dispatchEvent(new d.w.Event('fullscreenchange'));
+  assert.equal(d.widget._ep.full, false);
+  assert.equal(d.asked.length, 1);
+  assert.equal(d.frame().src, URL1, 'back at widget size, still Play');
+
+  // Page switched away while full screen: leave it, blank, and sign in afresh on return.
+  let exited = 0;
+  doc.exitFullscreen = () => { exited++; return Promise.resolve(); };
+  Object.defineProperty(doc, 'fullscreenElement', { configurable: true, get: () => d.frame() });
+  d.widget.onDeactivate();
+  assert.equal(exited, 1);
+  assert.equal(d.frame().src, 'about:blank');
+  Object.defineProperty(doc, 'fullscreenElement', { configurable: true, get: () => null });
+  d.widget.onActivate();
+  await d.settle();
+  assert.equal(d.asked.length, 2);
+  assert.equal(d.frame().src, URL1.replace('c1', 'c2'));
+
+  // Prefixed, refused, unsupported.
+  const w2 = [];
+  delete d.frame().requestFullscreen;
+  d.frame().webkitRequestFullscreen = function () { w2.push(this); };
+  btn().click();
+  assert.deepEqual(w2, [d.frame()]);
+  d.frame().webkitRequestFullscreen = () => { throw new Error('no'); };
+  assert.doesNotThrow(() => btn().click());
+  d.frame().requestFullscreen = () => Promise.reject(new Error('denied'));
+  btn().click();
+  await d.settle();
+  delete d.frame().requestFullscreen; delete d.frame().webkitRequestFullscreen;
+  assert.doesNotThrow(() => btn().click());
 });

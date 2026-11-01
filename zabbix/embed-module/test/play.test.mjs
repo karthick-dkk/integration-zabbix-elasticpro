@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const MOD = path.resolve(import.meta.dirname, '..');
 const read = (f) => fs.readFileSync(path.join(MOD, f), 'utf8');
@@ -119,4 +120,77 @@ test('Play inside Zabbix (PHP)', (t) => {
     : local;
   if (r.error || noDocker(r)) { t.skip('no php and no docker here — run test/play.test.php where PHP is'); return; }
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+});
+
+/* ---------------------------------------- full screen (2.1.17) ---------------------------------------- */
+
+function jsdomLib() {
+  for (const base of [path.resolve(MOD, '..'), path.resolve(MOD, '../..')]) {
+    try { return createRequire(path.join(base, 'package.json'))('jsdom'); } catch { /* next */ }
+  }
+  return null;
+}
+
+test('every ElasticPro frame the modules draw allows full screen and nothing else new', () => {
+  const ROOT = path.resolve(MOD, '..');
+  for (const f of ['embed-module/views/elasticpro.embed.php', 'play-widget/views/widget.view.php']) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    assert.match(src, /setAttribute\('allow', 'clipboard-write; fullscreen'\)/, f);
+    assert.match(src, /setAttribute\('allowfullscreen', 'allowfullscreen'\)/, f);
+    assert.doesNotMatch(src, /camera|microphone|geolocation|autoplay/, f);
+  }
+  // No other module draws a frame without it.
+  const frames = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (!['test', 'node_modules'].includes(e.name)) walk(p); }
+      else if (/\.(php|js)$/.test(e.name) && /CTag\('iframe'|createElement\('iframe'/.test(fs.readFileSync(p, 'utf8'))) frames.push(path.relative(ROOT, p));
+    }
+  };
+  walk(ROOT);
+  assert.deepEqual(frames.sort(), ['embed-module/views/elasticpro.embed.php', 'play-widget/views/widget.view.php']);
+});
+
+test('the Play page: a Full screen button for Play only, saving nothing; the exit link stays', () => {
+  const page = read('views/elasticpro.embed.php');
+  assert.match(page, /\$data\['play'\] && \$data\['configured'\] && \$data\['frame_url'\] !== null/);
+  assert.match(page, /new CButton\('ep-full-btn', _\('Full screen'\)\)/);
+  assert.match(page, /ZBX_STYLE_BTN_ALT/);
+  assert.match(page, /_\('Exit full screen'\)/);
+  assert.match(read('actions/View.php'), /'play' => \$page === 'play'/);
+  assert.doesNotMatch(page, /onclick|setAttribute\('on/i, 'no inline handler');
+  assert.doesNotMatch(page, /innerHTML[^;]*(frame_url|\$data)/);
+});
+
+function menuPage(lib, frameProps) {
+  const page = read('views/elasticpro.embed.php');
+  const m = page.match(/<script>\s*\/\* ep-fullscreen[\s\S]*?<\/script>/);
+  assert.ok(m, 'the full-screen script block');
+  const dom = new lib.JSDOM('<body><div class="ep-wrap"><iframe class="ep-frame"></iframe><button class="ep-full-btn" type="button">Full screen</button></div></body>', { runScripts: 'outside-only' });
+  const frame = dom.window.document.querySelector('.ep-frame');
+  Object.assign(frame, frameProps);
+  dom.window.eval(m[0].replace(/^<script>|<\/script>$/g, ''));
+  return { dom, btn: dom.window.document.querySelector('.ep-full-btn'), frame };
+}
+
+test('Full screen button: requestFullscreen on the frame, in the click; webkit fallback; refused is quiet (DOM)', async (t) => {
+  const lib = jsdomLib(); if (!lib) { t.skip('jsdom not found — npm i jsdom'); return; }
+  let calls = [];
+  let d = menuPage(lib, { requestFullscreen() { calls.push(this); return Promise.resolve(); } });
+  d.btn.click();
+  assert.deepEqual(calls, [d.frame], 'called on the iframe element');
+
+  calls = [];
+  d = menuPage(lib, { webkitRequestFullscreen() { calls.push(this); } });
+  d.btn.click();
+  assert.deepEqual(calls, [d.frame], 'prefixed fallback');
+
+  d = menuPage(lib, { requestFullscreen() { return Promise.reject(new Error('denied')); } });
+  d.btn.click();
+  await new Promise((r) => setTimeout(r, 0)); // an unhandled rejection would fail the run
+  d = menuPage(lib, { requestFullscreen() { throw new Error('sync refusal'); } });
+  assert.doesNotThrow(() => d.btn.click());
+  d = menuPage(lib, {});
+  assert.doesNotThrow(() => d.btn.click(), 'unsupported: nothing happens');
 });

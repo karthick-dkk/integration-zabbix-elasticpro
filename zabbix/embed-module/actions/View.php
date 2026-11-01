@@ -124,6 +124,8 @@ class View extends CController {
 			// The reason in full for a Super admin; ElasticPro's own codes only for anyone else.
 			'error' => SignIn::reason($sign['error'], $this->getUserType() == USER_TYPE_SUPER_ADMIN),
 			'fullscreen' => $this->fullscreen(),
+			// The Play page gets a browser "Full screen" button (views/elasticpro.embed.php).
+			'play' => $page === 'play',
 		]);
 		$response->setTitle('ElasticPro — '.($this->trouble() ? 'Troubleshoot' : $labels[$page]));
 		$this->setResponse($response);
