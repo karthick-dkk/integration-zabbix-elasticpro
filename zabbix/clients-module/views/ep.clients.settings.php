@@ -316,11 +316,69 @@ if (isset($data['credential'])) {
 	}
 }
 
+/* ---------------- TypeSafe Jev for Discover ---------------- */
+// Its own form (ep.clients.jev.save), like the credential: the API key is never shown — "Set <date>
+// by <user>" with Replace and Clear — and jev_key_action is the keep-marker the action reads. What
+// is sent is said in full on the card, before anyone turns it on.
+$jevForm = null;
+if (isset($data['jev'])) {
+	$jv = $data['jev'];
+	$mayJ = !$ro && $jv['can_set'];
+	$jrow = fn($label, $value) => (new CDiv([$label, $value]))->addClass('ep-cr');
+	$jSaid = $jv['key_set']
+		? ($jv['set_at'] !== null ? _s('Set %1$s by %2$s', date('Y-m-d', (int) $jv['set_at']), (string) $jv['set_by']) : _('Set'))
+		: _('Not set');
+	$jShown = !$jv['key_set'] && $mayJ;
+	$on = (new CTag('input', false))->setAttribute('type', 'checkbox')->setAttribute('name', 'jev_enabled')->setAttribute('value', '1')->setId('j-on');
+	if ($jv['enabled']) {
+		$on->setAttribute('checked', 'checked');
+	}
+	if (!$mayJ) {
+		$on->setAttribute('disabled', 'disabled');
+	}
+	$keyCell = (new CDiv([
+		(new CDiv([(new CSpan(''))->addClass($jv['key_set'] ? 'ep-dot' : 'ep-dot ep-dot-off'), new CSpan($jSaid),
+			$mayJ && $jv['key_set'] ? (new CTag('button', true, _('Replace')))->setAttribute('type', 'button')->addClass('ep-lnk')->setId('j-key-replace')
+				->setAttribute('onclick', "document.getElementById('j-key-new').hidden=false;document.getElementById('j-key-action').value='set';document.getElementById('j-key-set').hidden=true;document.getElementById('j-key').focus();") : '',
+			$mayJ && $jv['key_set'] ? (new CTag('button', true, _('Clear')))->setAttribute('type', 'submit')->setAttribute('name', 'save_jev')->setAttribute('value', 'clear')->addClass('ep-lnk')->setId('j-key-clear')
+				->setAttribute('onclick', 'if (!confirm('.json_encode(_('Forget the TypeSafe API key and turn Jev off? Discover goes back to matching names by rule.')).')) return false; document.getElementById(\'j-key-action\').value=\'clear\'; document.getElementById(\'j-on\').checked=false;') : ''
+		]))->addClass('ep-ln')->setId('j-key-set'),
+		(new CDiv([
+			(new CTag('input', false))->setAttribute('type', 'password')->setAttribute('name', 'jev_key')->setAttribute('value', '')->setId('j-key')
+				->setAttribute('autocomplete', 'new-password')->setAttribute('placeholder', _('TypeSafe API key'))->setAttribute('aria-label', _('TypeSafe API key'))->addClass('ep-in'),
+			$jv['key_set'] ? (new CTag('button', true, _('Keep current')))->setAttribute('type', 'button')->addClass('ep-lnk')
+				->setAttribute('onclick', "document.getElementById('j-key-new').hidden=true;document.getElementById('j-key').value='';document.getElementById('j-key-action').value='keep';document.getElementById('j-key-set').hidden=false;") : ''
+		]))->addClass('ep-ln')->setId('j-key-new')->setAttribute($jShown ? 'data-open' : 'hidden', $jShown ? '1' : 'hidden'),
+		(new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'jev_key_action')->setAttribute('value', $jShown ? 'set' : 'keep')->setId('j-key-action')
+	]));
+	$jevCard = (new CDiv([
+		(new CDiv([new CTag('h4', true, _('TypeSafe Jev'))]))->addClass('ep-ln ep-cttl'),
+		$jrow((new CDiv(_('Discover')))->addClass('ep-l'), new CLabel([$on, ' ', _('Judge Discover proposals with TypeSafe Jev')], 'j-on')),
+		$jrow((new CDiv(_('API key')))->addClass('ep-l'), $keyCell),
+		(new CDiv(_('Sent to TypeSafe (api.typesafe.ai), once per Discover scan: host names and visible names, host group and template names, and the names of the candidate clients — any IP address inside a name replaced by <ip>, at most 120 characters each. No IP addresses, no item values, no macro values but client names, no log content.')))
+			->addClass('ep-chint')->setId('j-sent'),
+		(new CDiv(_('Jev only proposes: which client a role host belongs to when no host group, {$GRP.CLIENT} or client tag says; whether a host is a Kafka server; whether a host group holds cluster hosts. Unsure answers are shown to check, never ticked. Off, without a key, or when TypeSafe does not answer within 10 seconds, names are matched by rule as before, and the Discover page says which ran.')))
+			->addClass('ep-chint'),
+		$jrow((new CDiv(_('Kept in')))->addClass('ep-l'), (new CSpan(_('the data folder, sealed with the ElasticPro module\'s key; never shown again')))->addClass('ep-muted')),
+		$jv['can_seal'] ? null : (new CDiv(_('A key cannot be stored here: it is sealed with the ElasticPro module\'s key, and the ElasticPro module is not installed.')))->addClass('ep-chint'),
+		$jv['key_set'] && $jv['can_seal'] && !$jv['key_readable'] ? (new CDiv(_('The stored key no longer opens (Zabbix\'s session key changed?): replace it.')))->addClass('ep-chint') : null,
+		$jv['can_set'] ? null : (new CDiv(_('Turning it on sends names to TypeSafe, which only a Zabbix Super admin may decide.')))->addClass('ep-chint')
+	]))->addClass('ep-card ep-cred ep-jev');
+	$jevForm = (new CForm('post', $url('ep.clients.jev.save')))
+		->addVar(CSRF_TOKEN_NAME, CCsrfTokenHelper::get('ep.clients.jev.save'))->setId('ep-jev-form')
+		->addItem(new CTag('h3', true, _('Discover with TypeSafe Jev')))
+		->addItem($jevCard);
+	if ($mayJ) {
+		$jevForm->addItem((new CDiv([(new CSpan(_('Off by default; nothing is sent until it is on and a key is set. Untick and Save turns it off and keeps the key; Clear forgets the key and turns it off.')))->addClass('ep-muted'),
+			new CRedirectButton(_('Cancel'), $url('ep.clients.settings')), new CSubmit('save_jev', _('Save'))]))->addClass('ep-bar ep-cbar'));
+	}
+}
+
 // Which build of the modules this is, read from the manifest and the BUILD file the release archive
 // carries (lib/Build.php). A plain string in a CDiv, so Zabbix escapes it.
 $build = (new CDiv(\Modules\EpClients\Lib\Build::line()))->addClass('ep-build');
 
-$page->addItem((new CDiv(array_merge($top, [$form], $credForm !== null ? [$credForm] : [], [$build])))->addClass('ep-set'))->show();
+$page->addItem((new CDiv(array_merge($top, [$form], $credForm !== null ? [$credForm] : [], $jevForm !== null ? [$jevForm] : [], [$build])))->addClass('ep-set'))->show();
 ?>
 <style><?php readfile(__DIR__.'/css/ep.hint.css'); readfile(__DIR__.'/css/ep.clients.settings.css'); ?></style>
 <script><?php readfile(__DIR__.'/js/ep.clients.settings.js'); ?></script>

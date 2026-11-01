@@ -96,10 +96,11 @@ $main = [];
 if ($scan !== null) {
 	$open = array_values(array_filter($scan['proposals'], fn($p) => $p['status'] !== 'client'));
 	$clients = array_values(array_filter($scan['proposals'], fn($p) => $p['status'] === 'client'));
+	$judge = $scan['judge'] ?? null;
 	$groupsMatched = [];
 	foreach ($scan['proposals'] as $p) {
 		foreach ($p['hosts'][0]['groups'] ?? [] as $g) {
-			if (\Modules\EpClients\Lib\Discovery::isClusterGroup((string) $g)) {
+			if (\Modules\EpClients\Lib\Discovery::isClusterGroup((string) $g, $judge['cluster_groups'] ?? [])) {
 				$groupsMatched[$g] = true;
 			}
 		}
@@ -111,7 +112,9 @@ if ($scan !== null) {
 		(new CDiv(_s('Scanned %1$s · %2$s matching groups · %3$s cluster hosts · %4$s already clients · %5$s not adopted',
 			date('Y-m-d H:i', (int) $scan['at']), count($groupsMatched), count($scan['proposals']), count($clients), count($open))))->addClass('ep-muted'),
 		(new CDiv(_('Roles looked for: ES, Parser, Forwarder, Engine, AIML, Trino (ULM), SOAR. A server is shown as IP · server name: the Zabbix host name is the IP, the visible name is the server name. A Kafka server is placed under Forwarder and flagged "kafka: confirm"; Kafka is not a role.')))
-			->addClass('ep-muted')->addClass('ep-rule-roles')
+			->addClass('ep-muted')->addClass('ep-rule-roles'),
+		// Which ran on the names: Jev, or the rules (and why Jev did not). Never the key.
+		$judge !== null ? (new CDiv($judge['note']))->addClass('ep-muted')->addClass('ep-rule-judge')->setAttribute('data-ep-judge', $judge['used'] ? 'jev' : 'rule') : null
 	]))->addClass('ep-rule');
 	foreach ($scan['notes'] as $n) {
 		$main[] = (new CDiv($n))->addClass('msg-warning')->addClass('ep-box');
@@ -147,8 +150,9 @@ if ($scan !== null) {
 		$cluster = $p['hosts'][0];
 		$already = $p['status'] === 'client';
 		$servers = array_slice($p['hosts'], 1);
-		$missing = array_values(array_filter($p['missing'], fn($m) => $m['key'] !== 'kafka' && $m['key'] !== 'role_confirm'));
+		$missing = array_values(array_filter($p['missing'], fn($m) => !in_array($m['key'], ['kafka', 'role_confirm', 'jev_check'], true)));
 		$confirms = count(array_filter($servers, fn($h) => ($h['role_source'] ?? null) === 'kafka'));
+		$checks = count(array_filter($servers, fn($h) => ($h['check'] ?? '') === 'jev' && ($h['already'] ?? null) === null));
 
 		$box = (new CCheckBox('sel['.$pid.']', '1'))->setChecked(!empty($c['selected']))->setId('sel_'.$pid)->setAttribute('data-ep-row', $pid)
 			->setAttribute('aria-label', _s('Adopt %1$s', $p['name']));
@@ -204,13 +208,26 @@ if ($scan !== null) {
 				$line[] = ' ';
 				$line[] = $chip(_('kafka: confirm Forwarder or Parser'), 'old');
 			}
+			// Placed by Jev: a box of its own the admin can untick (ticked when Jev was sure), never a hidden "yes".
+			$byJev = !$already && ($h['already'] ?? null) === null && (($h['source'] ?? null) === 'jev' || ($h['check'] ?? '') === 'jev');
+			$check = $byJev && ($h['check'] ?? '') === 'jev';
+			if ($check) {
+				$line[] = ' ';
+				$line[] = $chip(_('Jev: check — tick if it belongs'), 'old');
+			}
 			$line[] = ' ';
 			$line[] = (new CSpan('· '.($h['proxy_label'] ?? _('Zabbix server'))))->addClass('ep-muted');
 			if (($h['already'] ?? null) !== null && !$already) {
 				$line[] = ' ';
 				$line[] = $chip(_s('already a client: %1$s', $h['already']));
 			}
-			if (!$already) {
+			if ($byJev) {
+				// Jev's: ticked to start only when it was sure; a person may always untick it.
+				$line[] = (new CCheckBox('host['.$pid.']['.$id.']', '1'))->setChecked(!empty($c['hosts'][$id]))->setId('host_'.$pid.'_'.$id)
+					->setAttribute('data-ep-check', '1')->setAttribute('aria-label', _s('Adopt %1$s with this cluster', $h['ip'] ?? $h['host']));
+				$line[] = (new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'move['.$pid.']['.$id.']')->setAttribute('value', '1');
+			}
+			elseif (!$already) {
 				$line[] = (new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'host['.$pid.']['.$id.']')
 					->setAttribute('value', !empty($c['hosts'][$id]) || $needs ? '1' : '0');
 				$line[] = (new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'move['.$pid.']['.$id.']')->setAttribute('value', '1');
@@ -245,6 +262,9 @@ if ($scan !== null) {
 		}
 		if ($confirms && !$already) {
 			$status[] = (new CDiv(_n('%1$s role to confirm (kafka)', '%1$s roles to confirm (kafka)', $confirms)))->addClass('ep-muted');
+		}
+		if ($checks && !$already) {
+			$status[] = (new CDiv(_n('%1$s host to check (Jev not sure)', '%1$s hosts to check (Jev not sure)', $checks)))->addClass('ep-muted');
 		}
 		if (!$already && ($cluster['es']['url'] ?? '') === '') {
 			$status[] = new CLabel([_('ES URL'), ' ', (new CTag('input', false))->setAttribute('type', 'text')->setAttribute('name', 'es_url['.$pid.']')

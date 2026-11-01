@@ -70,10 +70,13 @@ class DiscoverApply extends Base {
 			return;
 		}
 
-		// Adopt: the ticked proposals, against a fresh scan, each matched by id.
+		// Adopt: the ticked proposals, against a fresh scan, each matched by id — read from Zabbix
+		// again, but with the Jev judgement the page showed: Jev is not asked again, so what was
+		// previewed is what is adopted, and a slow TypeSafe cannot make a proposal vanish here.
 		$results = [];
 		$backedUp = false;
-		$fresh = $this->discovery()->scan($refusals);
+		$judged = Discovery::judgementOf($scan);
+		$fresh = $this->discovery()->scan($refusals, $judged);
 		$byId = array_column($fresh['proposals'], null, 'id');
 		foreach ($scan['proposals'] as $old) {
 			if ((string) ($in['sel'][$old['id']] ?? '') !== '1') {
@@ -102,7 +105,7 @@ class DiscoverApply extends Base {
 			$data['error'] = _('Nothing is ticked, so nothing was changed.');
 		}
 		$data['results'] = $results;
-		$this->respond($data, $this->cacheScan($this->discovery()->scan($refusals)));
+		$this->respond($data, $this->cacheScan($this->discovery()->scan($refusals, $judged)));
 	}
 
 	private function respond(array $data, ?array $cached): void {

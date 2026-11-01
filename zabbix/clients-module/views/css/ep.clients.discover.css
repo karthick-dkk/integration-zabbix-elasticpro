@@ -25,6 +25,7 @@ html[color-scheme="dark"] .ep-disc, [theme="dark-theme"] .ep-disc, [theme="hc-da
 .ep-disc .ep-rule { background: var(--ep-card); border: 1px solid var(--ep-line); border-radius: 4px; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
 .ep-disc .ep-rule-text { flex: 1 1 520px; line-height: 1.5; }
 .ep-disc .ep-rule-roles { flex: 1 1 100%; order: 3; }
+.ep-disc .ep-rule-judge { flex: 1 1 100%; order: 4; }
 .ep-disc .ep-show { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .ep-disc .ep-show label { margin: 0; padding: 0; float: none; width: auto; display: inline-flex; gap: 6px; align-items: center; }
 

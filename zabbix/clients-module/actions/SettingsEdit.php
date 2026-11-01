@@ -4,7 +4,7 @@ namespace Modules\EpClients\Actions;
 
 use API;
 use CControllerResponseData;
-use Modules\EpClients\Lib\{Bars, ClusterSecret, DefaultCredential, Roles, Settings, Store};
+use Modules\EpClients\Lib\{Bars, ClusterSecret, DefaultCredential, Jev, Roles, Settings, Store};
 
 /**
  * ElasticPro -> Settings: the site's own numbers, read by this page and all three report widgets.
@@ -38,6 +38,8 @@ class SettingsEdit extends Base {
 			'write_note' => $this->writeNote(),
 			'credential' => ['current' => DefaultCredential::current(), 'usage' => DefaultCredential::usage(),
 				'record' => ClusterSecret::of(DefaultCredential::KEY), 'can_set' => $this->getUserType() == USER_TYPE_SUPER_ADMIN],
+			// Whether Discover asks Jev, and whether a key is set — never the key itself.
+			'jev' => Jev::status() + ['can_set' => $this->getUserType() == USER_TYPE_SUPER_ADMIN],
 			'store_ok' => Store::writable(),
 			'store_dir' => Store::dir()
 		]);

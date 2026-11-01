@@ -53,7 +53,7 @@ class Module extends CoreModule {
 			[_('Cluster Management'), 'ep.clients.list', ['ep.clients.edit', 'ep.clients.save', 'ep.clients.import', 'ep.clients.columns.save'], 'show'],
 			[_('Discover'), 'ep.clients.discover', ['ep.clients.discover.apply'], 'edit'],
 			[_('Roles'), 'ep.clients.roles', ['ep.clients.role.save', 'ep.clients.template.install'], 'edit'],
-			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save', 'ep.clients.credential.save'], 'show'],
+			[_('Settings'), 'ep.clients.settings', ['ep.clients.settings.save', 'ep.clients.credential.save', 'ep.clients.jev.save'], 'show'],
 			[_('Backups'), 'ep.clients.backups', ['ep.clients.backup.restore', 'ep.clients.backup.download'], 'super']
 		];
 	}
