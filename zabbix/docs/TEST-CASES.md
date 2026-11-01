@@ -770,6 +770,30 @@ Elements) where a step says so.
 | PL-16 | Guest | guest frontend access enabled (*Users → Authentication* / guest user enabled), the dashboard shared with the guests group | Open the dashboard and `zabbix.php?action=elasticpro.play` signed out (as guest); POST `elasticpro.play.frame` with guest's session | The widget says Play is not available to the guest user; the page is Zabbix's *Access denied*; the POST is refused; no ElasticPro menu; ElasticPro's Accounts page has **no** `guest@zabbix` | guest must not get an ElasticPro account | **P1** |
 | PL-17 | Refusal reason only for Super admins | stop the ElasticPro core, or point `core_url` at a dead address | Open ElasticPro → Play and the widget, as the Zabbix User, then as the Super admin | Zabbix User: *ElasticPro could not sign you in. (EP-702)* and *A Zabbix Super admin sees the reason…* — no core address; Super admin: the full reason (*could not reach ElasticPro at …*) | the reason can name the internal core address | P2 |
 
+## 12d. Discover judged by TypeSafe Jev (2.1.16)
+
+Needs a TypeSafe API key, the `elasticpro` module installed (the key is sealed with its key), a
+Super admin and a Zabbix Admin, and a Zabbix with: two clusters in `Elasticsearch clusters`
+(`acme`, `globex`); a role host named by IP with visible name `acme-parser-02` in `Parser` only; a
+host `globex-Parser-9` in `Parser` only; a host `ingest-03` in group `Kafka brokers`; a host with
+the cluster template in group `ES Prod` (no "elasticsearch" in the name). The browser's developer
+tools open where a step says so. The automated half is `clients-module/test/jev.test.php` (§14).
+
+| ID | What | Precondition | Steps | Expected | Why it matters | Pri |
+|---|---|---|---|---|---|---|
+| JV-01 | Off by default | fresh install | Open Discover | No request to `api.typesafe.ai` (proxy log or `tcpdump`); the rule box ends *Names matched by rule; Jev off.*; proposals as in 2.1.15 | opt-in | **P1** |
+| JV-02 | Super admin only | the Zabbix Admin | ElasticPro → Settings | The *Discover with TypeSafe Jev* card is read-only with *only a Zabbix Super admin may decide*; a forged POST to `ep.clients.jev.save` answers *Nothing was changed* | sends names off-site | **P1** |
+| JV-03 | What is sent is said | — | Read the card | It names host names and visible names, host group and template names, candidate client names; and says no IPs, no item values, no log content | informed decision | P2 |
+| JV-04 | Key never shown | set a key, Save | Reload Settings; view source; `grep -r <key>` in the data folder and the web server logs | *Set <date> by <you>* with Replace / Clear; the key is in no HTML, no file in plain text (`jev.json` holds `v1:…`) and no log | secret at rest | **P1** |
+| JV-05 | One request, judged | on, key set | Discover → Rescan | One request; the rule box reads *Names judged by Jev (jev-…): N questions, …*; `acme-parser-02` is under `acme`, *judged by Jev: acme (NN %)*, ticked | the feature | **P1** |
+| JV-06 | Unsure is checked | JV-05 | Look at `globex-Parser-9` (or any host the line says *not sure*) | Under the cluster Jev leaned to, chip *Jev: check — tick if it belongs*, an unticked box, a *Missing* line; Adopt without ticking it: the host is not adopted | no silent guesses | **P1** |
+| JV-07 | Kafka judged | JV-05 | Look at `ingest-03` | Placed under Forwarder *kafka: confirm* only if Jev surely says Kafka, or is unsure (the name match stands); a surely-not answer leaves *role unknown* | the Kafka swap | P2 |
+| JV-08 | Cluster group judged | JV-05 | Look for the `ES Prod` host | Proposed as a cluster, its gaps saying *Jev judged host group "ES Prod"…*; not in the *Not proposed* note | the group swap | P2 |
+| JV-09 | No IP leaves | JV-05 through a logging proxy | Read the request body | No IP address (host names that are IPs read *(an IP address, not sent)*), no macro values, no item values; the Choice options are only cluster/client names and *none of these* | privacy | **P1** |
+| JV-10 | Down or slow | block `api.typesafe.ai` (hosts file or firewall) | Rescan | Within ~10 s the page shows; *Names matched by rule; Jev unavailable: …* names the cause; proposals as JV-01 | sites without internet | **P1** |
+| JV-11 | Bad key | Replace with `wrong-key` | Rescan | *Jev unavailable: the API key was refused (401)*; the typed key appears nowhere on the page | the key is never echoed | P2 |
+| JV-12 | Clear | JV-04 | Clear, confirm | *API key cleared.*; Discover says *Jev unavailable: no API key is set* while on | revocable | P3 |
+
 ## 13. Regression watch-list
 
 Three behaviour changes that can surprise an **existing** install. Each needs an explicit check on
@@ -804,6 +828,7 @@ from CI, not from this document. Listed so a tester knows what the table above d
 | `clients-module/test/palette.test.mjs` | The Colours card under jsdom: marking bad colours, contrast, swatches, Reset |
 | `shared/test/deploy.test.mjs` | Deployment layout checks |
 | `clients-module/test/form.test.mjs` | `EpClientForm.names()` — the server-name preview — against the same table as the PHP `Roles::serverBase()` |
+| `clients-module/test/jev.test.php` | Discover with TypeSafe Jev against a stubbed API (never the real one): off by default and off / no key / timeout / 401 / invalid or missing answers fall back to the name rules with the note and never the key; one request per scan to the documented URL with a Bearer key; options only known clusters plus *none of these*, at most 255 a question; no IP or macro value sent; sure answers used, unsure ones flagged check and unticked; the key sealed at rest and absent from the page's data |
 
 **What this document covers that no suite can:** a real sidebar beside a real third-party module;
 real Zabbix permission enforcement for three real user types; a form that actually renders (a

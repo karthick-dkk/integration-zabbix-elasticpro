@@ -60,6 +60,10 @@ final class Missing {
 			if (!$s['roles']) {
 				$out[] = self::item('role', _s('Role unknown for "%1$s".', $s['host']), _('Pick its role in the table, or it is not adopted.'));
 			}
+			if (($s['check'] ?? '') === 'jev') {
+				$out[] = self::item('jev_check', _s('"%1$s" is shown here to check: %2$s.', $s['host'], $s['source_detail'] ?? ''),
+					_('Tick it in the Role hosts column if it belongs to this cluster; left unticked, it is not adopted.'));
+			}
 			if (($s['role_source'] ?? null) === 'kafka') {
 				$out[] = self::item('kafka', _s('"%1$s" looks like a Kafka server: Kafka is not a role.', $s['host']), _('Confirm Forwarder or Parser in its role dropdown, and tick it.'));
 			}

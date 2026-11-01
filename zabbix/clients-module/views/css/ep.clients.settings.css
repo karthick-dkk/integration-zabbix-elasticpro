@@ -93,8 +93,8 @@
 .ep-set .ep-pv-nc { color: var(--pv-unknown); font-style: italic; font-size: 12px; }
 
 /* ---- default Elasticsearch credential (board Settings-credential.dc.html) ---- */
-#ep-credential-form { margin-top: 16px; display: grid; gap: 8px; max-width: 640px; }
-#ep-credential-form h3 { margin: 0; font-size: 15px; font-weight: 600; }
+#ep-credential-form, #ep-jev-form { margin-top: 16px; display: grid; gap: 8px; max-width: 640px; }
+#ep-credential-form h3, #ep-jev-form h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .ep-set .ep-cred { padding: 12px; display: grid; gap: 4px; }
 .ep-set .ep-cttl { display: flex; align-items: center; gap: 8px; }
 .ep-set .ep-cttl h4 { margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ep-muted, #5f6670); }

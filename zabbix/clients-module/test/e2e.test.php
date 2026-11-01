@@ -24,7 +24,7 @@ namespace {
 	require __DIR__.'/fake-zabbix.php';
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'DefaultCredential', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck', 'EpRole', 'TemplateMove', 'Missing', 'ClusterSecret', 'Discovery'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'DefaultCredential', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting', 'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck', 'EpRole', 'TemplateMove', 'Missing', 'ClusterSecret', 'Jev', 'Discovery'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	use Modules\EpClients\Lib\{AlertRouting, Backups, ClientSpec, ClientState, Csv, Settings, Importer, Workbook, Xlsx, JumpTemplate, Lifecycle, MasterTemplate, Reconciler, Roles, SetupChecks, Store, TemplateInstaller, TemplateMap, ClusterTemplate, DevicesTemplate, WriteCheck, Discovery};

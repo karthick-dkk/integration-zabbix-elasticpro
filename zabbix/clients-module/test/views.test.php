@@ -73,7 +73,7 @@ namespace {
 	}
 }
 namespace Modules\EpClients\Test {
-	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions', 'EpRole', 'Reconciler', 'Discovery', 'ListColumns'] as $lib) {
+	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'Bars', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate', 'ClientSpec', 'SetupChecks', 'ClientActions', 'EpRole', 'Reconciler', 'Jev', 'Discovery', 'ListColumns'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	$dir = sys_get_temp_dir().'/ep-views-'.getmypid();
@@ -317,6 +317,25 @@ namespace Modules\EpClients\Test {
 		&& str_contains($db, 'Adopt selected (1)') && str_contains($db, 'name="do" value="adopt"'));
 	check('discover: an optional password field in the details, always empty', str_contains($db, 'name="pw[p1]" value=""'));
 	check('discover: the unattached role host and the note are shown', str_contains($db, 'lonely') && str_contains($db, 'stray-es'));
+	check('discover: without a judgement (an older cached scan) no Jev line', !str_contains($db, 'data-ep-judge'));
+
+	/* ---------------- Discover judged by TypeSafe Jev ---------------- */
+	$jScan = $scanData;
+	$jScan['judge'] = ['used' => true, 'note' => 'Names judged by Jev (jev-1.14.0): 4 questions, 3 decided, 1 left to check or to the name rule.', 'cluster_groups' => []];
+	$jScan['proposals'][0]['hosts'][] = $hostRow(['hostid' => '13', 'host' => '10.3.0.9', 'ip' => '10.3.0.9', 'name' => 'gx-parse-9', 'server_name' => 'gx-parse-9', 'roles' => ['parser'],
+		'role_source' => 'group', 'source' => 'jev', 'source_detail' => 'Jev leans to globex-prod (72 %), not sure: check it', 'check' => 'jev']);
+	$jScan['proposals'][0]['choices']['hosts']['13'] = false;
+	$jb = body(render('ep.clients.discover', ['scan' => $jScan, 'token' => 'tk', 'error' => null, 'results' => null, 'store_ok' => true, 'store_dir' => $dir, 'can_write' => true,
+		'roles' => \Modules\EpClients\Lib\Roles::defaults()]));
+	check('discover + Jev: the one-line note says Jev judged the names', str_contains($jb, 'data-ep-judge="jev"') && str_contains($jb, 'Names judged by Jev (jev-1.14.0)'));
+	check('discover + Jev: a host to check is a check box, unticked, with its flag and why', (bool) preg_match('~<input type="checkbox"[^>]*name="host\[p1\]\[13\]"[^>]*>~', $jb, $cb)
+		&& !str_contains($cb[0] ?? '', 'checked') && str_contains($jb, 'Jev: check — tick if it belongs') && str_contains($jb, 'Jev leans to globex-prod (72 %), not sure: check it')
+		&& str_contains($jb, '1 host to check (Jev not sure)'), $cb[0] ?? null);
+	check('discover + Jev: hosts Jev did not flag keep their hidden input', str_contains($jb, 'name="host[p1][11]" value="1"'));
+	$jScan['judge'] = ['used' => false, 'note' => 'Names matched by rule; Jev unavailable: no answer within 10 seconds.', 'cluster_groups' => []];
+	$rb = body(render('ep.clients.discover', ['scan' => $jScan, 'token' => 'tk', 'error' => null, 'results' => null, 'store_ok' => true, 'store_dir' => $dir, 'can_write' => true,
+		'roles' => \Modules\EpClients\Lib\Roles::defaults()]));
+	check('discover, Jev unavailable: the note says the rules ran, and why', str_contains($rb, 'data-ep-judge="rule"') && str_contains($rb, 'Names matched by rule; Jev unavailable: no answer within 10 seconds.'));
 	$settingsView = (string) file_get_contents(__DIR__.'/../views/ep.clients.settings.php');
 	check('settings: the default credential has its own form, a keep-marker, and never a password value',
 		str_contains($settingsView, "ep.clients.credential.save") && str_contains($settingsView, "'es_password_action'") && !preg_match("~'es_password'\)->setAttribute\('value', \$~", $settingsView));

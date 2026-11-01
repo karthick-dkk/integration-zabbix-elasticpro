@@ -406,6 +406,11 @@ final class EpRole {
 	 * when that module is enabled; otherwise they are required from its folder, found through the
 	 * module manager (getDir() on Zabbix 7.0, the root plus getRelativePath() on 8.0).
 	 */
+	/** Whether the ElasticPro module's Settings (its seal() and open()) can be used here: Jev's API key is sealed with them. */
+	public static function embedAvailable(): bool {
+		return self::loadEmbed();
+	}
+
 	private static function loadEmbed(): bool {
 		if (class_exists(SsoClient::class) && class_exists(EmbedSettings::class)) {
 			return true;

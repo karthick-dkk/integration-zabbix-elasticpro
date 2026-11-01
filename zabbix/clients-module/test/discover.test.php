@@ -23,7 +23,7 @@ namespace {
 namespace Modules\EpClients\Test {
 	foreach (['Store', 'Settings', 'Roles', 'ColumnSettings', 'Forecast', 'ClientTypes', 'MasterTemplate', 'DevicesTemplate', 'JumpTemplate', 'ClusterTemplate',
 			'ClientSpec', 'Csv', 'Zip', 'Xlsx', 'Workbook', 'Backups', 'Reconciler', 'DefaultCredential', 'Lifecycle', 'Registry', 'History', 'SetupChecks', 'AlertRouting',
-			'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck', 'EpRole', 'TemplateMove', 'Missing', 'ClusterSecret', 'Discovery'] as $lib) {
+			'ClientState', 'Importer', 'TemplateInstaller', 'TemplateMap', 'WriteCheck', 'EpRole', 'TemplateMove', 'Missing', 'ClusterSecret', 'Jev', 'Discovery'] as $lib) {
 		require __DIR__.'/../lib/'.$lib.'.php';
 	}
 	use Modules\EpClients\Lib\{ClientSpec, ClientState, ClusterSecret, ClusterTemplate, DefaultCredential, Discovery, EpRole, JumpTemplate, MasterTemplate, Missing, Reconciler, Roles, SetupChecks, Store,

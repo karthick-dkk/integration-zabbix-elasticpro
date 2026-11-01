@@ -158,6 +158,38 @@ page made do, and only those are ever deleted). Nothing is deleted, unlinked wit
 A client something stops is skipped with the reason; the others go on. The scan is kept for the
 session; **Rescan** reads Zabbix again.
 
+### Judged by TypeSafe Jev (opt-in, 2.1.16)
+
+Three things above are guesses from names: the `<client>-` name prefix, the Kafka match (`kafka`
+anywhere in a host's names, groups or templates), and a cluster group being one whose name contains
+`elasticsearch`. With **Judge Discover proposals with TypeSafe Jev** on (ElasticPro → Settings,
+below) and a key set, each scan asks TypeSafe Jev (`lib/Jev.php`) instead, in **one** request to
+`POST https://api.typesafe.ai/v1/systemone`:
+
+| Question | Type | Asked for | Options |
+|---|---|---|---|
+| Which client in `clients` does this server belong to? | Choice | each role host no host group, `{$GRP.CLIENT}` or client tag attaches (nor points at two clusters) | the clusters the scan knows — by client name, else host name — plus `none of these`; at most 255 a question, more in further questions |
+| Is this server a Kafka server? | Noul | each role host with no role from a role group, role template or `ep-role` tag | — |
+| Is this Zabbix host group meant for Elasticsearch cluster hosts? | Noul | each host group of a host that carries an Elasticsearch template but is in no `elasticsearch` group (role groups and the module's own left out) | — |
+
+The `state` holds one line about the setup and, per candidate cluster, its cluster host name,
+other names (`{$GRP.CLIENT}`, client tag) and host groups. Each question carries the host's names
+(an IP address is replaced by "(an IP address, not sent)"), host groups and templates. Nothing else
+is sent. The exact rules run first and are never asked about.
+
+An answer is **sure** at a top probability of 0.85 or more and 0.5 or more above the next
+(`Jev::AUTO_TOP`, `Jev::AUTO_MARGIN`). Sure: a client attaches the host (*judged by Jev: acme
+(97 %)*), *none of these* leaves it unattached and says so, *not Kafka* drops the Forwarder
+suggestion, a cluster group makes its hosts clusters (the proposal says Jev decided it). Unsure: the
+host is shown under the cluster Jev leaned to — or where the name prefix puts it — flagged
+**Jev: check**, with an unticked box of its own and a *Missing* line; it is adopted only if a person
+ticks it. An unsure Kafka or group answer leaves the name rule's answer.
+
+Off, without a key, or when TypeSafe fails, takes more than 10 s (`Jev::TIMEOUT`, the whole scan)
+or answers something that was not asked: the name rules, unchanged. The rule box says which ran —
+*Names judged by Jev (model): …* or *Names matched by rule; Jev off.* / *Jev unavailable: reason*,
+never the key. The name rules stay for sites without internet.
+
 ## The list
 
 As the approved board draws it (2026-10-23): a search that also matches host names and IPs; the
@@ -454,6 +486,14 @@ template*, which brings them into step.
 
 Nothing here is settable from the Settings page that was not already a number in the code, so a
 site that never opens it sees exactly what it saw before.
+
+**Discover with TypeSafe Jev** (its own form, `ep.clients.jev.save`, Zabbix Super admin only; off
+by default) turns on [Jev's judgement in Discover](#judged-by-typesafe-jev-opt-in-2116) and holds
+the TypeSafe API key. The key is kept in `jev.json` in the data folder, sealed (AES-256-GCM) with
+the ElasticPro module's `Settings::seal()` — the pairing secret's — so storing one needs the
+ElasticPro module installed; if Zabbix's session key is ever regenerated it no longer opens and the
+card says to replace it. The page shows only *Set <date> by <user>* with **Replace** and **Clear**;
+the key is never sent to the browser, put in a message or logged. The card says what is sent.
 
 **Colours** is the one palette every ElasticPro widget draws with — OK, Warn, High, Unknown, Short,
 Free, Down, Stale and Link, each for the Blue (light) and Dark theme, and eight chart series

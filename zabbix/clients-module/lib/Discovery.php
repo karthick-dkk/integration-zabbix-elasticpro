@@ -29,6 +29,12 @@ use Exception;
  * client group, no role hosts, no password, no jump host, an old template generation, macros not
  * set, templates the user cannot see — is in the proposal's Missing list (Missing).
  *
+ * Opt-in (ElasticPro -> Settings), TypeSafe Jev judges what the rules above leave to names: the
+ * client of a role host no group, macro or tag attaches (in place of the prefix, which stays the
+ * fallback), whether a host is a Kafka server, and whether a host group whose name lacks
+ * "elasticsearch" holds cluster hosts. Jev says what it judged and how surely; unsure answers are
+ * shown to check, never ticked. Off or unreachable, the rules run as they always have (Jev).
+ *
  * plan() turns a proposal and the admin's choices into the client form Reconciler::apply() takes,
  * the refusals Reconciler::problems() and WriteCheck would raise, and the write list shown before
  * anything happens — naming every template that will be linked. apply() carries one proposal
@@ -78,8 +84,18 @@ final class Discovery {
 	 */
 	public function scan(?callable $refusals = null): array {
 		$ctx = $this->context();
-		$rows = $this->rows($ctx);
-		['proposals' => $proposals, 'unattached' => $unattached, 'stray' => $stray] = self::proposals($rows, self::nameWords($this->roles), Roles::groups($this->roles));
+		$fetched = $this->fetch($ctx);
+		$words = self::nameWords($this->roles);
+		$roleGroups = Roles::groups($this->roles);
+		$rows = $this->rows($fetched, $ctx);
+		// The guesses from names, judged by Jev when it is on (Jev): asked once, about the rows the
+		// rules made; then the rows are described again with its answers. Off or failing, the rules
+		// stand unchanged and the note says so.
+		$judged = Jev::judge($rows, $roleGroups, $words);
+		if ($judged['used'] && ($judged['client'] || $judged['kafka'] || $judged['es_groups'])) {
+			$rows = $this->rows($fetched, $ctx, $judged);
+		}
+		['proposals' => $proposals, 'unattached' => $unattached, 'stray' => $stray] = self::proposals($rows, $words, $roleGroups, $judged);
 		$groups = $this->existingGroups(array_column($proposals, 'name'));
 		foreach ($proposals as &$p) {
 			$p['exists'] = isset($ctx['clients'][$p['name']]);
@@ -98,6 +114,7 @@ final class Discovery {
 				self::CLUSTER_GROUP_MATCH, implode(', ', array_column($stray, 'host')));
 		}
 		return ['at' => time(), 'proposals' => array_values($proposals), 'unattached' => $unattached, 'notes' => $notes,
+			'judge' => ['used' => $judged['used'], 'note' => $judged['note'], 'cluster_groups' => Jev::clusterGroups($judged)],
 			'proxies' => array_column(API::Proxy()->get(['output' => ['name'], 'sortfield' => 'name']) ?: [], 'name'),
 			'proxy_groups' => array_column(API::ProxyGroup()->get(['output' => ['name'], 'sortfield' => 'name']) ?: [], 'name')];
 	}
@@ -155,8 +172,8 @@ final class Discovery {
 		return $out;
 	}
 
-	public static function isClusterGroup(string $name): bool {
-		return stripos($name, self::CLUSTER_GROUP_MATCH) !== false;
+	public static function isClusterGroup(string $name, array $judgedGroups = []): bool {
+		return stripos($name, self::CLUSTER_GROUP_MATCH) !== false || in_array($name, $judgedGroups, true);
 	}
 
 	/** What the scan knows about Zabbix before it looks at a host: clients, their groups and hosts. */
@@ -245,8 +262,27 @@ final class Discovery {
 		return null;
 	}
 
-	/** Every host worth proposing, described. */
-	private function rows(array $ctx): array {
+	/** Every host worth proposing, described — with Jev's answers when it judged the scan. */
+	private function rows(array $f, array $ctx, array $judged = []): array {
+		if (!$f['hosts']) {
+			return [];
+		}
+		$out = [];
+		foreach ($f['hosts'] as $id => $h) {
+			if (Reconciler::hasAnyTemplate($h, Reconciler::ulmTemplates()) || Reconciler::kindWithoutTemplates($h) === 'archive'
+					|| Reconciler::hasAnyTemplate($h, Reconciler::masterTemplates())) {
+				continue;
+			}
+			$out[] = $this->describe($h, $f['values'][(string) $id] ?? [], $f['ctx'], $f['from_template'][(string) $id] ?? null, $f['by_ip'], $f['proxies'],
+				$f['proxy_groups'], $f['role_tpl'], $judged);
+		}
+		usort($out, fn($a, $b) => strnatcasecmp($a['host'], $b['host']));
+		return $out;
+	}
+
+	/** What the scan reads from Zabbix about every host worth proposing, read once. */
+	private function fetch(array $ctx): array {
+		$none = ['hosts' => [], 'values' => [], 'ctx' => $ctx, 'from_template' => [], 'by_ip' => [], 'proxies' => [], 'proxy_groups' => [], 'role_tpl' => []];
 		$roleGroups = Roles::groups($this->roles);
 		$roleTpl = self::roleTemplateMap($this->roles);
 		$clusterNames = Reconciler::clusterHostTemplates();
@@ -286,7 +322,7 @@ final class Discovery {
 			unset($ids[$id]);
 		}
 		if (!$ids) {
-			return [];
+			return $none;
 		}
 		$hosts = API::Host()->get(['output' => ['hostid', 'host', 'name', 'status', 'monitored_by', 'proxyid', 'proxy_groupid'],
 			'hostids' => array_keys($ids), 'selectHostGroups' => ['groupid', 'name'], 'selectParentTemplates' => ['templateid', 'host'],
@@ -315,16 +351,8 @@ final class Discovery {
 				$byIp[$if['ip']][(string) $if['hostid']] = $names[(string) $if['hostid']] ?? $if['hostid'];
 			}
 		}
-		$out = [];
-		foreach ($hosts as $id => $h) {
-			if (Reconciler::hasAnyTemplate($h, Reconciler::ulmTemplates()) || Reconciler::kindWithoutTemplates($h) === 'archive'
-					|| Reconciler::hasAnyTemplate($h, Reconciler::masterTemplates())) {
-				continue;
-			}
-			$out[] = $this->describe($h, $values[(string) $id] ?? [], $ctx, $fromTemplate[(string) $id] ?? null, $byIp, $proxies, $proxyGroups, $roleTpl);
-		}
-		usort($out, fn($a, $b) => strnatcasecmp($a['host'], $b['host']));
-		return $out;
+		return ['hosts' => $hosts, 'values' => $values, 'ctx' => $ctx, 'from_template' => $fromTemplate, 'by_ip' => $byIp, 'proxies' => $proxies,
+			'proxy_groups' => $proxyGroups, 'role_tpl' => $roleTpl];
 	}
 
 	/** The cluster host's per-family requested-figure macros, which a save writes from the form. */
@@ -339,7 +367,7 @@ final class Discovery {
 	}
 
 	/** One host as the proposal shows it: what it is, which client and roles it points to, and what is missing. */
-	private function describe(array $h, array $vals, array $ctx, ?string $sigTemplate, array $byIp, array $proxies, array $proxyGroups, array $roleTpl): array {
+	private function describe(array $h, array $vals, array $ctx, ?string $sigTemplate, array $byIp, array $proxies, array $proxyGroups, array $roleTpl, array $judged = []): array {
 		$id = (string) $h['hostid'];
 		$groups = Reconciler::groupNames($h);
 		$templates = array_column($h['parentTemplates'] ?? [], 'host');
@@ -376,7 +404,8 @@ final class Discovery {
 		$jumpNames = Roles::templateNamesFor('jump', [JumpTemplate::LEGACY_NAME]);
 		$current = [Roles::clusterTemplate(), Roles::templateName('jump')];
 		$looksLikeCluster = Reconciler::hasAnyTemplate($h, Reconciler::clusterHostTemplates()) || Reconciler::kindWithoutTemplates($h) === 'cluster' || $sigTemplate !== null;
-		$inEsGroup = (bool) array_filter($groups, fn($g) => self::isClusterGroup((string) $g));
+		$judgedGroups = Jev::clusterGroups($judged);
+		$inEsGroup = (bool) array_filter($groups, fn($g) => self::isClusterGroup((string) $g, $judgedGroups));
 		if ($looksLikeCluster && !$inEsGroup) {
 			// The rule is the host group, not the template: said, never proposed.
 			$row['kind'] = 'stray';
@@ -384,6 +413,13 @@ final class Discovery {
 		}
 		if ($inEsGroup) {
 			$row['kind'] = 'cluster';
+			if (!array_filter($groups, fn($g) => self::isClusterGroup((string) $g))) {
+				// Only a group Jev judged makes it one: proposed, and said.
+				$jg = array_values(array_intersect($groups, $judgedGroups));
+				$row['cluster_by'] = 'jev';
+				$row['gaps'][] = _s('A cluster because Jev judged host group "%1$s" to hold Elasticsearch cluster hosts (%2$s), although its name does not contain "%3$s".',
+					$jg[0], Jev::percent((float) $judged['es_groups'][$jg[0]]['p']), self::CLUSTER_GROUP_MATCH);
+			}
 			$known = array_values(array_intersect($templates, Reconciler::clusterHostTemplates()));
 			$row['jump'] = (bool) array_intersect($templates, $jumpNames);
 			if (array_intersect($templates, $current)) {
@@ -479,7 +515,13 @@ final class Discovery {
 		}
 		// Kafka is not a role: a Kafka server is a forwarder or a parser. Suggested as Forwarder and
 		// said, never decided: the host is not ticked until the admin confirms.
+		// With Jev on, its sure answer stands in for the name match; an unsure one leaves the match.
 		$row['kafka'] = (bool) preg_match('/kafka/i', implode(' ', array_merge([(string) $h['host'], (string) ($h['name'] ?? '')], $groups, $templates)));
+		$jk = $judged['kafka'][$id] ?? null;
+		if ($jk !== null && $jk['decision'] === 'auto') {
+			$row['kafka'] = (bool) $jk['yes'];
+			$row['kafka_by'] = 'jev';
+		}
 		$inFamily = (bool) array_filter($this->roles['families'], fn($f) => in_array($f['group'], $groups, true));
 		if (!$row['roles'] && !$inFamily && $row['kafka'] && isset(Roles::byId($this->roles)['forwarder'])) {
 			$row['roles'] = ['forwarder'];
@@ -524,8 +566,8 @@ final class Discovery {
 	/* ------------------------------------ grouping (pure) ------------------------------------ */
 
 	/** Host groups that say nothing about which cluster a host belongs to. */
-	private static function genericGroup(string $g, array $roleGroups): bool {
-		return self::isClusterGroup($g) || in_array($g, $roleGroups, true)
+	public static function genericGroup(string $g, array $roleGroups, array $judgedGroups = []): bool {
+		return self::isClusterGroup($g, $judgedGroups) || in_array($g, $roleGroups, true)
 			|| in_array($g, [Reconciler::MASTERS_GROUP, Reconciler::LEGACY_MASTERS_GROUP, Reconciler::CLUSTER_GROUP, Reconciler::ULM_GROUP], true);
 	}
 
@@ -533,7 +575,7 @@ final class Discovery {
 	 * What identifies a cluster to its role hosts, per hint: its client's group and the host
 	 * groups only it is in; its names for macro and tag hints; its <client> for the prefix. Pure.
 	 */
-	public static function identity(array $cluster, array $allClusters, array $roleGroups, array $words): array {
+	public static function identity(array $cluster, array $allClusters, array $roleGroups, array $words, array $judgedGroups = []): array {
 		$shared = [];
 		foreach ($allClusters as $o) {
 			if ($o['hostid'] !== $cluster['hostid']) {
@@ -545,7 +587,7 @@ final class Discovery {
 		$names = array_values(array_unique(array_filter([$cluster['host'], $cluster['already'] ?? null, $cluster['grp_client'] ?? '', $cluster['tag_client'] ?? '',
 				self::clientFromName($cluster['host'], $words)],
 			fn($x) => $x !== null && $x !== '')));
-		$groups = array_values(array_filter($cluster['groups'], fn($g) => !self::genericGroup($g, $roleGroups) && !isset($shared[$g])));
+		$groups = array_values(array_filter($cluster['groups'], fn($g) => !self::genericGroup($g, $roleGroups, $judgedGroups) && !isset($shared[$g])));
 		// <client>-<Role>-<n>: the cluster's name is the client's, so its servers may be named after
 		// it — or after the <client> of a <client>-ES-Cluster host, or its existing client.
 		$prefix = array_values(array_filter(array_unique(array_merge([$cluster['host']], array_filter([$cluster['already'] ?? null]), [self::clientFromName($cluster['host'], $words) ?? ''])),
@@ -554,9 +596,9 @@ final class Discovery {
 	}
 
 	/** A role host's hints, per source: the values it offers. Pure. */
-	public static function hints(array $row, array $roleGroups, array $words): array {
+	public static function hints(array $row, array $roleGroups, array $words, array $judgedGroups = []): array {
 		return [
-			'group' => array_values(array_filter($row['groups'], fn($g) => !self::genericGroup($g, $roleGroups))),
+			'group' => array_values(array_filter($row['groups'], fn($g) => !self::genericGroup($g, $roleGroups, $judgedGroups))),
 			'macro' => ($row['grp_client'] ?? '') !== '' ? [$row['grp_client']] : [],
 			'tag' => ($row['tag_client'] ?? '') !== '' ? [$row['tag_client']] : [],
 			'prefix' => array_values(array_filter([self::clientFromName($row['host'], $words) ?? ''], fn($x) => $x !== ''))
@@ -567,15 +609,21 @@ final class Discovery {
 	 * Rows into one proposal per cluster host, role hosts attached by the first hint that points
 	 * at exactly one cluster. Pure.
 	 *
+	 * With a Jev judgement (Jev::judge()), its answer comes after the exact hints (group, macro,
+	 * tag) and before the name prefix: a sure answer naming a cluster attaches the host (source
+	 * "jev"); a sure "none of these" leaves it unattached; anything unsure attaches it only as the
+	 * prefix would, or as Jev leaned, flagged check — shown, never ticked.
+	 *
 	 * @return array{proposals: array, unattached: array, stray: array}
 	 */
-	public static function proposals(array $rows, array $words, array $roleGroups = []): array {
+	public static function proposals(array $rows, array $words, array $roleGroups = [], array $judged = []): array {
 		$clusters = array_values(array_filter($rows, fn($r) => $r['kind'] === 'cluster'));
 		$stray = array_values(array_filter($rows, fn($r) => $r['kind'] === 'stray'));
 		$servers = array_values(array_filter($rows, fn($r) => $r['kind'] === 'server'));
+		$judgedGroups = Jev::clusterGroups($judged);
 		$ids = [];
 		foreach ($clusters as $c) {
-			$ids[$c['hostid']] = self::identity($c, $clusters, $roleGroups, $words);
+			$ids[$c['hostid']] = self::identity($c, $clusters, $roleGroups, $words, $judgedGroups);
 		}
 		$byId = array_column($clusters, null, 'hostid');
 		$attached = [];
@@ -591,9 +639,27 @@ final class Discovery {
 				}
 			}
 			$why = null;
+			$ambiguous = false;
+			$check = false;
+			$jc = $judged['client'][(string) $s['hostid']] ?? null;
 			if ($owner === null) {
-				$h = self::hints($s, $roleGroups, $words);
+				$h = self::hints($s, $roleGroups, $words, $judgedGroups);
 				foreach (self::SOURCES as $src) {
+					if ($src === 'prefix' && $jc !== null) {
+						if ($jc['pick'] !== null && isset($byId[$jc['pick']])) {
+							$check = $jc['decision'] !== 'auto';
+							$owner = [(string) $jc['pick'], 'jev', $check
+								? _s('Jev leans to %1$s (%2$s), not sure: check it', $jc['name'], Jev::percent((float) $jc['p']))
+								: _s('judged by Jev: %1$s (%2$s)', $jc['name'], Jev::percent((float) $jc['p']))];
+							break;
+						}
+						if ($jc['pick'] === null && $jc['decision'] === 'auto') {
+							$why = _s('Jev judged it belongs to none of the clusters (%1$s)', Jev::percent((float) $jc['p']));
+							break;
+						}
+						// Unsure, or it named a host that is not a cluster after all: the name rule, to check.
+						$check = true;
+					}
 					$hit = [];
 					foreach ($ids as $cid => $id) {
 						$common = array_values(array_intersect($h[$src], $id[$src]));
@@ -611,6 +677,7 @@ final class Discovery {
 					if (count($hit) > 1) {
 						$why = _s('its %1$s points at more than one cluster (%2$s)', $src,
 							implode(', ', array_map(fn($cid) => $byId[$cid]['host'], array_keys($hit))));
+						$ambiguous = true;
 						break;
 					}
 				}
@@ -618,17 +685,22 @@ final class Discovery {
 			if ($owner === null) {
 				$s['source'] = null;
 				$s['source_detail'] = $why ?? _('no client group, no {$GRP.CLIENT}, no client tag and no name prefix points at a cluster');
+				$s['ambiguous'] = $ambiguous;
 				$unattached[] = $s;
 				continue;
 			}
 			$s['source'] = $owner[1];
-			$s['source_detail'] = $owner[2];
+			$s['source_detail'] = $owner[2].($check && $owner[1] === 'prefix' ? _(' — Jev was not sure: check it') : '');
+			if ($check) {
+				// Shown under the cluster, not ticked: a person says whether it belongs.
+				$s['check'] = 'jev';
+			}
 			$attached[$owner[0]][] = $s;
 		}
 		$out = [];
 		foreach ($clusters as $c) {
 			$c['source'] = 'cluster';
-			$c['source_detail'] = _s('in host group %1$s', implode(', ', array_filter($c['groups'], fn($g) => self::isClusterGroup((string) $g))));
+			$c['source_detail'] = _s('in host group %1$s', implode(', ', array_filter($c['groups'], fn($g) => self::isClusterGroup((string) $g, $judgedGroups))));
 			$out[] = ['id' => substr(sha1('c:'.$c['hostid']), 0, 10), 'name' => (string) ($c['already'] ?? $c['host']), 'source' => 'cluster',
 				'cluster' => $c['host'], 'hosts' => array_merge([$c], $attached[$c['hostid']] ?? [])];
 		}
@@ -652,8 +724,8 @@ final class Discovery {
 
 	/**
 	 * The choices a proposal starts with: every host that can be adopted as it is, ticked; a host
-	 * already a client's, or whose role is unknown or only suggested (kafka), or that something
-	 * stops, not.
+	 * already a client's, or whose role is unknown or only suggested (kafka), or whose client Jev
+	 * was not sure of (check), or that something stops, not.
 	 * Moving a host onto the ElasticPro templates is ticked wherever it applies.
 	 */
 	public function defaults(array $p): array {
@@ -673,7 +745,7 @@ final class Discovery {
 				}
 			}
 			else {
-				$ok = $ok && $h['roles'] && $h['ip'] !== null && !$h['shared_ip'];
+				$ok = $ok && $h['roles'] && $h['ip'] !== null && !$h['shared_ip'] && empty($h['check']);
 				$c['confirm'][$id] = ($h['role_source'] ?? null) === 'kafka' ? 'kafka' : '';
 			}
 			$c['hosts'][$id] = $ok;
