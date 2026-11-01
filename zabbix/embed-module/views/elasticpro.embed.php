@@ -1,7 +1,7 @@
 <?php declare(strict_types = 1);
 /**
  * @var CView $this
- * @var array $data  ['configured', 'frame_url', 'public_url', 'error']
+ * @var array $data  ['configured', 'frame_url', 'origin', 'error', 'kiosk']
  *
  * Each failure here carries an error code from the module's range, 7xx (the core uses
  * 1xx-5xx, the ElasticPro page 6xx; docs/ERROR-CODES.md in the ElasticPro repository lists them all):
@@ -39,18 +39,24 @@ else {
 		->addClass('ep-frame');
 }
 
+// Play's "Open full screen" (kiosk=1): Zabbix's kiosk mode for this page only — no sidebar
+// and no header, with Zabbix's own "Normal view" button (layout.mode.js) to leave it. A Zabbix
+// without CView::setLayoutMode() opens the page in the normal layout instead.
+$layout_mode = ZBX_LAYOUT_NORMAL;
+if ($data['kiosk'] && method_exists($this, 'setLayoutMode')) {
+	$this->enableLayoutModes();
+	$this->setLayoutMode(ZBX_LAYOUT_KIOSKMODE);
+	$this->addJsFile('layout.mode.js');
+	$layout_mode = $this->getLayoutMode();
+}
+
 // No setTitle(): that draws a heading over the frame, and the page is the frame. The
 // browser tab still gets the name, from the response (see View::doAction).
 (new CHtmlPage())
-	->addItem((new CDiv($body))->addClass('ep-wrap'))
+	->setWebLayoutMode($layout_mode)
+	->addItem((new CDiv($body))->addClass('ep-wrap')->addClass($layout_mode == ZBX_LAYOUT_KIOSKMODE ? 'ep-kiosk' : null))
 	->show();
-$origin = '';
-if ($data['public_url'] !== '') {
-	$parts = parse_url($data['public_url']);
-	if (isset($parts['scheme'], $parts['host'])) {
-		$origin = $parts['scheme'].'://'.$parts['host'].(isset($parts['port']) ? ':'.$parts['port'] : '');
-	}
-}
+$origin = $data['origin'];
 ?>
 <script>
 	/* The app in the frame asks for this when its session ends — the core restarted, or it
@@ -99,6 +105,7 @@ if ($data['public_url'] !== '') {
 	.wrapper main { padding: 0 !important; }
 	.ep-wrap { display: flex; flex: 1 1 auto; min-height: calc(100vh - 60px); }
 	.ep-frame { flex: 1 1 auto; width: 100%; min-height: calc(100vh - 60px); border: 0; }
+	.ep-wrap.ep-kiosk, .ep-kiosk .ep-frame { min-height: 100vh; }
 	.ep-error { margin: 40px auto; max-width: 640px; padding: 14px 16px; border-radius: 4px;
 	             border: 1px solid #e45959; background: #fef6f6; color: #7a2020; line-height: 1.6; }
 </style>

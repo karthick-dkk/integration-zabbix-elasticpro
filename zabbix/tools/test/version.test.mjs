@@ -20,7 +20,7 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ep-version-'));
 test('every module manifest carries the same x.y.z', () => {
   const versions = readVersions();
   assert.deepEqual(moduleDirs().sort(),
-    ['capacity-widget', 'clients-module', 'embed-module', 'overview-widget', 'resources-widget', 'tophosts-widget', 'volume-widget'],
+    ['capacity-widget', 'clients-module', 'embed-module', 'overview-widget', 'play-widget', 'resources-widget', 'tophosts-widget', 'volume-widget'],
     'a module was added or removed: say so here, and in the tarball tool and installer of ElasticPro');
   for (const [dir, v] of Object.entries(versions)) assert.ok(isSemver(v), `${dir}/manifest.json: version ${JSON.stringify(v)} is not x.y.z`);
   assert.equal(new Set(Object.values(versions)).size, 1, `the manifests disagree: ${JSON.stringify(versions)}`);

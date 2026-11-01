@@ -1,0 +1,31 @@
+{
+	"manifest_version": 2.0,
+	"id": "ep_play",
+	"type": "widget",
+	"name": "ElasticPro Play",
+	"namespace": "EpPlay",
+	"version": "2.1.15",
+	"author": "ElasticPro",
+	"description": "ElasticPro Play, the NOC wall display, inside a dashboard: the same page as ElasticPro → Play, sized to the widget and signed in as the Zabbix user looking at the dashboard. Slides, timing and zoom are Play's own (ElasticPro Config › Play). Needs the ElasticPro module (elasticpro), paired.",
+	"widget": {
+		"js_class": "WidgetEpPlay",
+		"size": {
+			"width": 36,
+			"height": 10
+		},
+		"refresh_rate": 0
+	},
+	"actions": {
+		"widget.ep_play.view": {
+			"class": "WidgetView"
+		}
+	},
+	"assets": {
+		"js": [
+			"class.widget.js"
+		],
+		"css": [
+			"widget.css"
+		]
+	}
+}

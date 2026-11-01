@@ -26,7 +26,31 @@ the installed module.
 | EP-702 | ElasticPro refused to sign this Zabbix user in; the core's own code follows the reason |
 | EP-703 | signed in, then lost the session three times in a minute (usually the two sides' pairing secrets differ) |
 
-Tests: `node --test embed-module/test/*.test.mjs` (part of `npm test`).
+Tests: `node --test embed-module/test/*.test.mjs` (part of `npm test`); the PHP suite
+`test/play.test.php` runs with local `php` or a `php:8.4-cli-alpine` container and is skipped,
+saying so, where there is neither.
+
+## Play (2.1.15)
+
+**ElasticPro → Play** (action `elasticpro.play`) opens ElasticPro's NOC wall display (`#/play`,
+ElasticPro 0.3.47+) in the page, like every other ElasticPro entry: same one-time code, same
+frame, same "sign me in again" handling, same error codes. It is offered to everyone who sees the
+ElasticPro menu; what they see in it is what ElasticPro gives their groups and role. With
+`&kiosk=1` the page opens in Zabbix's kiosk mode (no sidebar, no header) for that page only, and
+Zabbix's own *Normal view* button leaves it; the person's saved layout mode is not changed. A Zabbix
+whose views cannot set the layout mode per page opens it in the normal layout instead.
+
+The **ElasticPro Play** dashboard widget (`../play-widget/`, installed as `ep_play`) shows the same
+page in a dashboard. It does not sign in on its own: its script asks this module's
+`elasticpro.play.frame` action — a POST that Zabbix checks against the user's CSRF token, refused to
+anyone below a Zabbix User, as the pages are — for a fresh frame address each time the frame loads.
+The answer is JSON: `{"url", "origin"}`, or `{"error": {"code": "EP-701" | "EP-702", "message",
+"reason"}}`, worded as this page words them.
+
+Both go through `lib/SignIn.php`, the one sign-in: what Zabbix vouches for (user type, groups and
+role, read from the database), the code, and the frame address. Nothing in Zabbix's or ElasticPro's
+headers changes for Play: the frame is ElasticPro's public address inside a Zabbix page, which
+ElasticPro's `frame-ancestors` (the paired Zabbix origin) already allows.
 
 ## The sync identity and `history.push`
 

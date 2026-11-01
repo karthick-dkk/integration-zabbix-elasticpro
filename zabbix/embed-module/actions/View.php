@@ -2,24 +2,28 @@
 
 namespace Modules\ElasticPro\Actions;
 
-require_once __DIR__.'/../lib/SsoClient.php';
+require_once __DIR__.'/../lib/SignIn.php';
 
 use API;
 use CController;
 use CControllerResponseData;
 use CControllerResponseRedirect;
 use CUrl;
-use CWebUser;
-use Modules\ElasticPro\Lib\SsoClient;
+use Modules\ElasticPro\Lib\SignIn;
 use Modules\ElasticPro\Module;
 
 /**
  * One controller for every ElasticPro page. The action name says which page:
  * `elasticpro.indices` opens the app at `#/indices`.
  *
- * Each page load mints its own code. Codes are single-use and cheap, and a page that
- * carried a long-lived session in its HTML would be a session anyone with the page
- * source could reuse.
+ * Each page load mints its own code (lib/SignIn.php, the one sign-in every ElasticPro page
+ * and the Play widget share). Codes are single-use and cheap, and a page that carried a
+ * long-lived session in its HTML would be a session anyone with the page source could reuse.
+ *
+ * `elasticpro.play` opens Play, ElasticPro's NOC wall display (`#/play`). With `kiosk=1`
+ * (the Play widget's "Open full screen") it opens in Zabbix's kiosk mode, for this page
+ * only: no sidebar, no header, and Zabbix's own "Normal view" button to leave it. The
+ * person's saved layout mode is not changed.
  */
 class View extends CController {
 
@@ -31,10 +35,10 @@ class View extends CController {
 	}
 
 	/**
-	 * Only the troubleshoot action takes input: what a Zabbix problem says about itself,
-	 * filled in by the "Troubleshoot in ElasticPro" script. All of it is passed to the
-	 * app as text, which treats it as a hint — the cluster is still one this user can see,
-	 * or none.
+	 * The troubleshoot action takes what a Zabbix problem says about itself, filled in by the
+	 * "Troubleshoot in ElasticPro" script. All of it is passed to the app as text, which
+	 * treats it as a hint — the cluster is still one this user can see, or none. The Play
+	 * page takes `kiosk`.
 	 */
 	protected function checkInput(): bool {
 		return $this->validateInput([
@@ -42,7 +46,13 @@ class View extends CController {
 			'client' => 'string',
 			'rule' => 'string',
 			'problem' => 'string',
+			'kiosk' => 'in 0,1',
 		]);
+	}
+
+	/** Play asked for full screen (kiosk mode, this page only). */
+	private function kiosk(): bool {
+		return $this->page() === 'play' && (string) $this->getInput('kiosk', '0') === '1';
 	}
 
 	/** The troubleshoot request, trimmed to what a URL should carry. */
@@ -78,47 +88,6 @@ class View extends CController {
 	}
 
 	/**
-	 * The names of the user groups this user is in.
-	 *
-	 * Read from the database rather than through the API: `usergroup.get` answers
-	 * differently by user type, and this list decides which clusters a Zabbix User sees,
-	 * so it must not depend on who is asking.
-	 */
-	private function groups(): array {
-		$names = [];
-		$rows = DBselect(
-			'SELECT g.name FROM usrgrp g JOIN users_groups ug ON ug.usrgrpid=g.usrgrpid'.
-			' WHERE ug.userid='.zbx_dbstr(CWebUser::$data['userid'])
-		);
-		while ($row = DBfetch($rows)) {
-			$names[] = $row['name'];
-		}
-		sort($names);
-		return $names;
-	}
-
-	/**
-	 * The name of this user's Zabbix role ("Admin role", or one the site made). Read from the
-	 * database like the groups, for the same reason: it decides what the person becomes in
-	 * ElasticPro (its role map), so it must not depend on who is asking.
-	 */
-	private function roleName(): ?string {
-		$roleid = CWebUser::$data['roleid'] ?? null;
-		if ($roleid === null || (string) $roleid === '' || (string) $roleid === '0') {
-			return null;
-		}
-		$row = DBfetch(DBselect('SELECT r.name FROM role r WHERE r.roleid='.zbx_dbstr($roleid)));
-		$name = is_array($row) ? trim((string) ($row['name'] ?? '')) : '';
-		return $name === '' ? null : $name;
-	}
-
-	private function theme(): string {
-		return function_exists('getUserTheme')
-			? (string) getUserTheme(CWebUser::$data)
-			: (string) (CWebUser::$data['theme'] ?? '');
-	}
-
-	/**
 	 * Alerts are Zabbix problems. The Alerts menu item opens Problems filtered to the host
 	 * groups this module's hosts live in — clusters and the forwarder, parser and node
 	 * roles — rather than a second list inside the app.
@@ -142,28 +111,16 @@ class View extends CController {
 			$this->setResponse(new CControllerResponseRedirect($this->problemsUrl()));
 			return;
 		}
-		$sso = new SsoClient();
 		$page = $this->page();
-		$url = null;
-		$error = '';
-
-		if ($sso->isConfigured()) {
-			$code = $sso->mintCode((string) CWebUser::$data['username'], (int) $this->getUserType(), $this->groups(),
-				$this->roleName(), (int) (CWebUser::$data['roleid'] ?? 0) ?: null);
-			if ($code !== null) {
-				$url = $sso->frameUrl($code, $page, $this->theme(), $this->trouble());
-			}
-			else {
-				$error = $sso->lastError();
-			}
-		}
+		$sign = SignIn::frame($page, $this->trouble());
 
 		$labels = Module::PAGES + Module::ADMIN_PAGES;
 		$response = new CControllerResponseData([
-			'configured' => $sso->isConfigured(),
-			'frame_url' => $url,
-			'public_url' => $sso->publicUrl(),
-			'error' => $error,
+			'configured' => $sign['configured'],
+			'frame_url' => $sign['url'],
+			'origin' => SignIn::origin($sign['public_url']),
+			'error' => $sign['error'],
+			'kiosk' => $this->kiosk(),
 		]);
 		$response->setTitle('ElasticPro — '.($this->trouble() ? 'Troubleshoot' : $labels[$page]));
 		$this->setResponse($response);

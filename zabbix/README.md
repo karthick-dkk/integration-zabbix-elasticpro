@@ -6,8 +6,9 @@ feeds (automation, alerts, client plan, log delay). Those templates are generate
 the core, in `deploy/zabbix/` of the ElasticPro repository (https://github.com/karthick-dkk/elasticpro);
 the copies here are stamped with the version they came from, so a Zabbix can be set up from this
 project alone. The embed module is edited here and nowhere else: ElasticPro's release archive takes
-all seven modules, `embed-module/` included, from this project at the commit pinned in its
-`deploy/zabbix/MODULES_REF`.
+all of its modules, `embed-module/` included, from this project at the commit pinned in its
+`deploy/zabbix/MODULES_REF` (the Play widget, `play-widget/`, is new in 2.1.15: its installer
+learns `ep_play` in a later ElasticPro release; until then it is copied by hand).
 
 | Folder | What | Import |
 |---|---|---|
@@ -17,8 +18,9 @@ all seven modules, `embed-module/` included, from this project at the commit pin
 | `resources-widget/` | **Client resources** dashboard widget — Requested / Allocated / Used per family or role, plus ES storage and log delay; expand a client into its servers; Type filter, Columns dialog, CSV / Excel export | copy into `modules/` as `ep_resources`, then `master/import.py` |
 | `volume-widget/` | **Volume report** dashboard widget — the client plan per cluster, laid out as in ElasticPro (sections over columns), with CSV / Excel export. Columns come from the ElasticPro client plan template itself | copy into Zabbix's `modules/` as `ep_volume`, then `volume-widget/import.py` |
 | `overview-widget/` | **Client overview** dashboard widget — one card per client: problems by severity, the metrics you choose (built-in ElasticPro figures or any item key on the client's servers, with trends and thresholds), used of allocated with a forecast, contract badge, servers by role and warnings; sections, order, density and click-through set on the widget | copy into `modules/` as `ep_overview`, then `master/import.py` |
+| `play-widget/` | **ElasticPro Play** dashboard widget — ElasticPro's NOC wall display (Play, ElasticPro 0.3.47+) in a frame sized to the widget, signed in as the viewer through the ElasticPro module; *Open full screen* opens ElasticPro → Play in kiosk mode. No settings of its own | copy into `modules/` as `ep_play`, enable; needs `embed-module/` enabled and paired |
 | `shared/` | the widgets' export, Columns dialog and styles, and the PHP they share with the Clients page (data folder, settings, roles, column settings); `node sync-assets.mjs` copies them into each module | — |
-| `embed-module/` | **ElasticPro** page — embeds the dashboard inside Zabbix and signs the person in through the pairing (one-time code, then SSO) | copy into `modules/` as `elasticpro`, enable, pair from ElasticPro's Config → Zabbix |
+| `embed-module/` | **ElasticPro** page — embeds the dashboard inside Zabbix and signs the person in through the pairing (one-time code, then SSO); since 2.1.15 also **ElasticPro → Play**, and the sign-in the Play widget uses | copy into `modules/` as `elasticpro`, enable, pair from ElasticPro's Config → Zabbix |
 | `templates/` | the four templates ElasticPro feeds — automation, alerts, client plan, log delay — as shipped with the core version named in `templates/README.md` | *Data collection → Templates → Import*, or `zbx_phase34.py` from the ElasticPro repository |
 
 **Settings.** The thresholds, decimals, size unit, forecast windows and client types the page and
@@ -46,7 +48,7 @@ the Columns dialog's own tests skip; everything else runs without it. The PHP su
 
 ## Versions and releases
 
-**One version for the whole set.** Every module — `clients-module`, the five widgets and
+**One version for the whole set.** Every module — `clients-module`, the six widgets and
 `embed-module` — carries the same `x.y.z` in its `manifest.json`, and `CHANGELOG.md` has a
 `## x.y.z` section saying what changed. The version is the modules' own: it is not ElasticPro's
 version (for example, ElasticPro 0.3.20 ships modules 2.1.0). Zabbix shows it under *Administration → General
