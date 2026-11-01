@@ -168,27 +168,38 @@ below) and a key set, each scan asks TypeSafe Jev (`lib/Jev.php`) instead, in **
 
 | Question | Type | Asked for | Options |
 |---|---|---|---|
-| Which client in `clients` does this server belong to? | Choice | each role host no host group, `{$GRP.CLIENT}` or client tag attaches (nor points at two clusters) | the clusters the scan knows — by client name, else host name — plus `none of these`; at most 255 a question, more in further questions |
+| Which client in `clients` does this server belong to? | Choice | each role host no host group, `{$GRP.CLIENT}` or client tag attaches (nor points at two clusters) | the clusters the scan knows — by client name, else host name, each described "The client X (cluster host Y)" — plus `none of these`; at most 255 a question, more in further questions |
 | Is this server a Kafka server? | Noul | each role host with no role from a role group, role template or `ep-role` tag | — |
-| Is this Zabbix host group meant for Elasticsearch cluster hosts? | Noul | each host group of a host that carries an Elasticsearch template but is in no `elasticsearch` group (role groups and the module's own left out) | — |
+| Is this Zabbix host group meant for Elasticsearch cluster hosts? | Noul | each host group of a host that carries an Elasticsearch cluster template but is in no `elasticsearch` group, when the group holds no other host the scan found (role groups and the module's own left out); sent with its hosts' templates. ES, Elastic and ELK count; OpenSearch does not | — |
 
-The `state` holds one line about the setup and, per candidate cluster, its cluster host name,
-other names (`{$GRP.CLIENT}`, client tag) and host groups. Each question carries the host's names
-(an IP address is replaced by "(an IP address, not sent)"), host groups and templates. Nothing else
-is sent. The exact rules run first and are never asked about.
+The `state` holds one line about the setup and, per candidate cluster, its cluster host name, its
+host groups and — only when it is one of the candidates' names — its `{$GRP.CLIENT}` or client tag.
+Each question carries the host's names, host groups and templates. Every string sent has any IP
+address in it replaced by `<ip>` (dotted, dashed or underscored IPv4, with a port or a prefix length,
+and IPv6 with a zone or in brackets), control characters removed, and is cut at 120 characters.
+Nothing else is sent. The exact rules run first and are never asked about.
 
 An answer is **sure** at a top probability of 0.85 or more and 0.5 or more above the next
-(`Jev::AUTO_TOP`, `Jev::AUTO_MARGIN`). Sure: a client attaches the host (*judged by Jev: acme
-(97 %)*), *none of these* leaves it unattached and says so, *not Kafka* drops the Forwarder
-suggestion, a cluster group makes its hosts clusters (the proposal says Jev decided it). Unsure: the
-host is shown under the cluster Jev leaned to — or where the name prefix puts it — flagged
-**Jev: check**, with an unticked box of its own and a *Missing* line; it is adopted only if a person
-ticks it. An unsure Kafka or group answer leaves the name rule's answer.
+(`Jev::AUTO_TOP`, `Jev::AUTO_MARGIN`); a Choice answer must give every offered option, sum to 1
+(± 0.05) and name its most probable option, or the whole judgement is refused. A sure client pick
+attaches the host (*judged by Jev: acme (97 %)*) when the host's names and the client's share a word
+(role words, numbers and IP parts aside) and the client is not a cluster only Jev's own group answer
+made; otherwise it is held for a check. A sure *none of these* leaves the host unattached and says
+so, *not Kafka* drops the Forwarder suggestion, and a cluster group makes the hosts in it that carry
+a cluster template clusters (the proposal says Jev decided it; a role host in such a group stays a
+role host, and the group still ties it to that cluster as an exact hint). Every host Jev placed gets
+its own box in the Role hosts column — ticked when Jev was sure, and the admin can untick it. Unsure:
+the host is shown under the cluster Jev leaned to — or where the name prefix puts it — flagged
+**Jev: check**, unticked, with a *Missing* line; it is adopted only if a person ticks it. An unsure
+Kafka or group answer leaves the name rule's answer.
 
-Off, without a key, or when TypeSafe fails, takes more than 10 s (`Jev::TIMEOUT`, the whole scan)
-or answers something that was not asked: the name rules, unchanged. The rule box says which ran —
-*Names judged by Jev (model): …* or *Names matched by rule; Jev off.* / *Jev unavailable: reason*,
-never the key. The name rules stay for sites without internet.
+The judgement is kept with the scan: **Adopt selected** and the refresh after it use the answers
+the page showed and never ask again (a scan cached before 2.1.16 adopts by the rules, and says so).
+
+Off, without a key, or when TypeSafe fails, takes more than 10 s (`Jev::TIMEOUT`, the whole scan),
+answers more than 1 MB or answers something that was not asked: the name rules, unchanged. The rule
+box says which ran — *Names judged by Jev (model): …* or *Names matched by rule; Jev off.* /
+*Jev unavailable: reason*, never the key. The name rules stay for sites without internet.
 
 ## The list
 
@@ -489,11 +500,14 @@ site that never opens it sees exactly what it saw before.
 
 **Discover with TypeSafe Jev** (its own form, `ep.clients.jev.save`, Zabbix Super admin only; off
 by default) turns on [Jev's judgement in Discover](#judged-by-typesafe-jev-opt-in-2116) and holds
-the TypeSafe API key. The key is kept in `jev.json` in the data folder, sealed (AES-256-GCM) with
-the ElasticPro module's `Settings::seal()` — the pairing secret's — so storing one needs the
-ElasticPro module installed; if Zabbix's session key is ever regenerated it no longer opens and the
-card says to replace it. The page shows only *Set <date> by <user>* with **Replace** and **Clear**;
-the key is never sent to the browser, put in a message or logged. The card says what is sent.
+the TypeSafe API key. The key is kept in `jev.json` in the data folder (written whole, mode 0600),
+sealed (AES-256-GCM) with the ElasticPro module's `Settings::seal()` — the pairing secret's — so
+storing one needs the ElasticPro module installed; if Zabbix's session key is ever regenerated it no
+longer opens and the card says to replace it. The page shows only *Set <date> by <user>* with
+**Replace** and **Clear**; Clear forgets the key and turns Jev off, and unticking and saving turns it
+off and keeps the key (an empty key field never replaces one). The key is never sent to the browser,
+put in a message or logged, and is a `#[\SensitiveParameter]` wherever it is passed. The card says
+what is sent.
 
 **Colours** is the one palette every ElasticPro widget draws with — OK, Warn, High, Unknown, Short,
 Free, Down, Stale and Link, each for the Blue (light) and Dark theme, and eight chart series

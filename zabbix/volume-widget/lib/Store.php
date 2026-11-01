@@ -164,7 +164,12 @@ class Store {
 		return is_array($data) ? $data : $default;
 	}
 
-	public static function write(string $name, array $data): void {
+	/**
+	 * Write a file whole: a temporary file renamed over it, so a reader never sees half of one.
+	 * $mode, when given, is set on the temporary file before the rename — the file is never
+	 * readable more widely, even for a moment (jev.json, which holds a sealed key: 0600).
+	 */
+	public static function write(string $name, array $data, ?int $mode = null): void {
 		if (!self::writable()) {
 			throw new \RuntimeException(sprintf('The data folder %s is missing or not writable — see the Clients module README.', self::dir()));
 		}
@@ -178,7 +183,7 @@ class Store {
 		try {
 			$tmp = $file.'.tmp-'.getmypid();
 			if (file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) === false
-					|| !rename($tmp, $file)) {
+					|| ($mode !== null && !chmod($tmp, $mode)) || !rename($tmp, $file)) {
 				@unlink($tmp);
 				throw new \RuntimeException(sprintf('Cannot write %s.', $file));
 			}

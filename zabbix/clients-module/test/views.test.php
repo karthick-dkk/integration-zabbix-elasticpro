@@ -331,7 +331,14 @@ namespace Modules\EpClients\Test {
 	check('discover + Jev: a host to check is a check box, unticked, with its flag and why', (bool) preg_match('~<input type="checkbox"[^>]*name="host\[p1\]\[13\]"[^>]*>~', $jb, $cb)
 		&& !str_contains($cb[0] ?? '', 'checked') && str_contains($jb, 'Jev: check — tick if it belongs') && str_contains($jb, 'Jev leans to globex-prod (72 %), not sure: check it')
 		&& str_contains($jb, '1 host to check (Jev not sure)'), $cb[0] ?? null);
-	check('discover + Jev: hosts Jev did not flag keep their hidden input', str_contains($jb, 'name="host[p1][11]" value="1"'));
+	check('discover + Jev: hosts Jev did not place keep their hidden input', str_contains($jb, 'name="host[p1][11]" value="1"'));
+	$jScan['proposals'][0]['hosts'][] = $hostRow(['hostid' => '14', 'host' => '10.3.0.10', 'ip' => '10.3.0.10', 'name' => 'gx-parse-10', 'server_name' => 'gx-parse-10', 'roles' => ['parser'],
+		'role_source' => 'group', 'source' => 'jev', 'source_detail' => 'judged by Jev: globex-prod (97 %)']);
+	$jScan['proposals'][0]['choices']['hosts']['14'] = true;
+	$ab2 = body(render('ep.clients.discover', ['scan' => $jScan, 'token' => 'tk', 'error' => null, 'results' => null, 'store_ok' => true, 'store_dir' => $dir, 'can_write' => true,
+		'roles' => \Modules\EpClients\Lib\Roles::defaults()]));
+	check('discover + Jev: a host Jev placed surely is a visible box, ticked, the admin can untick', (bool) preg_match('~<input type="checkbox"[^>]*name="host\[p1\]\[14\]"[^>]*>~', $ab2, $cb2)
+		&& str_contains($cb2[0] ?? '', 'checked') && !str_contains($ab2, 'type="hidden" name="host[p1][14]"'), $cb2[0] ?? null);
 	$jScan['judge'] = ['used' => false, 'note' => 'Names matched by rule; Jev unavailable: no answer within 10 seconds.', 'cluster_groups' => []];
 	$rb = body(render('ep.clients.discover', ['scan' => $jScan, 'token' => 'tk', 'error' => null, 'results' => null, 'store_ok' => true, 'store_dir' => $dir, 'can_write' => true,
 		'roles' => \Modules\EpClients\Lib\Roles::defaults()]));

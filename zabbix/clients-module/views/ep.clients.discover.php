@@ -208,7 +208,9 @@ if ($scan !== null) {
 				$line[] = ' ';
 				$line[] = $chip(_('kafka: confirm Forwarder or Parser'), 'old');
 			}
-			$check = ($h['check'] ?? '') === 'jev' && !$already && ($h['already'] ?? null) === null;
+			// Placed by Jev: a box of its own the admin can untick (ticked when Jev was sure), never a hidden "yes".
+			$byJev = !$already && ($h['already'] ?? null) === null && (($h['source'] ?? null) === 'jev' || ($h['check'] ?? '') === 'jev');
+			$check = $byJev && ($h['check'] ?? '') === 'jev';
 			if ($check) {
 				$line[] = ' ';
 				$line[] = $chip(_('Jev: check — tick if it belongs'), 'old');
@@ -219,8 +221,8 @@ if ($scan !== null) {
 				$line[] = ' ';
 				$line[] = $chip(_s('already a client: %1$s', $h['already']));
 			}
-			if ($check) {
-				// Jev was not sure: the one host on the page a person ticks by hand, unticked to start.
+			if ($byJev) {
+				// Jev's: ticked to start only when it was sure; a person may always untick it.
 				$line[] = (new CCheckBox('host['.$pid.']['.$id.']', '1'))->setChecked(!empty($c['hosts'][$id]))->setId('host_'.$pid.'_'.$id)
 					->setAttribute('data-ep-check', '1')->setAttribute('aria-label', _s('Adopt %1$s with this cluster', $h['ip'] ?? $h['host']));
 				$line[] = (new CTag('input', false))->setAttribute('type', 'hidden')->setAttribute('name', 'move['.$pid.']['.$id.']')->setAttribute('value', '1');

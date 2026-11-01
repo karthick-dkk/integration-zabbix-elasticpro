@@ -341,7 +341,7 @@ if (isset($data['jev'])) {
 			$mayJ && $jv['key_set'] ? (new CTag('button', true, _('Replace')))->setAttribute('type', 'button')->addClass('ep-lnk')->setId('j-key-replace')
 				->setAttribute('onclick', "document.getElementById('j-key-new').hidden=false;document.getElementById('j-key-action').value='set';document.getElementById('j-key-set').hidden=true;document.getElementById('j-key').focus();") : '',
 			$mayJ && $jv['key_set'] ? (new CTag('button', true, _('Clear')))->setAttribute('type', 'submit')->setAttribute('name', 'save_jev')->setAttribute('value', 'clear')->addClass('ep-lnk')->setId('j-key-clear')
-				->setAttribute('onclick', 'if (!confirm('.json_encode(_('Forget the TypeSafe API key? Discover goes back to matching names by rule.')).')) return false; document.getElementById(\'j-key-action\').value=\'clear\';') : ''
+				->setAttribute('onclick', 'if (!confirm('.json_encode(_('Forget the TypeSafe API key and turn Jev off? Discover goes back to matching names by rule.')).')) return false; document.getElementById(\'j-key-action\').value=\'clear\'; document.getElementById(\'j-on\').checked=false;') : ''
 		]))->addClass('ep-ln')->setId('j-key-set'),
 		(new CDiv([
 			(new CTag('input', false))->setAttribute('type', 'password')->setAttribute('name', 'jev_key')->setAttribute('value', '')->setId('j-key')
@@ -355,7 +355,7 @@ if (isset($data['jev'])) {
 		(new CDiv([new CTag('h4', true, _('TypeSafe Jev'))]))->addClass('ep-ln ep-cttl'),
 		$jrow((new CDiv(_('Discover')))->addClass('ep-l'), new CLabel([$on, ' ', _('Judge Discover proposals with TypeSafe Jev')], 'j-on')),
 		$jrow((new CDiv(_('API key')))->addClass('ep-l'), $keyCell),
-		(new CDiv(_('Sent to TypeSafe (api.typesafe.ai), once per Discover scan: host names and visible names (a name that is an IP address is not sent), host group and template names, and the names of the candidate clients. No IP addresses, no item values, no macro values of role hosts, no log content.')))
+		(new CDiv(_('Sent to TypeSafe (api.typesafe.ai), once per Discover scan: host names and visible names, host group and template names, and the names of the candidate clients — any IP address inside a name replaced by <ip>, at most 120 characters each. No IP addresses, no item values, no macro values but client names, no log content.')))
 			->addClass('ep-chint')->setId('j-sent'),
 		(new CDiv(_('Jev only proposes: which client a role host belongs to when no host group, {$GRP.CLIENT} or client tag says; whether a host is a Kafka server; whether a host group holds cluster hosts. Unsure answers are shown to check, never ticked. Off, without a key, or when TypeSafe does not answer within 10 seconds, names are matched by rule as before, and the Discover page says which ran.')))
 			->addClass('ep-chint'),
@@ -369,7 +369,7 @@ if (isset($data['jev'])) {
 		->addItem(new CTag('h3', true, _('Discover with TypeSafe Jev')))
 		->addItem($jevCard);
 	if ($mayJ) {
-		$jevForm->addItem((new CDiv([(new CSpan(_('Off by default. Nothing is sent until it is on and a key is set.')))->addClass('ep-muted'),
+		$jevForm->addItem((new CDiv([(new CSpan(_('Off by default; nothing is sent until it is on and a key is set. Untick and Save turns it off and keeps the key; Clear forgets the key and turns it off.')))->addClass('ep-muted'),
 			new CRedirectButton(_('Cancel'), $url('ep.clients.settings')), new CSubmit('save_jev', _('Save'))]))->addClass('ep-bar ep-cbar'));
 	}
 }

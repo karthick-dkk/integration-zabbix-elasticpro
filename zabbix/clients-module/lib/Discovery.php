@@ -82,16 +82,19 @@ final class Discovery {
 	 * Every proposal, with what each could not determine. Read-only: it asks Zabbix get methods
 	 * only, as the signed-in user, so a user who cannot see a host does not see it proposed.
 	 */
-	public function scan(?callable $refusals = null): array {
+	public function scan(?callable $refusals = null, ?array $judged = null): array {
 		$ctx = $this->context();
 		$fetched = $this->fetch($ctx);
 		$words = self::nameWords($this->roles);
 		$roleGroups = Roles::groups($this->roles);
 		$rows = $this->rows($fetched, $ctx);
-		// The guesses from names, judged by Jev when it is on (Jev): asked once, about the rows the
-		// rules made; then the rows are described again with its answers. Off or failing, the rules
-		// stand unchanged and the note says so.
-		$judged = Jev::judge($rows, $roleGroups, $words);
+		// The guesses from names, judged by Jev when it is on (Jev): asked once per scan, about the
+		// rows the rules made; then the rows are described again with its answers. Off or failing,
+		// the rules stand unchanged and the note says so. Adopting passes the judgement the page
+		// showed (judgementOf()), so nothing is asked again and nothing changes under the admin.
+		if (!Jev::isJudgement($judged)) {
+			$judged = Jev::judge($rows, $roleGroups, $words);
+		}
 		if ($judged['used'] && ($judged['client'] || $judged['kafka'] || $judged['es_groups'])) {
 			$rows = $this->rows($fetched, $ctx, $judged);
 		}
@@ -114,7 +117,7 @@ final class Discovery {
 				self::CLUSTER_GROUP_MATCH, implode(', ', array_column($stray, 'host')));
 		}
 		return ['at' => time(), 'proposals' => array_values($proposals), 'unattached' => $unattached, 'notes' => $notes,
-			'judge' => ['used' => $judged['used'], 'note' => $judged['note'], 'cluster_groups' => Jev::clusterGroups($judged)],
+			'judge' => $judged + ['cluster_groups' => Jev::clusterGroups($judged)],
 			'proxies' => array_column(API::Proxy()->get(['output' => ['name'], 'sortfield' => 'name']) ?: [], 'name'),
 			'proxy_groups' => array_column(API::ProxyGroup()->get(['output' => ['name'], 'sortfield' => 'name']) ?: [], 'name')];
 	}
@@ -170,6 +173,16 @@ final class Discovery {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The judgement a scan was made with, to make the next one (the adopt, the refresh after it)
+	 * with the same answers rather than asking Jev again. A scan cached before there was one: the
+	 * rules, said so.
+	 */
+	public static function judgementOf(array $scan): array {
+		$j = $scan['judge'] ?? null;
+		return Jev::isJudgement($j) ? $j : Jev::off(_('not asked again when adopting'));
 	}
 
 	public static function isClusterGroup(string $name, array $judgedGroups = []): bool {
@@ -405,7 +418,9 @@ final class Discovery {
 		$current = [Roles::clusterTemplate(), Roles::templateName('jump')];
 		$looksLikeCluster = Reconciler::hasAnyTemplate($h, Reconciler::clusterHostTemplates()) || Reconciler::kindWithoutTemplates($h) === 'cluster' || $sigTemplate !== null;
 		$judgedGroups = Jev::clusterGroups($judged);
-		$inEsGroup = (bool) array_filter($groups, fn($g) => self::isClusterGroup((string) $g, $judgedGroups));
+		// A group Jev judged makes a cluster only of a host that looks like one already: a role
+		// host in it stays a role host.
+		$inEsGroup = (bool) array_filter($groups, fn($g) => self::isClusterGroup((string) $g, $looksLikeCluster ? $judgedGroups : []));
 		if ($looksLikeCluster && !$inEsGroup) {
 			// The rule is the host group, not the template: said, never proposed.
 			$row['kind'] = 'stray';
@@ -566,8 +581,8 @@ final class Discovery {
 	/* ------------------------------------ grouping (pure) ------------------------------------ */
 
 	/** Host groups that say nothing about which cluster a host belongs to. */
-	public static function genericGroup(string $g, array $roleGroups, array $judgedGroups = []): bool {
-		return self::isClusterGroup($g, $judgedGroups) || in_array($g, $roleGroups, true)
+	public static function genericGroup(string $g, array $roleGroups): bool {
+		return self::isClusterGroup($g) || in_array($g, $roleGroups, true)
 			|| in_array($g, [Reconciler::MASTERS_GROUP, Reconciler::LEGACY_MASTERS_GROUP, Reconciler::CLUSTER_GROUP, Reconciler::ULM_GROUP], true);
 	}
 
@@ -575,7 +590,7 @@ final class Discovery {
 	 * What identifies a cluster to its role hosts, per hint: its client's group and the host
 	 * groups only it is in; its names for macro and tag hints; its <client> for the prefix. Pure.
 	 */
-	public static function identity(array $cluster, array $allClusters, array $roleGroups, array $words, array $judgedGroups = []): array {
+	public static function identity(array $cluster, array $allClusters, array $roleGroups, array $words): array {
 		$shared = [];
 		foreach ($allClusters as $o) {
 			if ($o['hostid'] !== $cluster['hostid']) {
@@ -587,7 +602,7 @@ final class Discovery {
 		$names = array_values(array_unique(array_filter([$cluster['host'], $cluster['already'] ?? null, $cluster['grp_client'] ?? '', $cluster['tag_client'] ?? '',
 				self::clientFromName($cluster['host'], $words)],
 			fn($x) => $x !== null && $x !== '')));
-		$groups = array_values(array_filter($cluster['groups'], fn($g) => !self::genericGroup($g, $roleGroups, $judgedGroups) && !isset($shared[$g])));
+		$groups = array_values(array_filter($cluster['groups'], fn($g) => !self::genericGroup($g, $roleGroups) && !isset($shared[$g])));
 		// <client>-<Role>-<n>: the cluster's name is the client's, so its servers may be named after
 		// it — or after the <client> of a <client>-ES-Cluster host, or its existing client.
 		$prefix = array_values(array_filter(array_unique(array_merge([$cluster['host']], array_filter([$cluster['already'] ?? null]), [self::clientFromName($cluster['host'], $words) ?? ''])),
@@ -596,9 +611,9 @@ final class Discovery {
 	}
 
 	/** A role host's hints, per source: the values it offers. Pure. */
-	public static function hints(array $row, array $roleGroups, array $words, array $judgedGroups = []): array {
+	public static function hints(array $row, array $roleGroups, array $words): array {
 		return [
-			'group' => array_values(array_filter($row['groups'], fn($g) => !self::genericGroup($g, $roleGroups, $judgedGroups))),
+			'group' => array_values(array_filter($row['groups'], fn($g) => !self::genericGroup($g, $roleGroups))),
 			'macro' => ($row['grp_client'] ?? '') !== '' ? [$row['grp_client']] : [],
 			'tag' => ($row['tag_client'] ?? '') !== '' ? [$row['tag_client']] : [],
 			'prefix' => array_values(array_filter([self::clientFromName($row['host'], $words) ?? ''], fn($x) => $x !== ''))
@@ -623,7 +638,7 @@ final class Discovery {
 		$judgedGroups = Jev::clusterGroups($judged);
 		$ids = [];
 		foreach ($clusters as $c) {
-			$ids[$c['hostid']] = self::identity($c, $clusters, $roleGroups, $words, $judgedGroups);
+			$ids[$c['hostid']] = self::identity($c, $clusters, $roleGroups, $words);
 		}
 		$byId = array_column($clusters, null, 'hostid');
 		$attached = [];
@@ -643,14 +658,20 @@ final class Discovery {
 			$check = false;
 			$jc = $judged['client'][(string) $s['hostid']] ?? null;
 			if ($owner === null) {
-				$h = self::hints($s, $roleGroups, $words, $judgedGroups);
+				$h = self::hints($s, $roleGroups, $words);
 				foreach (self::SOURCES as $src) {
 					if ($src === 'prefix' && $jc !== null) {
 						if ($jc['pick'] !== null && isset($byId[$jc['pick']])) {
-							$check = $jc['decision'] !== 'auto';
-							$owner = [(string) $jc['pick'], 'jev', $check
-								? _s('Jev leans to %1$s (%2$s), not sure: check it', $jc['name'], Jev::percent((float) $jc['p']))
-								: _s('judged by Jev: %1$s (%2$s)', $jc['name'], Jev::percent((float) $jc['p']))];
+							$pct = Jev::percent((float) $jc['p']);
+							$cl = $byId[$jc['pick']];
+							// A sure pick is still held for a check when the host and the client share no
+							// name word, or when the client is a cluster only Jev's own group answer made.
+							$why = $jc['decision'] !== 'auto' ? _s('Jev leans to %1$s (%2$s), not sure: check it', $jc['name'], $pct)
+								: (($cl['cluster_by'] ?? null) === 'jev' ? _s('Jev picked %1$s (%2$s), a cluster only Jev\'s group answer made: check it', $jc['name'], $pct)
+								: (!Jev::sharesName($s, $cl, $words) ? _s('Jev picked %1$s (%2$s), but the host\'s names share no word with it: check it', $jc['name'], $pct) : null));
+							$check = $why !== null;
+							$owner = [(string) $jc['pick'], 'jev', $why ?? _s('judged by Jev: %1$s (%2$s)', $jc['name'], $pct)];
+							$why = null;
 							break;
 						}
 						if ($jc['pick'] === null && $jc['decision'] === 'auto') {

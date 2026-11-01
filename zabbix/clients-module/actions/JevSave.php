@@ -5,14 +5,13 @@ namespace Modules\EpClients\Actions;
 use CControllerResponseRedirect;
 use CMessageHelper;
 use CUrl;
-use Exception;
 use Modules\EpClients\Lib\Jev;
 
 /**
  * Saves "Judge Discover proposals with TypeSafe Jev" from ElasticPro -> Settings: on or off, and the
  * API key (Jev). Its own form, so saving the other settings never posts an empty key over it, and
- * the key field counts only with jev_key_action=set — the same keep-marker as the default
- * credential's password; jev_key_action=clear forgets the key.
+ * the key field counts only with jev_key_action=set and a key typed — the same keep-marker as the
+ * default credential's password; jev_key_action=clear forgets the key and turns Jev off.
  *
  * A Zabbix Super admin's: turning it on sends host, host group and template names to TypeSafe, a
  * decision for whoever owns the Zabbix. The key is never echoed, logged or put in a message.
@@ -26,7 +25,7 @@ class JevSave extends Base {
 	protected function doAction(): void {
 		try {
 			if ($this->getUserType() != USER_TYPE_SUPER_ADMIN) {
-				throw new Exception(_('Nothing was changed: whether Discover sends names to TypeSafe is a Zabbix Super admin\'s decision.'));
+				throw new \RuntimeException(_('Nothing was changed: whether Discover sends names to TypeSafe is a Zabbix Super admin\'s decision.'));
 			}
 			$done = Jev::save($this->getInput('jev_enabled', '') === '1', (string) $this->getInput('jev_key_action', 'keep'),
 				(string) $this->getInput('jev_key', ''), $this->user());
@@ -35,9 +34,10 @@ class JevSave extends Base {
 				CMessageHelper::addSuccess($line);
 			}
 		}
-		catch (Exception $e) {
+		catch (\Throwable $e) {
+			// Jev::save() puts no key in a message; anything else that fails says only that it failed.
 			CMessageHelper::setErrorTitle(_('TypeSafe Jev setting not changed'));
-			CMessageHelper::addError($e->getMessage());
+			CMessageHelper::addError($e instanceof \RuntimeException ? $e->getMessage() : _('The setting could not be saved.'));
 		}
 		$this->setResponse(new CControllerResponseRedirect((new CUrl('zabbix.php'))->setArgument('action', 'ep.clients.settings')));
 	}

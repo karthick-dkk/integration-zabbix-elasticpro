@@ -401,16 +401,16 @@ final class EpRole {
 			'trusted_plain_hosts' => array_key_exists('trusted_plain_hosts', $s) ? (array) $s['trusted_plain_hosts'] : self::DEFAULT_PLAIN_HOSTS];
 	}
 
-	/**
-	 * Make the ElasticPro module's Settings and SsoClient available: Zabbix's autoloader has them
-	 * when that module is enabled; otherwise they are required from its folder, found through the
-	 * module manager (getDir() on Zabbix 7.0, the root plus getRelativePath() on 8.0).
-	 */
 	/** Whether the ElasticPro module's Settings (its seal() and open()) can be used here: Jev's API key is sealed with them. */
 	public static function embedAvailable(): bool {
 		return self::loadEmbed();
 	}
 
+	/**
+	 * Make the ElasticPro module's Settings and SsoClient available: Zabbix's autoloader has them
+	 * when that module is enabled; otherwise they are required from its folder, found through the
+	 * module manager (getDir() on Zabbix 7.0, the root plus getRelativePath() on 8.0).
+	 */
 	private static function loadEmbed(): bool {
 		if (class_exists(SsoClient::class) && class_exists(EmbedSettings::class)) {
 			return true;

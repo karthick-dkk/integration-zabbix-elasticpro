@@ -776,7 +776,8 @@ Needs a TypeSafe API key, the `elasticpro` module installed (the key is sealed w
 Super admin and a Zabbix Admin, and a Zabbix with: two clusters in `Elasticsearch clusters`
 (`acme`, `globex`); a role host named by IP with visible name `acme-parser-02` in `Parser` only; a
 host `globex-Parser-9` in `Parser` only; a host `ingest-03` in group `Kafka brokers`; a host with
-the cluster template in group `ES Prod` (no "elasticsearch" in the name). The browser's developer
+the cluster template in group `ES Prod` (no "elasticsearch" in the name), and a host `zeta-node` in
+`Engine` only; a role host with visible name `ip-10-0-0-5 (10.0.0.5:9200)`. The browser's developer
 tools open where a step says so. The automated half is `clients-module/test/jev.test.php` (§14).
 
 | ID | What | Precondition | Steps | Expected | Why it matters | Pri |
@@ -785,14 +786,16 @@ tools open where a step says so. The automated half is `clients-module/test/jev.
 | JV-02 | Super admin only | the Zabbix Admin | ElasticPro → Settings | The *Discover with TypeSafe Jev* card is read-only with *only a Zabbix Super admin may decide*; a forged POST to `ep.clients.jev.save` answers *Nothing was changed* | sends names off-site | **P1** |
 | JV-03 | What is sent is said | — | Read the card | It names host names and visible names, host group and template names, candidate client names; and says no IPs, no item values, no log content | informed decision | P2 |
 | JV-04 | Key never shown | set a key, Save | Reload Settings; view source; `grep -r <key>` in the data folder and the web server logs | *Set <date> by <you>* with Replace / Clear; the key is in no HTML, no file in plain text (`jev.json` holds `v1:…`) and no log | secret at rest | **P1** |
-| JV-05 | One request, judged | on, key set | Discover → Rescan | One request; the rule box reads *Names judged by Jev (jev-…): N questions, …*; `acme-parser-02` is under `acme`, *judged by Jev: acme (NN %)*, ticked | the feature | **P1** |
+| JV-05 | One request, judged | on, key set | Discover → Rescan | One request; the rule box reads *Names judged by Jev (jev-…): N questions, …*; `acme-parser-02` is under `acme`, *judged by Jev: acme (NN %)*, with its own **ticked** box in the Role hosts column; untick it and Adopt: it is not adopted | the feature | **P1** |
 | JV-06 | Unsure is checked | JV-05 | Look at `globex-Parser-9` (or any host the line says *not sure*) | Under the cluster Jev leaned to, chip *Jev: check — tick if it belongs*, an unticked box, a *Missing* line; Adopt without ticking it: the host is not adopted | no silent guesses | **P1** |
 | JV-07 | Kafka judged | JV-05 | Look at `ingest-03` | Placed under Forwarder *kafka: confirm* only if Jev surely says Kafka, or is unsure (the name match stands); a surely-not answer leaves *role unknown* | the Kafka swap | P2 |
-| JV-08 | Cluster group judged | JV-05 | Look for the `ES Prod` host | Proposed as a cluster, its gaps saying *Jev judged host group "ES Prod"…*; not in the *Not proposed* note | the group swap | P2 |
-| JV-09 | No IP leaves | JV-05 through a logging proxy | Read the request body | No IP address (host names that are IPs read *(an IP address, not sent)*), no macro values, no item values; the Choice options are only cluster/client names and *none of these* | privacy | **P1** |
+| JV-08 | Cluster group judged | JV-05; also put a Parser host in `ES Prod` and rescan | Look for the `ES Prod` host | Without the Parser: proposed as a cluster, its gaps saying *Jev judged host group "ES Prod"…*; a role host Jev attaches to it is *held for a check*. With the Parser in the group: the group is **not asked about** and the cluster-template host stays in the *Not proposed* note | the group swap, and no role host turned into a cluster | P2 |
+| JV-09 | No IP leaves | JV-05 through a logging proxy | Read the request body | No IP address in any form (`ip-<ip> (<ip>:9200)` for the visible name above), no macro value that is not a client name, no item values; every Choice option has a description; options are only cluster/client names and *none of these*; no string over 120 characters | privacy | **P1** |
+| JV-13 | Adopt asks nothing | JV-05 | Tick a proposal and **Adopt selected**, watching the proxy log | No request to TypeSafe during the adopt or the page that follows; what is adopted is what was previewed | one request per scan | **P1** |
+| JV-14 | No shared name word | JV-05, `zeta-node` | Look at `zeta-node` | If Jev picks a client for it, it is *held for a check* ("share no word"), unticked | sure picks need a name in common | P2 |
 | JV-10 | Down or slow | block `api.typesafe.ai` (hosts file or firewall) | Rescan | Within ~10 s the page shows; *Names matched by rule; Jev unavailable: …* names the cause; proposals as JV-01 | sites without internet | **P1** |
 | JV-11 | Bad key | Replace with `wrong-key` | Rescan | *Jev unavailable: the API key was refused (401)*; the typed key appears nowhere on the page | the key is never echoed | P2 |
-| JV-12 | Clear | JV-04 | Clear, confirm | *API key cleared.*; Discover says *Jev unavailable: no API key is set* while on | revocable | P3 |
+| JV-12 | Clear and off | JV-04 | (a) Untick, Save with the key field empty; (b) Clear, confirm | (a) *Jev is off*; the key is still set. (b) *API key cleared.* and Jev off; Discover says *Names matched by rule; Jev off.* `jev.json` is mode 0600 throughout | revocable without pasting a key | P2 |
 
 ## 13. Regression watch-list
 
@@ -828,7 +831,7 @@ from CI, not from this document. Listed so a tester knows what the table above d
 | `clients-module/test/palette.test.mjs` | The Colours card under jsdom: marking bad colours, contrast, swatches, Reset |
 | `shared/test/deploy.test.mjs` | Deployment layout checks |
 | `clients-module/test/form.test.mjs` | `EpClientForm.names()` — the server-name preview — against the same table as the PHP `Roles::serverBase()` |
-| `clients-module/test/jev.test.php` | Discover with TypeSafe Jev against a stubbed API (never the real one): off by default and off / no key / timeout / 401 / invalid or missing answers fall back to the name rules with the note and never the key; one request per scan to the documented URL with a Bearer key; options only known clusters plus *none of these*, at most 255 a question; no IP or macro value sent; sure answers used, unsure ones flagged check and unticked; the key sealed at rest and absent from the page's data |
+| `clients-module/test/jev.test.php` | Discover with TypeSafe Jev against a stubbed API (never the real one): off by default and off / no key / timeout / 401 / invalid or missing answers fall back to the name rules with the note and never the key; one request per scan to the documented URL with a Bearer key; options only known clusters plus *none of these*, at most 255 a question; IP addresses scrubbed in every form, control characters out, 120 characters at most, macro free text never sent, option descriptions; strict Choice answers (all options, sum 1, the argmax), a 1 MB answer refused; sure answers used, unsure ones and sure picks with no shared name word or of a Jev-made cluster flagged check and unticked; a judged group promotes only cluster-template hosts and is not asked about when it holds a role host; adopt and refresh reuse the judgement and ask nothing; the key sealed at rest (0600), absent from the page's data; Clear turns Jev off |
 
 **What this document covers that no suite can:** a real sidebar beside a real third-party module;
 real Zabbix permission enforcement for three real user types; a form that actually renders (a
