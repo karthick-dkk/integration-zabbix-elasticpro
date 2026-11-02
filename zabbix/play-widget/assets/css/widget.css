@@ -6,6 +6,8 @@
 	background: #fef6f6; color: #7a2020; border: 1px solid #e45959; }
 .ep-play-msg[hidden] { display: none; }
 .ep-play-msg.ep-play-alone { position: static; min-height: 100%; }
-.ep-play-full { position: absolute; right: 6px; bottom: 6px; padding: 2px 8px; border-radius: 3px; font-size: 11px;
-	background: rgba(0, 0, 0, .55); color: #fff !important; text-decoration: none; opacity: .35; transition: opacity .15s; }
-.ep-play:hover .ep-play-full, .ep-play-full:focus { opacity: 1; }
+.ep-play-tools { position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 6px; opacity: .35; transition: opacity .15s; }
+.ep-play:hover .ep-play-tools, .ep-play-tools:focus-within { opacity: 1; }
+.ep-play-full { margin: 0; padding: 0 8px; height: 22px; font-size: 11px; line-height: 20px; }
+.ep-play-full::before { content: "\2922"; margin-right: 5px; }
+.ep-play-newtab { padding: 2px 8px; border-radius: 3px; font-size: 11px; background: rgba(0, 0, 0, .55); color: #fff !important; text-decoration: none; }

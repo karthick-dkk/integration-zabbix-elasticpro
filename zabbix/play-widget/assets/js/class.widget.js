@@ -47,10 +47,24 @@ class WidgetEpPlay extends CWidget {
 			origin: '',
 			retries: [],
 			seq: 0,
-			blank: false
+			blank: false,
+			full: false
 		};
 		this._epListener = this._epListener || ((e) => this._epMessage(e));
 		window.addEventListener('message', this._epListener);
+
+		// "Full screen": the browser's full screen of this widget's own frame — same session, no
+		// reload. The listeners are on this body's nodes (rebuilt with the body), never inline.
+		const full = this._body.querySelector('.ep-play-full');
+		const frame = this._ep.frame;
+
+		if (full !== null && frame !== null) {
+			full.addEventListener('click', () => WidgetEpPlay.goFullscreen(frame));
+		}
+
+		this._epFullListener = this._epFullListener || (() => this._epFullChange());
+		document.addEventListener('fullscreenchange', this._epFullListener);
+		document.addEventListener('webkitfullscreenchange', this._epFullListener);
 		this._epLoad();
 	}
 
@@ -63,6 +77,8 @@ class WidgetEpPlay extends CWidget {
 
 	onDeactivate() {
 		if (this._ep && this._ep.frame !== null) {
+			// Page switched away while Play was full screen: leave it first, then blank as usual.
+			WidgetEpPlay.leaveFullscreen(this._ep.frame);
 			this._ep.seq++;
 			this._ep.blank = true;
 			this._ep.frame.src = 'about:blank';
@@ -77,10 +93,27 @@ class WidgetEpPlay extends CWidget {
 		if (this._epListener) {
 			window.removeEventListener('message', this._epListener);
 		}
+		if (this._epFullListener) {
+			document.removeEventListener('fullscreenchange', this._epFullListener);
+			document.removeEventListener('webkitfullscreenchange', this._epFullListener);
+		}
 		if (this._ep && this._ep.frame !== null) {
 			this._ep.frame.src = 'about:blank';
 		}
 		this._ep = null;
+	}
+
+	/**
+	 * The frame entered or left browser full screen. Nothing is reloaded either way: the frame
+	 * keeps its session and its size returns to the widget's. Only the state is kept, so that
+	 * leaving the dashboard page (onDeactivate) knows whether there is a full screen to leave.
+	 */
+	_epFullChange() {
+		const ep = this._ep;
+
+		if (ep && ep.frame !== null) {
+			ep.full = (document.fullscreenElement || document.webkitFullscreenElement || null) === ep.frame;
+		}
 	}
 
 	/** Ask the ElasticPro module for a signed-in address, and load it. */
@@ -172,6 +205,46 @@ class WidgetEpPlay extends CWidget {
 		}
 
 		ep.msg.hidden = false;
+	}
+
+	/** Ask the browser for full screen on `frame`. Called from a click; refused or unsupported does nothing. */
+	static goFullscreen(frame) {
+		const fn = frame.requestFullscreen || frame.webkitRequestFullscreen;
+
+		if (!fn) {
+			return;
+		}
+
+		try {
+			const r = fn.call(frame);
+
+			if (r && typeof r.catch === 'function') {
+				r.catch(() => {});
+			}
+		}
+		catch (_) {
+			// Refused: Play stays in the widget.
+		}
+	}
+
+	/** Leave full screen if `frame` is what is full screen. */
+	static leaveFullscreen(frame) {
+		const doc = frame.ownerDocument;
+
+		if ((doc.fullscreenElement || doc.webkitFullscreenElement || null) !== frame) {
+			return;
+		}
+
+		try {
+			const r = (doc.exitFullscreen || doc.webkitExitFullscreen || (() => {})).call(doc);
+
+			if (r && typeof r.catch === 'function') {
+				r.catch(() => {});
+			}
+		}
+		catch (_) {
+			// Nothing to do.
+		}
 	}
 
 	/** EP-703: the session ended four times in a minute; the likely cause is the pairing. */

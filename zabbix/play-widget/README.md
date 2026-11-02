@@ -22,13 +22,17 @@ There are no other settings. Which slides show, how long each stays and the zoom
 (ElasticPro *Config › Play*, and the − / + in Play's top bar); Play's address takes no slide list, so
 the widget offers none.
 
-**Open full screen** (bottom right, shown when the pointer is over the widget) opens
-**ElasticPro → Play** in a new tab without Zabbix's sidebar and header
+**Full screen** (bottom right, shown when the pointer is over the widget) puts Play over the whole
+browser screen: the widget's own frame goes full screen, same session, no new tab, no reload. Esc
+returns it to its place in the dashboard. The frame carries `allow="clipboard-write; fullscreen"`
+(nothing else), which also lets ElasticPro's own full-screen button in Play work. **Open in new tab**
+beside it opens **ElasticPro → Play** in a new tab without Zabbix's sidebar and header
 (`zabbix.php?action=elasticpro.play&fullscreen=1`); its **Exit full screen** link (top right) goes
 back to the normal page. This is not Zabbix's kiosk mode: Zabbix saves a `kiosk` URL parameter into
 the person's profile on every request, which would leave every page they opened afterwards in kiosk
 mode. `fullscreen=1` changes that one response and saves nothing — close the tab and Zabbix is as it
-was.
+was. Moving to another dashboard page while Play is full screen leaves full screen first; the frame
+is emptied and signed in again as for any page out of view.
 
 ## How it signs in
 

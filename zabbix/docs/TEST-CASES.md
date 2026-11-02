@@ -764,11 +764,24 @@ Elements) where a step says so.
 | PL-10 | Not paired | remove the pairing (Administration → ElasticPro) | Open the dashboard as the Super admin, then as the Zabbix User | **EP-701** with *Pair it under Administration → ElasticPro* / *A Zabbix Super admin pairs it…* | same codes as the pages | P2 |
 | PL-11 | Module denied | the user whose role denies `elasticpro` | Open the dashboard | The widget says the ElasticPro module is not available, naming **both** causes (not enabled, or not allowed for your user role); no POST; ElasticPro → Play is not offered | Zabbix does not load a module a role denies | **P1** |
 | PL-12 | Module disabled | disable `elasticpro` | Open the dashboard | The same message as PL-11, naming Administration → General → Modules; no POST | says what fixes it | P2 |
-| PL-13 | Open full screen | PL-04 | Hover the widget, press *Open full screen* | A new tab with `elasticpro.play&fullscreen=1` (PL-03) | the link deliverable | P2 |
+| PL-13 | Open in new tab | PL-04 | Hover the widget, press *Open in new tab* (was *Open full screen* before 2.1.17) | A new tab with `elasticpro.play&fullscreen=1` (PL-03) | the link deliverable | P2 |
 | PL-14 | Headers unchanged | — | `curl -sI` ElasticPro's public URL | `Content-Security-Policy: frame-ancestors <paired Zabbix origin>` exactly as before the upgrade; Zabbix's own `X-Frame-Options` unchanged | nothing loosened | **P1** |
 | PL-15 | Older ElasticPro | ElasticPro < 0.3.47 | ElasticPro → Play | ElasticPro's own page for an unknown route (no Play) — note it; nothing in Zabbix breaks | needs 0.3.47 | P3 |
 | PL-16 | Guest | guest frontend access enabled (*Users → Authentication* / guest user enabled), the dashboard shared with the guests group | Open the dashboard and `zabbix.php?action=elasticpro.play` signed out (as guest); POST `elasticpro.play.frame` with guest's session | The widget says Play is not available to the guest user; the page is Zabbix's *Access denied*; the POST is refused; no ElasticPro menu; ElasticPro's Accounts page has **no** `guest@zabbix` | guest must not get an ElasticPro account | **P1** |
 | PL-17 | Refusal reason only for Super admins | stop the ElasticPro core, or point `core_url` at a dead address | Open ElasticPro → Play and the widget, as the Zabbix User, then as the Super admin | Zabbix User: *ElasticPro could not sign you in. (EP-702)* and *A Zabbix Super admin sees the reason…* — no core address; Super admin: the full reason (*could not reach ElasticPro at …*) | the reason can name the internal core address | P2 |
+
+## 12c-2. Play full screen (2.1.17)
+
+Same set-up as 12c.
+
+| ID | What | Precondition | Steps | Expected | Why it matters | Pri |
+|---|---|---|---|---|---|---|
+| PL-18 | Menu Full screen button | PL-01 | On **ElasticPro → Play** press *Full screen* (top right); repeat on `&fullscreen=1`, where *Exit full screen* stays beside it | The browser shows Play over the whole screen, same session, no reload, no login form | the request | **P1** |
+| PL-19 | Widget full screen | PL-04 | Hover a widget, press *Full screen*; then Esc | Play fills the screen without a new tab or POST; after Esc it is back at the widget's size, still running | the request | **P1** |
+| PL-20 | iframe allow attribute | PL-04 | Elements: the frame on ElasticPro → Play and in each widget | `allow="clipboard-write; fullscreen"` and `allowfullscreen`; nothing else in `allow`; ElasticPro's own Play full-screen button also works inside the frame | ElasticPro's button needs it | **P1** |
+| PL-21 | Esc and layout mode | PL-18; note `web.layout.mode` as in PL-03 | Esc out of full screen; open other Zabbix pages | Back on the page; `web.layout.mode` unchanged; other pages normal | nothing saved | P2 |
+| PL-22 | Widget lifecycle | PL-19 | While full screen, switch the dashboard page (or Esc, then switch) and return | Full screen is left, the frame is `about:blank` while away, and one POST signs it in on return | blank-when-hidden still works | P2 |
+| PL-23 | Open in new tab | PL-04 | Press *Open in new tab* | A new tab with `elasticpro.play&fullscreen=1` (PL-03) | previous behaviour kept | P3 |
 
 ## 12d. Discover judged by TypeSafe Jev (2.1.16)
 
