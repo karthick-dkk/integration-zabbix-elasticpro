@@ -82,3 +82,10 @@ test('the frame reaches the bottom of the window: no fixed offset under it', () 
   assert.match(css, /\.ep-frame \{[^}]*flex: 1 1 auto;/, 'the frame does not fill the wrapper');
   assert.match(css, /footer\[role="contentinfo"\] \{ display: none !important; \}/, 'the Zabbix footer band is back');
 });
+
+test('the Reports page keeps its action and takes ElasticPro\'s new name', () => {
+  const php = read('Module.php');
+  // elasticpro.volume stays: Zabbix problem links and bookmarks open it; ElasticPro forwards #/volume to #/reports.
+  assert.match(php, /'volume'\s*=>\s*'Reports',/);
+  assert.doesNotMatch(php, /=>\s*'Volume report'/);
+});

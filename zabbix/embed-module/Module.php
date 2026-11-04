@@ -13,7 +13,7 @@ use Zabbix\Core\CModule as CoreModule;
  *
  * The menu offers the pages people open from Zabbix directly: Clusters, Indices, Snapshots,
  * REST console, Play and, for Super admins, Config (Cluster Management, the Clients module, joins
- * them). Every other page — Alerts, Nodes & shards, Live logs, Volume report, Automation,
+ * them). Every other page — Alerts, Nodes & shards, Live logs, Reports, Automation,
  * Accounts — is reached inside ElasticPro, from its own tabs, as when it runs on its own;
  * each still has its action, so a link to it (a Zabbix problem's troubleshoot link) works.
  * Config and Accounts are Super admin pages: the core refuses them to anybody else
@@ -33,7 +33,9 @@ class Module extends CoreModule {
 		'shards'     => 'Nodes & shards',
 		'logs'       => 'Live logs & log delay',
 		'snapshots'  => 'Snapshots',
-		'volume'     => 'Volume report',
+		// The page ElasticPro 0.3.53 renamed Reports. The action stays elasticpro.volume (it opens
+		// #/volume, which ElasticPro forwards to #/reports), so existing links keep working.
+		'volume'     => 'Reports',
 		'console'    => 'REST console',
 		'automation' => 'Automation',
 		'play'       => 'Play',
