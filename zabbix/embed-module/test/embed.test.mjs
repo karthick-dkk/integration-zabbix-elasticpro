@@ -71,3 +71,14 @@ test('sync-role.json: the one API identity, read methods plus history.push and n
   assert.ok(spec.methods.includes('role.get'), 'role.get is missing (the role map lists Zabbix roles with it)');
   assert.equal(new Set(spec.methods).size, spec.methods.length);
 });
+
+test('the frame reaches the bottom of the window: no fixed offset under it', () => {
+  const css = between(VIEW, '<style>', '</style>');
+  // `calc(100vh - 60px)` left a 60 px grey band under every ElasticPro page, the frame cut off
+  // above it: the footer it made room for is hidden by the same style block.
+  assert.doesNotMatch(css, /100vh\s*-/, 'a height measured from the window minus a fixed offset');
+  assert.match(css, /\.wrapper main \{[^}]*flex: 1 1 auto;[^}]*display: flex;[^}]*flex-direction: column;/, 'main does not grow to the bottom of the wrapper');
+  assert.match(css, /\.ep-wrap \{[^}]*flex: 1 1 auto;/, 'the wrapper does not fill main');
+  assert.match(css, /\.ep-frame \{[^}]*flex: 1 1 auto;/, 'the frame does not fill the wrapper');
+  assert.match(css, /footer\[role="contentinfo"\] \{ display: none !important; \}/, 'the Zabbix footer band is back');
+});

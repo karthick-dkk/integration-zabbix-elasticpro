@@ -136,12 +136,15 @@ $origin = $data['origin'];
 	})();
 </script>
 <style>
-	/* Full height, no Zabbix footer band under a short frame: the wrapper flex-fills the
-	   main column and the frame fills the wrapper. Scoped to these pages only. */
+	/* Full height, no Zabbix footer band under a short frame: main grows to the bottom of
+	   Zabbix's full-height wrapper, the wrapper flex-fills main and the frame fills the wrapper.
+	   No fixed offset: the window height less 60 px here left a 60 px grey band under every page,
+	   the frame cut off above it (the footer it made room for is hidden just below). Scoped to
+	   these pages. */
 	.wrapper > footer[role="contentinfo"] { display: none !important; }
-	.wrapper main { padding: 0 !important; }
-	.ep-wrap { display: flex; flex: 1 1 auto; min-height: calc(100vh - 60px); }
-	.ep-frame { flex: 1 1 auto; width: 100%; min-height: calc(100vh - 60px); border: 0; }
+	.wrapper main { padding: 0 !important; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+	.ep-wrap { display: flex; flex: 1 1 auto; min-height: 0; }
+	.ep-frame { flex: 1 1 auto; width: 100%; border: 0; }
 	.ep-wrap.ep-full, .ep-full .ep-frame { min-height: 100vh; }
 	.ep-wrap { position: relative; }
 	.ep-exit-full { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 3px 10px; border-radius: 3px;
