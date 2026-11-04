@@ -4,6 +4,10 @@ What changed in the ElasticPro Zabbix modules, newest first. Every module carrie
 version (`manifest.json` in each folder under `zabbix/`), so one line here covers the whole set.
 How a version is chosen and released is in [README.md](README.md#versions-and-releases).
 
+## 2.1.19
+
+**The ElasticPro page that was "Volume report" is now "Reports"**, as in ElasticPro 0.3.53, which renamed and redesigned it (daily and monthly volume, capacity and retention, measure size, planning, exports). The page title in Zabbix follows. Its action stays `elasticpro.volume`, so a link or bookmark to it keeps working: ElasticPro forwards `#/volume` to `#/reports`. The *Volume report* dashboard widget (`ep_volume`) is a different thing and keeps its name. Nothing else changes.
+
 ## 2.1.18
 
 **ElasticPro pages in Zabbix reach the bottom of the window.** Every ElasticPro page in the Zabbix menu (Clusters, Volume report, Play, Config and the rest) left a 60 px grey band under its frame, and the page in the frame looked cut off above it: the frame was sized to the window height less 60 px, room for a Zabbix footer the same page hides. The frame now fills the main column to the bottom of the window at any height, the Zabbix page itself still never scrolls (the ElasticPro page scrolls inside its frame, as before), and `fullscreen=1` is unchanged. Only the embed module's view changes; no other module, setting or template.
