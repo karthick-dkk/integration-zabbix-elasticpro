@@ -8,8 +8,10 @@ require_once __DIR__.'/Settings.php';
  * Asks the ElasticPro core for a one-time sign-in code for the Zabbix user looking at
  * the page.
  *
- * The request is `{username, zabbix_user_type, groups, ts, nonce}`, signed with
- * HMAC-SHA256 under the shared secret. The core checks the signature, the clock (±60 s) and
+ * The request is `{username, zabbix_user_type, groups, zabbix_role?, zabbix_roleid?,
+ * user_groups?, ts, nonce}`, signed with HMAC-SHA256 under the shared secret. `groups` are the
+ * user group names (the sign-in scope); `user_groups` the same groups with their ids, which
+ * ElasticPro's role map (0.3.55) decides on. The core checks the signature, the clock (±60 s) and
  * the nonce (once only), creates or refreshes the account `<username>@zabbix`, and
  * answers with a code that works once, for sixty seconds. The browser then loads the app
  * with that code and the app trades it for a session.
@@ -70,9 +72,15 @@ class SsoClient {
 	/**
 	 * What Zabbix vouches for at a sign-in. The role's name and id go in when they are known
 	 * (2.1.13 on): ElasticPro's role map may name the role, and names a site's own roles; an
-	 * ElasticPro too old to read them ignores them and goes by the user type as before.
+	 * ElasticPro too old to read them ignores them and goes by the user type as before. The user
+	 * groups with their ids go in when given (2.1.20 on; SignIn::userGroups()): ElasticPro 0.3.55
+	 * maps each of its roles to Zabbix user groups and a person in several gets the highest; an
+	 * older ElasticPro ignores `user_groups` and reads `groups` as before.
+	 *
+	 * @param array $user_groups  [['id' => usrgrpid, 'name' => name], ...]
 	 */
-	public static function claim(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null): array {
+	public static function claim(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null,
+			array $user_groups = []): array {
 		$body = ['username' => $username, 'zabbix_user_type' => $user_type, 'groups' => array_values($groups)];
 		if ($role !== null && trim($role) !== '') {
 			$body['zabbix_role'] = trim($role);
@@ -80,7 +88,31 @@ class SsoClient {
 		if ($roleid !== null && $roleid > 0) {
 			$body['zabbix_roleid'] = $roleid;
 		}
+		$with_ids = self::userGroupRefs($user_groups);
+		if ($with_ids !== []) {
+			$body['user_groups'] = $with_ids;
+		}
 		return $body + ['ts' => time(), 'nonce' => bin2hex(random_bytes(16))];
+	}
+
+	/**
+	 * User groups as the core reads them: `[{id, name}]`, both strings, names trimmed, anything
+	 * without a name dropped. The one shape for the sign-in and the clients module's role lookup.
+	 */
+	public static function userGroupRefs(array $user_groups): array {
+		$out = [];
+		foreach ($user_groups as $g) {
+			if (!is_array($g)) {
+				continue;
+			}
+			$name = trim((string) ($g['name'] ?? ''));
+			if ($name === '') {
+				continue;
+			}
+			$id = trim((string) ($g['id'] ?? $g['usrgrpid'] ?? ''));
+			$out[] = $id !== '' ? ['id' => $id, 'name' => $name] : ['name' => $name];
+		}
+		return $out;
 	}
 
 	public static function postSigned(string $url, string $secret, string $body, bool $verify_tls,
@@ -130,12 +162,13 @@ class SsoClient {
 	 * @param string[] $groups  Names of the Zabbix user groups this user is in.
 	 * @return string|null      A one-time code, or null (see lastError()).
 	 */
-	public function mintCode(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null): ?string {
+	public function mintCode(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null,
+			array $user_groups = []): ?string {
 		if (!$this->isConfigured()) {
 			$this->last_error = 'the module is not configured';
 			return null;
 		}
-		$body = json_encode(self::claim($username, $user_type, $groups, $role, $roleid), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		$body = json_encode(self::claim($username, $user_type, $groups, $role, $roleid, $user_groups), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 		if ($body === false) {
 			$this->last_error = 'could not encode the request';
 			return null;

@@ -58,7 +58,7 @@ namespace {
 	function zbx_dbstr($v) { return "'".addslashes((string) $v)."'"; }
 	function DBselect(string $sql) {
 		return new \ArrayIterator(strpos($sql, 'FROM usrgrp') !== false
-			? [['name' => 'NOC'], ['name' => 'Elasticsearch operators']]
+			? [['usrgrpid' => '12', 'name' => 'NOC'], ['usrgrpid' => '7', 'name' => 'Elasticsearch operators']]
 			: [['name' => 'User role']]);
 	}
 	function DBfetch(\ArrayIterator $rows) {
@@ -88,8 +88,9 @@ namespace Modules\ElasticPro\Test {
 	class FakeCore extends SsoClient {
 		public $claims = [];
 		public $refuse = null;
-		public function mintCode(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null): ?string {
-			$this->claims[] = compact('username', 'user_type', 'groups', 'role', 'roleid');
+		public function mintCode(string $username, int $user_type, array $groups, ?string $role = null, ?int $roleid = null,
+				array $user_groups = []): ?string {
+			$this->claims[] = compact('username', 'user_type', 'groups', 'role', 'roleid', 'user_groups');
 			return $this->refuse === null ? 'one-time-code' : null;
 		}
 		public function lastError(): string { return (string) $this->refuse; }
@@ -131,9 +132,17 @@ namespace Modules\ElasticPro\Test {
 	check('paired: configured, with an address', $r['configured'] === true && is_string($r['url']), $r);
 	check('the frame opens #/play, embedded, with the code and the Zabbix theme',
 		$r['url'] === 'https://ep.example.com:8443/?sso_code=one-time-code&embed=1&zbx_theme=dark-theme#/play', $r['url']);
-	check('the claim is the user, their type, groups (sorted) and role — as for every ElasticPro page',
+	check('the claim is the user, their type, groups (sorted, and with their ids) and role — as for every ElasticPro page',
 		$core->claims === [['username' => 'noc-alice', 'user_type' => USER_TYPE_ZABBIX_USER,
-			'groups' => ['Elasticsearch operators', 'NOC'], 'role' => 'User role', 'roleid' => 1]], $core->claims);
+			'groups' => ['Elasticsearch operators', 'NOC'], 'role' => 'User role', 'roleid' => 1,
+			'user_groups' => [['id' => '7', 'name' => 'Elasticsearch operators'], ['id' => '12', 'name' => 'NOC']]]], $core->claims);
+	check('the signed body names the groups twice: the names an older core reads, and user_groups with ids for the role map',
+		array_merge(SsoClient::claim('noc-alice', 1, ['NOC'], 'User role', 1, [['id' => '12', 'name' => 'NOC'], ['name' => ' Trimmed '], ['name' => '']]),
+			['ts' => 0, 'nonce' => '']) === ['username' => 'noc-alice', 'zabbix_user_type' => 1, 'groups' => ['NOC'], 'zabbix_role' => 'User role',
+			'zabbix_roleid' => 1, 'user_groups' => [['id' => '12', 'name' => 'NOC'], ['name' => 'Trimmed']], 'ts' => 0, 'nonce' => ''],
+		SsoClient::claim('noc-alice', 1, ['NOC'], 'User role', 1, [['id' => '12', 'name' => 'NOC']]));
+	check('no user_groups key at all when there are none — an older core sees exactly the old body',
+		!array_key_exists('user_groups', SsoClient::claim('noc-alice', 1, [], null, null, [])));
 	check('a code is minted per frame, never kept', (SignIn::frame('play', [], $core)['url'] !== null) && count($core->claims) === 2);
 
 	$core = new FakeCore($paired);

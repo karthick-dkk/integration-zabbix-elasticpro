@@ -48,7 +48,7 @@ abstract class Base extends CController {
 	/** Who may edit — EpRole::decide(), asked once per request with a fresh answer. */
 	public function writeDecision(): array {
 		return $this->decision ?? ($this->decision = EpRole::current()->decision($this->user(), (int) $this->getUserType(), true,
-			static::NEEDS, EpRole::zabbixRoleName()));
+			static::NEEDS, EpRole::zabbixRoleName(), EpRole::zabbixUserGroups()));
 	}
 
 	/**
@@ -56,7 +56,8 @@ abstract class Base extends CController {
 	 * edit: decommission, restore, delete for good. The same answer, held to the higher bar.
 	 */
 	public function canRemove(): bool {
-		return EpRole::current()->decision($this->user(), (int) $this->getUserType(), true, EpRole::NEED_ADMIN, EpRole::zabbixRoleName())['write'];
+		return EpRole::current()->decision($this->user(), (int) $this->getUserType(), true, EpRole::NEED_ADMIN, EpRole::zabbixRoleName(),
+			EpRole::zabbixUserGroups())['write'];
 	}
 
 	/**
