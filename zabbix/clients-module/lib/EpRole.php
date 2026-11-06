@@ -441,7 +441,7 @@ final class EpRole {
 		// has not refused either.
 		$map_none = $map_role === 'none' || $no_role || ($new_core && $role === null && ($answer['zabbix_role'] ?? null) === null);
 		$refused = ['write' => false, 'why' => 'elasticpro_role', 'role' => null,
-			'note' => self::needsLine($need).' '._('Your ElasticPro role: none — ElasticPro\'s role map gives you no role.'),
+			'note' => self::needsLine($need).' '._('No ElasticPro role from your Zabbix groups.'),
 			'hint' => null, 'detail' => null];
 		if ($map_none && !($pinned && $role !== null)) {
 			return $refused;

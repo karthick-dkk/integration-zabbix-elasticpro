@@ -110,7 +110,7 @@ namespace Modules\EpClients\Test {
 	// none): a new core says so, and the Zabbix user type must not be the fallback.
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'role_source' => 'unmapped', 'no_role' => true]), EpRole::NEED_OPERATOR);
 	check('never seen, and the map gives nothing (said with role_source): no role, not the type\'s operator', !$d['write'] && $d['role'] === null
-		&& $d['why'] === 'elasticpro_role' && strpos((string) $d['note'], 'gives you no role') !== false, $d);
+		&& $d['why'] === 'elasticpro_role' && strpos((string) $d['note'], 'No ElasticPro role from your Zabbix groups') !== false, $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'role_source' => 'zabbixRole']), EpRole::NEED_OPERATOR);
 	check('role_source alone is enough: a core that names the source and gives null has given no role', !$d['write'] && $d['role'] === null, $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null]), EpRole::NEED_OPERATOR);
@@ -121,7 +121,7 @@ namespace Modules\EpClients\Test {
 	// gives this person nothing now (map_role "none") and nobody pinned them — denied.
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'zabbix_role' => 'none', 'map_role' => 'none', 'pinned' => false, 'role_source' => 'unmapped']), EpRole::NEED_OPERATOR);
 	check('a held role does not outlive the map: map_role none and not pinned → denied', !$d['write'] && $d['role'] === null
-		&& strpos((string) $d['note'], 'gives you no role') !== false, $d);
+		&& strpos((string) $d['note'], 'No ElasticPro role from your Zabbix groups') !== false, $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'zabbix_role' => 'none', 'map_role' => 'none', 'pinned' => true, 'role_source' => 'unmapped']), EpRole::NEED_OPERATOR);
 	check('the same with the role pinned by an administrator: operator, as pinned', $d['write'] && $d['role'] === 'operator' && $d['why'] === 'elasticpro_operator', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'map_role' => 'none', 'pinned' => false, 'no_access' => true]), EpRole::NEED_OPERATOR);
