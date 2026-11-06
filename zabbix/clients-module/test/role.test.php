@@ -106,6 +106,17 @@ namespace Modules\EpClients\Test {
 	check('the flag wins over any role string beside it', !$d['write'] && $d['role'] === 'none', $d);
 	$d = EpRole::decide(USER_TYPE_SUPER_ADMIN, $asked(['no_access' => true]));
 	check('a Zabbix Super admin is not asked, and still edits: Zabbix\'s own rule for its own page', $d['write'] && $d['why'] === 'super');
+	// The map refuses a person ElasticPro has never seen (unmapped: none, or a role name mapped to
+	// none): a new core says so, and the Zabbix user type must not be the fallback.
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'role_source' => 'unmapped', 'no_role' => true]), EpRole::NEED_OPERATOR);
+	check('never seen, and the map gives nothing (said with role_source): no role, not the type\'s operator', !$d['write'] && $d['role'] === null
+		&& $d['why'] === 'elasticpro_role' && strpos((string) $d['note'], 'gives you no role') !== false, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'role_source' => 'zabbixRole']), EpRole::NEED_OPERATOR);
+	check('role_source alone is enough: a core that names the source and gives null has given no role', !$d['write'] && $d['role'] === null, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null]), EpRole::NEED_OPERATOR);
+	check('an old core (no role_source) still falls back to the type', $d['write'] && $d['role'] === 'operator', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'zabbix_role' => null, 'role_source' => 'unmapped']));
+	check('an account with a role of its own (pinned admin) edits whatever the map would give a newcomer', $d['write'] && $d['role'] === 'admin', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'admin']));
 	check('a Zabbix User whom ElasticPro calls an admin edits too — ElasticPro decides', $d['write']);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'user']));
@@ -206,6 +217,15 @@ namespace Modules\EpClients\Test {
 	$r = role(ok(['role' => 'none']), $sent, $now, $session);
 	$a = $r->answer('nemo2', USER_TYPE_ZABBIX_ADMIN);
 	check('a core saying only role "none" (no flag) is No access too', $a['no_access'] && !EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR)['write'], $a);
+	// Never seen, and the map refuses them: the core answers role "none", zabbix_role "none" and
+	// the source; a Zabbix Admin is NOT made an operator by the shipped type mapping.
+	$r = role(ok(['role' => 'none', 'zabbix_role' => 'none', 'role_source' => 'unmapped']), $sent, $now, $session);
+	$a = $r->answer('newbie', USER_TYPE_ZABBIX_ADMIN, true, 'Admin role', [['id' => '9', 'name' => 'Zabbix users']]);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR);
+	check('the map refuses a newcomer: read only, said as the map\'s doing', $a['asked'] && $a['no_role'] && $a['role_source'] === 'unmapped' && !$d['write'], [$a, $d]);
+	$r = role(ok(['role' => null, 'zabbix_role' => null, 'role_source' => 'zabbixRole']), $sent, $now, $session);
+	$a = $r->answer('newbie2', USER_TYPE_ZABBIX_ADMIN);
+	check('a new core answering null with a source: no role either', $a['no_role'] && !EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR)['write'], $a);
 	// Back to the state the session-cache checks below start from: alice's answer, asked at t0.
 	$sent = []; $now = [1790000000]; $session = null;
 	$r = role(ok(['role' => 'admin']), $sent, $now, $session);

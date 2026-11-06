@@ -318,8 +318,8 @@ final class EpRole {
 	 * @param string[] $nonces  the nonces this session has consumed; the one used here is added
 	 */
 	private function ask(string $user, int $type, int $now, array &$nonces, ?string $role = null, array $user_groups = []): array {
-		$out = ['asked' => false, 'role' => null, 'zabbix_role' => null, 'pinned' => false, 'no_access' => false, 'source' => null,
-			'disabled' => false, 'locked' => false, 'trusted' => false, 'error' => null, 'at' => $now];
+		$out = ['asked' => false, 'role' => null, 'zabbix_role' => null, 'pinned' => false, 'no_access' => false, 'no_role' => false,
+			'role_source' => null, 'source' => null, 'disabled' => false, 'locked' => false, 'trusted' => false, 'error' => null, 'at' => $now];
 		$s = ($this->settings)();
 		if (isset($s['error'])) {
 			$out['error'] = (string) $s['error'];
@@ -357,9 +357,14 @@ final class EpRole {
 		$out['role'] = is_string($role) && in_array($role, ['admin', 'operator', 'user', 'guest'], true) ? $role : null;
 		$zr = $data['zabbix_role'] ?? null;
 		$out['zabbix_role'] = is_string($zr) && in_array($zr, ['admin', 'operator', 'user', 'guest'], true) ? $zr : null;
-		// No access (ElasticPro 0.3.55): the core says it three ways — role "none", zabbix_role
-		// "none" and the flag — so even one of them is enough never to fall through to the type.
-		$out['no_access'] = ($data['no_access'] ?? false) === true || $role === 'none' || $zr === 'none';
+		// ElasticPro 0.3.55 answers "none" where it gives no role — the account's role (No access,
+		// set by hand or by a sync) or the map's answer for a person it has never seen — and names
+		// where the map's answer came from (`role_source`). A core that says any of these has said
+		// its piece: a null role from it means "no role", never "fall back to the Zabbix user type".
+		$out['no_access'] = ($data['no_access'] ?? false) === true || $role === 'none';
+		$out['role_source'] = is_string($data['role_source'] ?? null) ? $data['role_source'] : null;
+		$out['no_role'] = $zr === 'none' || $role === 'none'
+			|| ($out['role_source'] !== null && $out['role'] === null && $out['zabbix_role'] === null);
 		$out['pinned'] = ($data['pinned'] ?? false) === true;
 		$out['source'] = is_string($data['source'] ?? null) ? $data['source'] : null;
 		$out['disabled'] = ($data['disabled'] ?? false) === true;
@@ -403,13 +408,22 @@ final class EpRole {
 				'detail' => $answer !== null && ($answer['error'] ?? null) !== null ? (string) $answer['error'] : null];
 		}
 		if (($answer['no_access'] ?? false) === true) {
-			// Set by hand to No access in ElasticPro: not elevated, whatever the type or the map says.
+			// No access in ElasticPro (set by hand, or by a sync that found the person's groups
+			// give nothing): not elevated, whatever the type or the map says.
 			return ['write' => false, 'why' => 'elasticpro_role', 'role' => 'none',
-				'note' => self::needsLine($need).' '._('Your ElasticPro role: No access (set by an ElasticPro administrator).'),
+				'note' => self::needsLine($need).' '._('Your ElasticPro role: No access (set in ElasticPro).'),
 				'hint' => null, 'detail' => null];
 		}
 		$role = $answer['role'];
 		$mapped = $role === null;
+		if ($mapped && (($answer['no_role'] ?? false) === true || (($answer['role_source'] ?? null) !== null && ($answer['zabbix_role'] ?? null) === null))) {
+			// Never seen by ElasticPro, and its role map gives this person nothing: the core said
+			// so (0.3.55), and that is the answer — the Zabbix user type is only for a core too
+			// old to say anything.
+			return ['write' => false, 'why' => 'elasticpro_role', 'role' => null,
+				'note' => self::needsLine($need).' '._('Your ElasticPro role: none — ElasticPro\'s role map gives you no role.'),
+				'hint' => null, 'detail' => null];
+		}
 		$role = $role ?? ($answer['zabbix_role'] ?? null) ?? self::zabbixRole($type);
 		$blocked = ($answer['disabled'] ?? false) || ($answer['locked'] ?? false);
 		$enough = $role !== null && (self::RANK[$role] ?? -1) >= (self::RANK[$need] ?? self::RANK[self::NEED_ADMIN]);
