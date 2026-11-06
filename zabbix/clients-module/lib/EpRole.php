@@ -318,8 +318,9 @@ final class EpRole {
 	 * @param string[] $nonces  the nonces this session has consumed; the one used here is added
 	 */
 	private function ask(string $user, int $type, int $now, array &$nonces, ?string $role = null, array $user_groups = []): array {
-		$out = ['asked' => false, 'role' => null, 'zabbix_role' => null, 'pinned' => false, 'no_access' => false, 'no_role' => false,
-			'role_source' => null, 'source' => null, 'disabled' => false, 'locked' => false, 'trusted' => false, 'error' => null, 'at' => $now];
+		$out = ['asked' => false, 'role' => null, 'zabbix_role' => null, 'map_role' => null, 'pinned' => false, 'no_access' => false,
+			'no_role' => false, 'role_source' => null, 'source' => null, 'disabled' => false, 'locked' => false, 'trusted' => false,
+			'error' => null, 'at' => $now];
 		$s = ($this->settings)();
 		if (isset($s['error'])) {
 			$out['error'] = (string) $s['error'];
@@ -363,8 +364,12 @@ final class EpRole {
 		// its piece: a null role from it means "no role", never "fall back to the Zabbix user type".
 		$out['no_access'] = ($data['no_access'] ?? false) === true || $role === 'none';
 		$out['role_source'] = is_string($data['role_source'] ?? null) ? $data['role_source'] : null;
+		// The map's raw answer for this person now ("none", or a role), beside the account's own
+		// role: a role held from an earlier sign-in does not outlive the map that gave it.
+		$mr = $data['map_role'] ?? null;
+		$out['map_role'] = is_string($mr) && in_array($mr, ['none', 'admin', 'operator', 'user', 'guest'], true) ? $mr : null;
 		$out['no_role'] = $zr === 'none' || $role === 'none'
-			|| ($out['role_source'] !== null && $out['role'] === null && $out['zabbix_role'] === null);
+			|| (($out['role_source'] !== null || $out['map_role'] !== null) && $out['role'] === null && $out['zabbix_role'] === null);
 		$out['pinned'] = ($data['pinned'] ?? false) === true;
 		$out['source'] = is_string($data['source'] ?? null) ? $data['source'] : null;
 		$out['disabled'] = ($data['disabled'] ?? false) === true;
@@ -416,15 +421,26 @@ final class EpRole {
 		}
 		$role = $answer['role'];
 		$mapped = $role === null;
-		if ($mapped && (($answer['no_role'] ?? false) === true || (($answer['role_source'] ?? null) !== null && ($answer['zabbix_role'] ?? null) === null))) {
-			// Never seen by ElasticPro, and its role map gives this person nothing: the core said
-			// so (0.3.55), and that is the answer — the Zabbix user type is only for a core too
-			// old to say anything.
+		$new_core = ($answer['role_source'] ?? null) !== null || ($answer['map_role'] ?? null) !== null;
+		$pinned = ($answer['pinned'] ?? false) === true;
+		// Fail closed on the map: when ElasticPro's map gives this person nothing now and no
+		// administrator pinned their role, they edit nothing — even while the account still
+		// carries the role an earlier sign-in gave it. A pinned role is the administrator's word
+		// and wins. A newcomer the map refuses is the same case with no account role at all. The
+		// Zabbix user type is only for a core too old to say anything (neither role_source nor
+		// map_role).
+		$map_none = ($answer['map_role'] ?? null) === 'none' || ($mapped && (($answer['no_role'] ?? false) === true || ($new_core && ($answer['zabbix_role'] ?? null) === null)));
+		if ($map_none && !$pinned) {
 			return ['write' => false, 'why' => 'elasticpro_role', 'role' => null,
 				'note' => self::needsLine($need).' '._('Your ElasticPro role: none — ElasticPro\'s role map gives you no role.'),
 				'hint' => null, 'detail' => null];
 		}
-		$role = $role ?? ($answer['zabbix_role'] ?? null) ?? self::zabbixRole($type);
+		$role = $role ?? ($answer['zabbix_role'] ?? null) ?? ($new_core ? null : self::zabbixRole($type));
+		if ($role === null) {
+			return ['write' => false, 'why' => 'elasticpro_role', 'role' => null,
+				'note' => self::needsLine($need).' '._('Your ElasticPro role: none — ElasticPro\'s role map gives you no role.'),
+				'hint' => null, 'detail' => null];
+		}
 		$blocked = ($answer['disabled'] ?? false) || ($answer['locked'] ?? false);
 		$enough = $role !== null && (self::RANK[$role] ?? -1) >= (self::RANK[$need] ?? self::RANK[self::NEED_ADMIN]);
 		if ($enough && !$blocked) {
