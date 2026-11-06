@@ -367,8 +367,10 @@ final class EpRole {
 		// The map's raw answer for this person now ("none", or a role), beside the account's own
 		// role: a role held from an earlier sign-in does not outlive the map that gave it.
 		$mr = $data['map_role'] ?? null;
-		$out['map_role'] = is_string($mr) && in_array($mr, ['none', 'admin', 'operator', 'user', 'guest'], true) ? $mr : null;
-		$out['no_role'] = $zr === 'none' || $role === 'none'
+		$map_odd = $mr !== null && !(is_string($mr) && in_array($mr, ['none', 'admin', 'operator', 'user', 'guest'], true));
+		// A map_role that is there but not one of the five is a refusal, not nothing (fail closed).
+		$out['map_role'] = $mr === null ? null : ($map_odd ? 'none' : $mr);
+		$out['no_role'] = $zr === 'none' || $role === 'none' || $map_odd
 			|| (($out['role_source'] !== null || $out['map_role'] !== null) && $out['role'] === null && $out['zabbix_role'] === null);
 		$out['pinned'] = ($data['pinned'] ?? false) === true;
 		$out['source'] = is_string($data['source'] ?? null) ? $data['source'] : null;
@@ -420,26 +422,41 @@ final class EpRole {
 				'hint' => null, 'detail' => null];
 		}
 		$role = $answer['role'];
+		$role = is_string($role) && isset(self::RANK[$role]) ? $role : null;
 		$mapped = $role === null;
-		$new_core = ($answer['role_source'] ?? null) !== null || ($answer['map_role'] ?? null) !== null;
 		$pinned = ($answer['pinned'] ?? false) === true;
-		// Fail closed on the map: when ElasticPro's map gives this person nothing now and no
-		// administrator pinned their role, they edit nothing — even while the account still
-		// carries the role an earlier sign-in gave it. A pinned role is the administrator's word
-		// and wins. A newcomer the map refuses is the same case with no account role at all. The
-		// Zabbix user type is only for a core too old to say anything (neither role_source nor
-		// map_role).
-		$map_none = ($answer['map_role'] ?? null) === 'none' || ($mapped && (($answer['no_role'] ?? false) === true || ($new_core && ($answer['zabbix_role'] ?? null) === null)));
-		if ($map_none && !$pinned) {
-			return ['write' => false, 'why' => 'elasticpro_role', 'role' => null,
-				'note' => self::needsLine($need).' '._('Your ElasticPro role: none — ElasticPro\'s role map gives you no role.'),
-				'hint' => null, 'detail' => null];
+		$map_role = $answer['map_role'] ?? null;
+		$no_role = ($answer['no_role'] ?? false) === true;
+		if ($map_role !== null && $map_role !== 'none' && !(is_string($map_role) && isset(self::RANK[$map_role]))) {
+			// Present but not one of the five: a refusal, not nothing (fail closed).
+			$map_role = 'none';
+			$no_role = true;
 		}
-		$role = $role ?? ($answer['zabbix_role'] ?? null) ?? ($new_core ? null : self::zabbixRole($type));
-		if ($role === null) {
-			return ['write' => false, 'why' => 'elasticpro_role', 'role' => null,
-				'note' => self::needsLine($need).' '._('Your ElasticPro role: none — ElasticPro\'s role map gives you no role.'),
-				'hint' => null, 'detail' => null];
+		$new_core = ($answer['role_source'] ?? null) !== null || $map_role !== null;
+		// Fail closed on the map: when ElasticPro's map gives this person nothing now, they edit
+		// nothing — even while the account still carries the role an earlier sign-in gave it —
+		// unless an administrator pinned a real role on them (the administrator's word wins). A
+		// newcomer the map refuses is the same case with no account role at all. The Zabbix user
+		// type is only for a core too old to say anything (neither role_source nor map_role) that
+		// has not refused either.
+		$map_none = $map_role === 'none' || $no_role || ($new_core && $role === null && ($answer['zabbix_role'] ?? null) === null);
+		$refused = ['write' => false, 'why' => 'elasticpro_role', 'role' => null,
+			'note' => self::needsLine($need).' '._('Your ElasticPro role: none — ElasticPro\'s role map gives you no role.'),
+			'hint' => null, 'detail' => null];
+		if ($map_none && !($pinned && $role !== null)) {
+			return $refused;
+		}
+		$role = $role ?? ($answer['zabbix_role'] ?? null) ?? (($new_core || $no_role) ? null : self::zabbixRole($type));
+		if ($role === null || !isset(self::RANK[$role])) {
+			return $refused;
+		}
+		// A group lost in Zabbix takes effect here at once, not at the next sync: an unpinned
+		// account acts with the lower of what it holds and what the map gives it now. Never the
+		// higher — a raise waits for the signed sign-in.
+		$lowered = false;
+		if (!$pinned && $map_role !== null && $map_role !== 'none' && self::RANK[$map_role] < self::RANK[$role]) {
+			$role = $map_role;
+			$lowered = true;
 		}
 		$blocked = ($answer['disabled'] ?? false) || ($answer['locked'] ?? false);
 		$enough = $role !== null && (self::RANK[$role] ?? -1) >= (self::RANK[$need] ?? self::RANK[self::NEED_ADMIN]);
@@ -454,10 +471,12 @@ final class EpRole {
 		}
 		$said = $mapped
 			? _s('Your ElasticPro role: %1$s (from your Zabbix role — ElasticPro has not seen you sign in yet).', (string) $role)
-			: ($blocked
+			: ($lowered
+				? _s('Your ElasticPro role: %1$s (what your Zabbix user groups give now).', (string) $role)
+				: ($blocked
 				? _s('Your ElasticPro role: %1$s, but the account is %2$s in ElasticPro.', (string) $role,
 					($answer['disabled'] ?? false) ? _('blocked') : _('locked'))
-				: _s('Your ElasticPro role: %1$s.', (string) $role));
+				: _s('Your ElasticPro role: %1$s.', (string) $role)));
 		return ['write' => false, 'why' => 'elasticpro_role', 'role' => $role,
 			'note' => self::needsLine($need).' '.$said, 'hint' => null, 'detail' => null];
 	}

@@ -130,6 +130,29 @@ namespace Modules\EpClients\Test {
 	check('the map still gives the role: operator', $d['write'] && $d['role'] === 'operator', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'map_role' => 'none', 'pinned' => false]), EpRole::NEED_OPERATOR);
 	check('map_role alone marks a new core: no type fallback', !$d['write'] && $d['role'] === null, $d);
+	// Fail closed, three ways more.
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'map_role' => 'none', 'pinned' => true]), EpRole::NEED_OPERATOR);
+	check('pinned exempts only a real account role: pinned with no role is still denied', !$d['write'] && $d['role'] === null, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'zabbix_role' => 'operator', 'no_role' => true, 'pinned' => false]), EpRole::NEED_OPERATOR);
+	check('no_role true refuses an unpinned account whatever role it carries', !$d['write'] && $d['role'] === null, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'no_role' => true]), EpRole::NEED_OPERATOR);
+	check('no_role true never falls back to the type, old core or not', !$d['write'] && $d['role'] === null, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'map_role' => 'emperor', 'pinned' => false]), EpRole::NEED_OPERATOR);
+	check('a map_role that is none of the five is a refusal, not nothing', !$d['write'] && $d['role'] === null, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'emperor', 'map_role' => 'operator', 'pinned' => true]), EpRole::NEED_OPERATOR);
+	check('a role that is none of the four counts as no role: with nothing else said, denied (map_role only ever lowers)', !$d['write'] && $d['role'] === null, $d);
+	// A group lost in Zabbix takes effect in Cluster Management at once: the lower of the held role and the map's.
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'zabbix_role' => 'user', 'map_role' => 'user', 'pinned' => false, 'role_source' => 'group']));
+	check('held admin, map says user now, not pinned: acts as user — no admin-level edit', !$d['write'] && $d['role'] === 'user'
+		&& strpos((string) $d['note'], 'what your Zabbix user groups give now') !== false, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'map_role' => 'user', 'pinned' => false, 'role_source' => 'group']), EpRole::NEED_OPERATOR);
+	check('nor an operator-level one', !$d['write'] && $d['role'] === 'user', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'map_role' => 'operator', 'pinned' => false, 'role_source' => 'group']), EpRole::NEED_OPERATOR);
+	check('held admin, map says operator: operator-level edits still go', $d['write'] && $d['role'] === 'operator' && $d['why'] === 'elasticpro_operator', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'map_role' => 'user', 'pinned' => true, 'role_source' => 'group']));
+	check('the same pinned: admin, as the administrator said', $d['write'] && $d['role'] === 'admin', $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'user', 'map_role' => 'admin', 'pinned' => false, 'role_source' => 'group']), EpRole::NEED_OPERATOR);
+	check('never raised here: held user, map says admin → still user (the signed sign-in raises)', !$d['write'] && $d['role'] === 'user', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'admin']));
 	check('a Zabbix User whom ElasticPro calls an admin edits too — ElasticPro decides', $d['write']);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'user']));
@@ -246,6 +269,14 @@ namespace Modules\EpClients\Test {
 	$r = role(ok(['role' => 'operator', 'zabbix_role' => 'none', 'map_role' => 'none', 'pinned' => true, 'role_source' => 'unmapped']), $sent, $now, $session);
 	$a = $r->answer('heldpin', USER_TYPE_ZABBIX_ADMIN, true, 'Admin role', [['id' => '9', 'name' => 'Zabbix users']]);
 	check('over the wire: the same, pinned → operator', $a['pinned'] && EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR)['write'], $a);
+	$r = role(ok(['role' => 'operator', 'zabbix_role' => 'operator', 'map_role' => 'emperor', 'pinned' => false, 'role_source' => 'group']), $sent, $now, $session);
+	$a = $r->answer('odd', USER_TYPE_ZABBIX_ADMIN);
+	check('over the wire: a map_role that is none of the five is read as a refusal', $a['map_role'] === 'none' && $a['no_role']
+		&& !EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR)['write'], $a);
+	$r = role(ok(['role' => 'admin', 'zabbix_role' => 'user', 'map_role' => 'user', 'pinned' => false, 'role_source' => 'group']), $sent, $now, $session);
+	$a = $r->answer('lost', USER_TYPE_ZABBIX_ADMIN, true, 'Admin role', [['id' => '3', 'name' => 'NOC']]);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR);
+	check('over the wire: a group lost in Zabbix lowers the role here at once', $a['map_role'] === 'user' && !$d['write'] && $d['role'] === 'user', [$a, $d]);
 	// Back to the state the session-cache checks below start from: alice's answer, asked at t0.
 	$sent = []; $now = [1790000000]; $session = null;
 	$r = role(ok(['role' => 'admin']), $sent, $now, $session);
