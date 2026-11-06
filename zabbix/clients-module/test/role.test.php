@@ -99,6 +99,13 @@ namespace Modules\EpClients\Test {
 	check('an operator over an untrusted connection is not acted on either', !$d['write'] && $d['why'] === 'untrusted' && $d['role'] === 'operator', $d);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'operator', 'disabled' => true]), EpRole::NEED_OPERATOR);
 	check('a blocked operator reads', !$d['write'] && strpos((string) $d['note'], 'blocked in ElasticPro') !== false, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => null, 'zabbix_role' => null, 'no_access' => true]), EpRole::NEED_OPERATOR);
+	check('No access set by hand in ElasticPro (0.3.55): never elevated, not even to the type\'s shipped operator', !$d['write']
+		&& $d['why'] === 'elasticpro_role' && $d['role'] === 'none' && strpos((string) $d['note'], 'Your ElasticPro role: No access') !== false, $d);
+	$d = EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $asked(['role' => 'admin', 'zabbix_role' => 'admin', 'no_access' => true]));
+	check('the flag wins over any role string beside it', !$d['write'] && $d['role'] === 'none', $d);
+	$d = EpRole::decide(USER_TYPE_SUPER_ADMIN, $asked(['no_access' => true]));
+	check('a Zabbix Super admin is not asked, and still edits: Zabbix\'s own rule for its own page', $d['write'] && $d['why'] === 'super');
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'admin']));
 	check('a Zabbix User whom ElasticPro calls an admin edits too — ElasticPro decides', $d['write']);
 	$d = EpRole::decide(USER_TYPE_ZABBIX_USER, $asked(['role' => 'user']));
@@ -164,6 +171,45 @@ namespace Modules\EpClients\Test {
 		&& EpRole::claim('a', 2, 5, 'abc', '') === EpRole::claim('a', 2, 5, 'abc'));
 	check('the consumed nonce is kept in the session', in_array(sprintf('%032x', $nonceSeq), $session['nonces'] ?? [], true), $session);
 	check('TLS is verified as the pairing says', $sent[0]['tls'] === true);
+	check('the user groups go in as [{id, name}], after the role and before ts (2.1.20), trimmed, nameless ones dropped',
+		EpRole::claim('a', 2, 5, 'abc', 'ES owners', [['id' => '7', 'name' => ' NOC '], ['usrgrpid' => 9, 'name' => 'Leads'], ['name' => ''], ['name' => 'No id']])
+			=== '{"zabbix_user":"a","zabbix_user_type":2,"zabbix_role":"ES owners","user_groups":[{"id":"7","name":"NOC"},{"id":"9","name":"Leads"},{"name":"No id"}],"ts":5,"nonce":"abc"}'
+		&& EpRole::claim('a', 2, 5, 'abc', null, []) === EpRole::claim('a', 2, 5, 'abc'),
+		EpRole::claim('a', 2, 5, 'abc', 'ES owners', [['id' => '7', 'name' => ' NOC '], ['usrgrpid' => 9, 'name' => 'Leads'], ['name' => ''], ['name' => 'No id']]));
+	$mixed = [['id' => '7', 'name' => ' NOC '], ['usrgrpid' => 9, 'name' => 'Leads'], ['name' => ''], 'junk', ['name' => 'No id'], ['id' => ' ', 'name' => 'Blank id']];
+	check('the same shape the ElasticPro module\'s sign-in sends: the two userGroupRefs agree byte for byte',
+		json_encode(EpRole::userGroupRefs($mixed)) === json_encode(SsoClient::userGroupRefs($mixed))
+		&& EpRole::userGroupRefs($mixed) === [['id' => '7', 'name' => 'NOC'], ['id' => '9', 'name' => 'Leads'], ['name' => 'No id'], ['name' => 'Blank id']],
+		[EpRole::userGroupRefs($mixed), SsoClient::userGroupRefs($mixed)]);
+
+	/* ------------------------------ the groups in the question ------------------------------ */
+
+	$sent = []; $now = [1790000000]; $session = null;
+	$r = role(ok(['role' => null, 'zabbix_role' => 'operator']), $sent, $now, $session);
+	$a = $r->answer('gina', USER_TYPE_ZABBIX_USER, true, 'User role', [['id' => '7', 'name' => 'NOC leads']]);
+	parse_str((string) parse_url($sent[0]['url'], PHP_URL_QUERY), $q);
+	$claim = json_decode((string) ($q['claim'] ?? ''), true);
+	check('the question carries the user groups with ids', ($claim['user_groups'] ?? null) === [['id' => '7', 'name' => 'NOC leads']], $claim);
+	check('a person never seen: the map\'s answer from their groups counts', $a['role'] === null && $a['zabbix_role'] === 'operator' && !$a['no_access'], $a);
+	check('and that operator adds and edits', EpRole::decide(USER_TYPE_ZABBIX_USER, $a, EpRole::NEED_OPERATOR)['write']);
+	$sent = [];
+	$r = role(ok(['role' => null, 'zabbix_role' => 'user']), $sent, $now, $session);
+	$r->answer('gina', USER_TYPE_ZABBIX_USER, true, 'User role', [['id' => '7', 'name' => 'NOC leads']]);
+	check('the same groups within the TTL: the kept answer, no request', $sent === []);
+	$a = $r->answer('gina', USER_TYPE_ZABBIX_USER, true, 'User role', [['id' => '3', 'name' => 'NOC']]);
+	check('moved to another group in Zabbix: asked again, and the new answer stands', count($sent) === 1 && $a['zabbix_role'] === 'user', [$sent, $a]);
+	$sent = [];
+	$r = role(ok(['role' => 'none', 'zabbix_role' => 'none', 'no_access' => true, 'pinned' => true]), $sent, $now, $session);
+	$a = $r->answer('nemo', USER_TYPE_ZABBIX_ADMIN, true, 'Admin role', [['id' => '1', 'name' => 'ElasticPro admins']]);
+	check('No access from the core is read as such, with no role to fall back on', $a['asked'] && $a['no_access'] && $a['role'] === null && $a['zabbix_role'] === null, $a);
+	check('and a Zabbix Admin in the admin group is still not elevated', !EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR)['write']);
+	$r = role(ok(['role' => 'none']), $sent, $now, $session);
+	$a = $r->answer('nemo2', USER_TYPE_ZABBIX_ADMIN);
+	check('a core saying only role "none" (no flag) is No access too', $a['no_access'] && !EpRole::decide(USER_TYPE_ZABBIX_ADMIN, $a, EpRole::NEED_OPERATOR)['write'], $a);
+	// Back to the state the session-cache checks below start from: alice's answer, asked at t0.
+	$sent = []; $now = [1790000000]; $session = null;
+	$r = role(ok(['role' => 'admin']), $sent, $now, $session);
+	$r->answer('alice', USER_TYPE_ZABBIX_ADMIN);
 
 	/* ------------------------------- the session cache ------------------------------- */
 

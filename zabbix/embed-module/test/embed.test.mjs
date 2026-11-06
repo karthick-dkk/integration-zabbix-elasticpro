@@ -69,7 +69,23 @@ test('sync-role.json: the one API identity, read methods plus history.push and n
   assert.ok(spec.methods.includes('history.push'), 'history.push is missing (the request gate push needs it)');
   // The core lists the Zabbix roles for its role map (Accounts page) with the paired token.
   assert.ok(spec.methods.includes('role.get'), 'role.get is missing (the role map lists Zabbix roles with it)');
+  // And reads each user's user groups for the roles-from-user-groups map and the Zabbix users table (ElasticPro 0.3.55).
+  assert.ok(spec.methods.includes('user.get'), 'user.get is missing (the Zabbix users table reads group membership with it)');
+  assert.ok(spec.methods.includes('usergroup.get'), 'usergroup.get is missing (the role map lists the groups with it)');
   assert.equal(new Set(spec.methods).size, spec.methods.length);
+});
+
+test('the sign-in claim carries the user groups with their ids, beside the names an older core reads', () => {
+  const sign_in = read('lib/SignIn.php');
+  const client = read('lib/SsoClient.php');
+  // One database read gives both lists: the names (the scope) are derived from the ids list.
+  assert.match(sign_in, /SELECT g\.usrgrpid,g\.name FROM usrgrp g JOIN users_groups ug/);
+  assert.match(sign_in, /public static function groups\(\): array \{\s*return array_map\(fn\(array \$g\) => \$g\['name'\], self::userGroups\(\)\);/);
+  // The claim names them `user_groups`, as the core's Claim reads them, and only when there are any.
+  assert.match(client, /\$body\['user_groups'\] = \$with_ids;/);
+  assert.match(client, /array \$user_groups = \[\]\): array \{/, 'claim() takes the groups with ids as its last argument');
+  // The frame passes them.
+  assert.match(sign_in, /\$sso->mintCode\([\s\S]*?\$groups\);/);
 });
 
 test('the frame reaches the bottom of the window: no fixed offset under it', () => {

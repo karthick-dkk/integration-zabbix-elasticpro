@@ -87,6 +87,24 @@ adds `history.push` to an install paired before. Or edit the role by hand: *User
 ElasticPro sync → API methods*, add `history.push`. Until one of the two is done, the core's push is
 refused with `No permissions to call "history.push"` and the Request Centre's Zabbix line says so.
 
+The same applies to `role.get` (2.1.14: the role map lists the Zabbix roles by name) and to
+`user.get` (2.1.20 / ElasticPro 0.3.55: the *Zabbix users* table and *Preview who changes* under
+Config → Zabbix read each user's user groups as Zabbix has them now). Without `user.get` ElasticPro
+still works — its tables show each person's groups as their last sign-in said, with the reason —
+and the sign-in itself never needs it: the module sends the person's groups (`groups` as names,
+`user_groups` as `[{id, name}]`) in the signed claim, which is what the role map decides on.
+
+## What the sign-in sends
+
+`POST {core_url}/sso/zabbix`, signed with the pairing secret (`SsoClient::claim()`, the one
+definition): `{username, zabbix_user_type, groups, zabbix_role?, zabbix_roleid?, user_groups?,
+ts, nonce}`. `groups` are the names of the person's Zabbix user groups (the sign-in scope);
+`zabbix_role` the Zabbix role's name (2.1.13); `user_groups` the same groups with their ids
+(2.1.20), so a group renamed in Zabbix keeps its ElasticPro mapping. Both lists are read from the
+database (`usrgrp`, `users_groups`), not through the API, so they never depend on who is asking.
+ElasticPro decides the role from them (docs/ROLES.md in the ElasticPro repository) and only ever
+*reads* membership; nothing here writes to a Zabbix user, group or role.
+
 ## Trusted plain-HTTP hosts (`trusted_plain_hosts`)
 
 Cluster Management (the clients module) asks the ElasticPro core, over this module's pairing, what

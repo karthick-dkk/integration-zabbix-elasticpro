@@ -23,13 +23,16 @@ use Modules\ElasticPro\Lib\SsoClient;
  *   GET {core_url}/sso/zabbix/role?claim=<JSON, URL-encoded>
  *   X-Zabbix-Module-Signature: <hex HMAC-SHA256 of the exact JSON bytes>
  *
- * where the JSON is {"zabbix_user", "zabbix_user_type", "zabbix_role"?, "ts", "nonce"} (nonce: 32
- * hex characters, fresh for every question; zabbix_role is the Zabbix role's name, sent from
- * 2.1.13). The core checks the signature, the clock (±60 s) and that the nonce is new, and answers
- * {role, zabbix_role, pinned, source, disabled, locked, nonce, ts} for <user>@zabbix — role null
- * when it has never seen that person sign in; zabbix_role is then what ElasticPro's role map (its
- * Accounts page) would make them at their first sign-in, and that is what counts. Nothing is
- * created by asking.
+ * where the JSON is {"zabbix_user", "zabbix_user_type", "zabbix_role"?, "user_groups"?, "ts",
+ * "nonce"} (nonce: 32 hex characters, fresh for every question; zabbix_role is the Zabbix role's
+ * name, sent from 2.1.13; user_groups the person's user groups as [{id, name}], sent from 2.1.20
+ * so ElasticPro 0.3.55's map from user groups can answer for a person it has never seen). The
+ * core checks the signature, the clock (±60 s) and that the nonce is new, and answers
+ * {role, zabbix_role, pinned, no_access, source, disabled, locked, nonce, ts} for <user>@zabbix —
+ * role null when it has never seen that person sign in; zabbix_role is then what ElasticPro's
+ * role map would make them at their first sign-in, and that is what counts. A person an
+ * ElasticPro admin set to **No access** is answered role "none", zabbix_role "none" and
+ * no_access true: never elevated, whatever their Zabbix type. Nothing is created by asking.
  *
  * The answer is believed only when ElasticPro signed it: the core sends
  *   X-ElasticPro-Signature: <hex HMAC-SHA256 of ts + "\n" + nonce + "\n" + the exact body bytes>
@@ -151,6 +154,29 @@ final class EpRole {
 		return $name === '' ? null : $name;
 	}
 
+	/**
+	 * This Zabbix user's user groups as [['id' => usrgrpid, 'name' => name], ...], for the question
+	 * to ElasticPro — whose map from user groups (0.3.55) decides what a person it has never seen
+	 * becomes. Read from the database like the role name, for the same reason. Empty outside a
+	 * Zabbix request (the tests).
+	 */
+	public static function zabbixUserGroups(): array {
+		if (!class_exists('CWebUser', false) || !function_exists('DBselect') || !function_exists('DBfetch') || !function_exists('zbx_dbstr')) {
+			return [];
+		}
+		$userid = \CWebUser::$data['userid'] ?? null;
+		if ($userid === null || (string) $userid === '') {
+			return [];
+		}
+		$groups = [];
+		$rows = DBselect('SELECT g.usrgrpid,g.name FROM usrgrp g JOIN users_groups ug ON ug.usrgrpid=g.usrgrpid WHERE ug.userid='.zbx_dbstr($userid));
+		while ($row = DBfetch($rows)) {
+			$groups[] = ['id' => (string) $row['usrgrpid'], 'name' => (string) $row['name']];
+		}
+		usort($groups, fn(array $a, array $b) => strcmp($a['name'], $b['name']));
+		return $groups;
+	}
+
 	/** How many consumed nonces a session remembers; each is checked once, so a few suffice. */
 	public const NONCES_KEPT = 64;
 
@@ -161,11 +187,40 @@ final class EpRole {
 	/** Plain-http hosts trusted when the ElasticPro module does not say (older module, or nothing stored). */
 	public const DEFAULT_PLAIN_HOSTS = ['ep-core'];
 
-	/** The exact bytes that are signed and sent. The role name goes in only when there is one. */
-	public static function claim(string $user, int $type, int $ts, string $nonce, ?string $role = null): string {
+	/**
+	 * User groups as the core reads them: `[{id, name}]`, both strings, names trimmed, anything
+	 * without a name dropped. The same shape the ElasticPro module's sign-in sends
+	 * (SsoClient::userGroupRefs); kept here as well because this module must work — and say who
+	 * may edit — without that module loaded. test/role.test.php holds the two to one output.
+	 */
+	public static function userGroupRefs(array $user_groups): array {
+		$out = [];
+		foreach ($user_groups as $g) {
+			if (!is_array($g)) {
+				continue;
+			}
+			$name = trim((string) ($g['name'] ?? ''));
+			if ($name === '') {
+				continue;
+			}
+			$id = trim((string) ($g['id'] ?? $g['usrgrpid'] ?? ''));
+			$out[] = $id !== '' ? ['id' => $id, 'name' => $name] : ['name' => $name];
+		}
+		return $out;
+	}
+
+	/**
+	 * The exact bytes that are signed and sent. The role name goes in only when there is one; the
+	 * user groups (as [{id, name}], userGroupRefs — the sign-in's shape) only when there are any.
+	 */
+	public static function claim(string $user, int $type, int $ts, string $nonce, ?string $role = null, array $user_groups = []): string {
 		$body = ['zabbix_user' => $user, 'zabbix_user_type' => $type];
 		if ($role !== null && trim($role) !== '') {
 			$body['zabbix_role'] = trim($role);
+		}
+		$with_ids = self::userGroupRefs($user_groups);
+		if ($with_ids !== []) {
+			$body['user_groups'] = $with_ids;
 		}
 		return (string) json_encode($body + ['ts' => $ts, 'nonce' => $nonce], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 	}
@@ -176,8 +231,9 @@ final class EpRole {
 	 *
 	 * @return array{url: string, json: string, headers: string[]}
 	 */
-	public static function request(string $core_url, string $secret, string $user, int $type, int $ts, string $nonce, callable $sign, ?string $role = null): array {
-		$json = self::claim($user, $type, $ts, $nonce, $role);
+	public static function request(string $core_url, string $secret, string $user, int $type, int $ts, string $nonce, callable $sign,
+			?string $role = null, array $user_groups = []): array {
+		$json = self::claim($user, $type, $ts, $nonce, $role, $user_groups);
 		return [
 			'url' => rtrim($core_url, '/').self::PATH.'?claim='.rawurlencode($json),
 			'json' => $json,
@@ -223,30 +279,34 @@ final class EpRole {
 	 * enough (any age when $fresh is false), otherwise asked now and kept.
 	 *
 	 * @param string|null $role  the Zabbix role's name, when known (zabbixRoleName())
-	 * @return array{asked: bool, role: ?string, zabbix_role: ?string, pinned: bool, source: ?string, disabled: bool,
-	 *               locked: bool, trusted: bool, error: ?string, at: int}
+	 * @param array $user_groups  the user groups with ids, when known (zabbixUserGroups())
+	 * @return array{asked: bool, role: ?string, zabbix_role: ?string, pinned: bool, no_access: bool, source: ?string,
+	 *               disabled: bool, locked: bool, trusted: bool, error: ?string, at: int}
 	 */
-	public function answer(string $user, int $type, bool $fresh = true, ?string $role = null): array {
-		$key = $user."\n".$type."\n".(string) $role;
+	public function answer(string $user, int $type, bool $fresh = true, ?string $role = null, array $user_groups = []): array {
+		$groups_key = json_encode(self::userGroupRefs($user_groups));
+		$key = $user."\n".$type."\n".(string) $role."\n".$groups_key;
 		if (isset($this->memo[$key])) {
 			return $this->memo[$key];
 		}
 		$now = (int) ($this->clock)();
 		$kept = ($this->load)();
 		$kept = is_array($kept) ? $kept : [];
+		// A kept answer is for one person as they were: a group change in Zabbix asks again.
 		if (($kept['user'] ?? null) === $user && (int) ($kept['type'] ?? -1) === $type && ($kept['role_name'] ?? null) === $role
+				&& ($kept['groups'] ?? '[]') === $groups_key
 				&& is_array($kept['answer'] ?? null) && (!$fresh || $now - (int) ($kept['answer']['at'] ?? 0) < self::TTL)) {
 			return $this->memo[$key] = $kept['answer'];
 		}
 		// The consumed nonces outlive a change of user: they are this session's, not one answer's.
 		$nonces = is_array($kept['nonces'] ?? null) ? $kept['nonces'] : [];
-		$answer = $this->ask($user, $type, $now, $nonces, $role);
+		$answer = $this->ask($user, $type, $now, $nonces, $role, $user_groups);
 		// The detailed reason (core_url, the curl error, the core's own message) goes to the server
 		// log; the page shows a person who is not a Super admin only the fixed line (decide()).
 		if (($answer['error'] ?? null) !== null) {
 			($this->log)('ElasticPro Cluster Management: the role lookup for "'.$user.'" was not acted on: '.$answer['error']);
 		}
-		($this->save)(['user' => $user, 'type' => $type, 'role_name' => $role, 'answer' => $answer,
+		($this->save)(['user' => $user, 'type' => $type, 'role_name' => $role, 'groups' => $groups_key, 'answer' => $answer,
 			'nonces' => array_slice($nonces, -self::NONCES_KEPT)]);
 		return $this->memo[$key] = $answer;
 	}
@@ -257,9 +317,9 @@ final class EpRole {
 	 *
 	 * @param string[] $nonces  the nonces this session has consumed; the one used here is added
 	 */
-	private function ask(string $user, int $type, int $now, array &$nonces, ?string $role = null): array {
-		$out = ['asked' => false, 'role' => null, 'zabbix_role' => null, 'pinned' => false, 'source' => null, 'disabled' => false,
-			'locked' => false, 'trusted' => false, 'error' => null, 'at' => $now];
+	private function ask(string $user, int $type, int $now, array &$nonces, ?string $role = null, array $user_groups = []): array {
+		$out = ['asked' => false, 'role' => null, 'zabbix_role' => null, 'pinned' => false, 'no_access' => false, 'source' => null,
+			'disabled' => false, 'locked' => false, 'trusted' => false, 'error' => null, 'at' => $now];
 		$s = ($this->settings)();
 		if (isset($s['error'])) {
 			$out['error'] = (string) $s['error'];
@@ -267,7 +327,7 @@ final class EpRole {
 		}
 		$secret = (string) $s['secret'];
 		$nonce = (string) ($this->nonce)();
-		$req = self::request((string) $s['core_url'], $secret, $user, $type, $now, $nonce, $this->sign, $role);
+		$req = self::request((string) $s['core_url'], $secret, $user, $type, $now, $nonce, $this->sign, $role, $user_groups);
 		$r = ($this->transport)($req['url'], $req['headers'], (bool) ($s['verify_tls'] ?? true));
 		if ((int) ($r['status'] ?? 0) === 0) {
 			$out['error'] = 'ElasticPro did not answer at '.rtrim((string) $s['core_url'], '/').': '.((string) ($r['error'] ?? '') ?: 'no answer');
@@ -297,6 +357,9 @@ final class EpRole {
 		$out['role'] = is_string($role) && in_array($role, ['admin', 'operator', 'user', 'guest'], true) ? $role : null;
 		$zr = $data['zabbix_role'] ?? null;
 		$out['zabbix_role'] = is_string($zr) && in_array($zr, ['admin', 'operator', 'user', 'guest'], true) ? $zr : null;
+		// No access (ElasticPro 0.3.55): the core says it three ways — role "none", zabbix_role
+		// "none" and the flag — so even one of them is enough never to fall through to the type.
+		$out['no_access'] = ($data['no_access'] ?? false) === true || $role === 'none' || $zr === 'none';
 		$out['pinned'] = ($data['pinned'] ?? false) === true;
 		$out['source'] = is_string($data['source'] ?? null) ? $data['source'] : null;
 		$out['disabled'] = ($data['disabled'] ?? false) === true;
@@ -339,6 +402,12 @@ final class EpRole {
 			return ['write' => false, 'why' => 'unasked', 'role' => null, 'note' => _(self::UNASKED), 'hint' => null,
 				'detail' => $answer !== null && ($answer['error'] ?? null) !== null ? (string) $answer['error'] : null];
 		}
+		if (($answer['no_access'] ?? false) === true) {
+			// Set by hand to No access in ElasticPro: not elevated, whatever the type or the map says.
+			return ['write' => false, 'why' => 'elasticpro_role', 'role' => 'none',
+				'note' => self::needsLine($need).' '._('Your ElasticPro role: No access (set by an ElasticPro administrator).'),
+				'hint' => null, 'detail' => null];
+		}
 		$role = $answer['role'];
 		$mapped = $role === null;
 		$role = $role ?? ($answer['zabbix_role'] ?? null) ?? self::zabbixRole($type);
@@ -364,9 +433,10 @@ final class EpRole {
 	}
 
 	/** decide() for this user, asking (or reading the session) only when the type needs it. */
-	public function decision(string $user, int $type, bool $fresh = true, string $need = self::NEED_ADMIN, ?string $role = null): array {
+	public function decision(string $user, int $type, bool $fresh = true, string $need = self::NEED_ADMIN, ?string $role = null,
+			array $user_groups = []): array {
 		$ask = in_array($type, [USER_TYPE_ZABBIX_ADMIN, USER_TYPE_ZABBIX_USER], true);
-		return self::decide($type, $ask ? $this->answer($user, $type, $fresh, $role) : null, $need);
+		return self::decide($type, $ask ? $this->answer($user, $type, $fresh, $role, $user_groups) : null, $need);
 	}
 
 	/**

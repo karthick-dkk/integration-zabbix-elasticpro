@@ -75,8 +75,9 @@ class Module extends CoreModule {
 			$own = strncmp($action->getAction(), 'ep.clients.', 11) === 0;
 			$user = (string) (CWebUser::$data['username'] ?? '');
 			$name = EpRole::zabbixRoleName();
-			$may_edit = EpRole::current()->decision($user, $type, $own, EpRole::NEED_ADMIN, $name)['write'];
-			$may_show = $may_show || $may_edit || EpRole::current()->decision($user, $type, $own, EpRole::NEED_OPERATOR, $name)['write'];
+			$groups = EpRole::zabbixUserGroups();
+			$may_edit = EpRole::current()->decision($user, $type, $own, EpRole::NEED_ADMIN, $name, $groups)['write'];
+			$may_show = $may_show || $may_edit || EpRole::current()->decision($user, $type, $own, EpRole::NEED_OPERATOR, $name, $groups)['write'];
 		}
 		if (!$may_show) {
 			return;

@@ -43,23 +43,30 @@ final class SignIn {
 	}
 
 	/**
-	 * The names of the user groups this user is in.
+	 * The user groups this user is in, each as `['id' => usrgrpid, 'name' => name]`, sorted by
+	 * name. What ElasticPro's role map decides on (ElasticPro 0.3.55: each ElasticPro role holds
+	 * Zabbix user groups; the id survives a rename in Zabbix).
 	 *
 	 * Read from the database rather than through the API: `usergroup.get` answers
-	 * differently by user type, and this list decides which clusters a Zabbix User sees,
-	 * so it must not depend on who is asking.
+	 * differently by user type, and this list decides which clusters a Zabbix User sees and
+	 * what they may do in ElasticPro, so it must not depend on who is asking.
 	 */
-	public static function groups(): array {
-		$names = [];
+	public static function userGroups(): array {
+		$groups = [];
 		$rows = DBselect(
-			'SELECT g.name FROM usrgrp g JOIN users_groups ug ON ug.usrgrpid=g.usrgrpid'.
+			'SELECT g.usrgrpid,g.name FROM usrgrp g JOIN users_groups ug ON ug.usrgrpid=g.usrgrpid'.
 			' WHERE ug.userid='.zbx_dbstr(CWebUser::$data['userid'])
 		);
 		while ($row = DBfetch($rows)) {
-			$names[] = $row['name'];
+			$groups[] = ['id' => (string) $row['usrgrpid'], 'name' => (string) $row['name']];
 		}
-		sort($names);
-		return $names;
+		usort($groups, fn(array $a, array $b) => strcmp($a['name'], $b['name']));
+		return $groups;
+	}
+
+	/** The names alone, from the same list — the sign-in scope, and what an older core reads. */
+	public static function groups(): array {
+		return array_map(fn(array $g) => $g['name'], self::userGroups());
 	}
 
 	/**
@@ -99,8 +106,9 @@ final class SignIn {
 		if (!$out['configured']) {
 			return $out;
 		}
-		$code = $sso->mintCode((string) CWebUser::$data['username'], (int) CWebUser::getType(), self::groups(),
-			self::roleName(), (int) (CWebUser::$data['roleid'] ?? 0) ?: null);
+		$groups = self::userGroups();
+		$code = $sso->mintCode((string) CWebUser::$data['username'], (int) CWebUser::getType(),
+			array_map(fn(array $g) => $g['name'], $groups), self::roleName(), (int) (CWebUser::$data['roleid'] ?? 0) ?: null, $groups);
 		if ($code === null) {
 			$out['error'] = $sso->lastError();
 			return $out;
