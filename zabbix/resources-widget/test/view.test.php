@@ -504,7 +504,7 @@ namespace Modules\EpResources\Test {
 
 	\FakeApi::$template = false;
 	$d = run();
-	check('no template: says where to write it', strpos((string) $d['error'], 'ElasticPro → Clients') !== false);
+	check('no template: says where to write it', strpos((string) $d['error'], 'ElasticPro → Cluster Management') !== false);
 	check('and names the template this Zabbix is meant to have', strpos((string) $d['error'], 'ACME client master') !== false, $d['error']);
 	Roles::saveTemplateNames([]);
 	\FakeApi::$template = true;
