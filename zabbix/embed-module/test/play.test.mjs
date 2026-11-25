@@ -23,16 +23,16 @@ test('the manifest has the Play page and the widget\'s frame action', () => {
   assert.ok(fs.existsSync(path.join(MOD, 'actions/PlayFrame.php')));
 });
 
-test('ElasticPro → Play is a menu entry of its own, after the REST console', () => {
+test('ElasticPro → Play is a menu entry of its own, last, after Jobs', () => {
   const php = read('Module.php');
   assert.match(php, /'play'\s*=>\s*'Play',/);
-  assert.match(php, /public const MENU = \['overview', 'indices', 'snapshots', 'console', 'play'\];/);
+  assert.match(php, /public const MENU = \['overview', 'indices', 'logdelay', 'console', 'snapshots', 'reports', 'jobs', 'play'\];/);
 });
 
 test('one sign-in: the pages and the widget\'s action both go through lib/SignIn.php', () => {
   const view = read('actions/View.php');
   const frame = read('actions/PlayFrame.php');
-  assert.match(view, /SignIn::frame\(\$page, \$this->trouble\(\)\)/);
+  assert.match(view, /SignIn::frame\(Module::appPage\(\$page\), \$this->trouble\(\)\)/);
   assert.match(frame, /SignIn::frame\('play'\)/);
   for (const [name, src] of [['View.php', view], ['PlayFrame.php', frame]]) {
     assert.doesNotMatch(src, /mintCode|DBselect|new SsoClient/, `${name} does not sign in on its own`);

@@ -24,6 +24,13 @@
       "kind": "delay"
     },
     {
+      "label": "Part Delayed Devices",
+      "key": "ep.delay.part_delayed",
+      "units": "",
+      "kind": "delay",
+      "auto": false
+    },
+    {
       "label": "Cust.Purchased Devices",
       "key": "ep.devices.purchased",
       "units": "",

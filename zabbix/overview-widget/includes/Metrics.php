@@ -126,7 +126,11 @@ class Metrics {
 			'delay.worst' => ['label' => _('Log delay, worst'), 'on' => self::ON_MASTER, 'key' => 'ep.delay.worst', 'units' => 's', 'settings' => false,
 				'fix' => _('Link the ElasticPro log delay template and let ElasticPro measure the delay.')],
 			'delay.late' => ['label' => _('Devices late'), 'on' => self::ON_MASTER, 'key' => 'ep.delay.late', 'units' => '', 'settings' => false,
-				'fix' => _('Link the ElasticPro log delay template and let ElasticPro measure the delay.')]
+				'fix' => _('Link the ElasticPro log delay template and let ElasticPro measure the delay.')],
+			'delay.part' => ['label' => _('Devices part delayed'), 'on' => self::ON_MASTER, 'key' => 'ep.delay.part_delayed', 'units' => '', 'settings' => false,
+				'fix' => _('Import the ElasticPro log delay template of ElasticPro 0.3.90 or later and write the master template. ElasticPro sends it only where the logs have a log_type field.')],
+			'delay.logtypes' => ['label' => _('Log types late'), 'on' => self::ON_MASTER, 'key' => 'ep.delay.log_types_late', 'units' => '', 'settings' => false,
+				'fix' => _('Import the ElasticPro log delay template of ElasticPro 0.3.90 or later and write the master template. ElasticPro sends it only where the logs have a log_type field.')]
 		];
 		foreach ($roles['families'] ?? [] as $f) {
 			$id = (string) $f['id'];

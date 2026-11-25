@@ -33,7 +33,7 @@ class MasterTemplate {
 	// macros — not only when the roles do: TemplateInstaller compares it, and without the move
 	// no installed Zabbix is asked to rewrite (2.1.11 shipped a preprocessing change with the
 	// number left at 5, and Cluster Management showed every site as current).
-	public const VERSION = '6';
+	public const VERSION = '7';
 
 	/**
 	 * The name this template is installed and linked under: the mapping on the Roles page, or
@@ -337,10 +337,16 @@ class MasterTemplate {
 		$this->add('ep.devices.usage', 'Devices seen as a share of purchased', '%', '100*last(//ep.devices.seen)/last(//ep.devices.purchased)',
 			'Empty while no purchased count is set.', 'usage', [], '10m');
 
-		foreach ([['late', 'devices late', ''], ['devices', 'devices measured', ''], ['critical', 'devices critical', ''],
-				['median', 'median delay', 's'], ['worst', 'worst delay', 's']] as [$k, $n, $u]) {
+		// Since ElasticPro 0.3.90 a device is late only when every log type it sends is late; one with
+		// only some late is part delayed. ElasticPro sends the two log type figures only where the
+		// field log_type is mapped, so there they are unsupported (unknown), never 0.
+		foreach ([['late', 'devices late', '', 'Where log types are measured, every log type of the device is late (ElasticPro 0.3.90+).'], ['devices', 'devices measured', '', ''],
+				['critical', 'devices critical', '', 'Where log types are measured, every log type of the device is late; above the critical line (ElasticPro 0.3.90+).'],
+				['part_delayed', 'devices part delayed', '', 'Some log types of the device late, others on time; not in devices late. No value where log_type is not mapped.'],
+				['log_types_late', 'log types late', '', 'Counted per device: two late log types on one device count 2. No value where log_type is not mapped.'],
+				['median', 'median delay', 's', ''], ['worst', 'worst delay', 's', '']] as [$k, $n, $u, $what]) {
 			$this->add('ep.delay.'.$k, 'Log delay: '.$n, $u, 'max(last_foreach(/*/elasticpro.delay['.$k.']?['.$client.'],1h))',
-				'From ElasticPro, measured every 15 minutes. Empty without a measurement from the last hour.', 'delay');
+				trim($what.' From ElasticPro, measured every 15 minutes. Empty without a measurement from the last hour.'), 'delay');
 		}
 		foreach ([['avg', 'late', '1h', 'devices late, hourly average'], ['max', 'late', '1h', 'devices late, hourly peak'],
 				['avg', 'late', '1d', 'devices late, daily average'], ['max', 'late', '1d', 'devices late, daily peak'],
@@ -452,7 +458,7 @@ class MasterTemplate {
 		$colors = ['F63100', '2774A4', '1A7C11', 'A54F10', '7E57C2', '00897B', 'C2185B', '5D4037'];
 		$fam = $this->roles['families'];
 		$defs = [
-			['Log delay: devices late', ['ep.delay.late', 'ep.delay.late.avg[1h]', 'ep.delay.late.avg[1d]']],
+			['Log delay: devices late', ['ep.delay.late', 'ep.delay.late.avg[1h]', 'ep.delay.late.avg[1d]', 'ep.delay.part_delayed']],
 			['Log delay: median delay', ['ep.delay.median', 'ep.delay.median.avg[1h]', 'ep.delay.median.avg[1d]']],
 			['CPU usage by family', array_map(fn($f) => self::familyKey($f['id'], 'cpu', 'usage'), $fam)],
 			['Memory usage by family', array_map(fn($f) => self::familyKey($f['id'], 'mem', 'usage'), $fam)],
@@ -525,10 +531,10 @@ class MasterTemplate {
 		$storage[] = $this->graphWidget('Storage usage', 0, 3, 72);
 
 		$delay = [];
-		foreach ([['ep.delay.late', 'Late devices'], ['ep.delay.late.avg[1h]', 'Late, 1h avg'], ['ep.delay.late.avg[1d]', 'Late, 1d avg'],
+		foreach ([['ep.delay.late', 'Late devices'], ['ep.delay.part_delayed', 'Part delayed'], ['ep.delay.late.avg[1h]', 'Late, 1h avg'], ['ep.delay.late.avg[1d]', 'Late, 1d avg'],
 				['ep.delay.late.change[1h]', 'Late vs prev. hour'], ['ep.delay.late.change[1d]', 'Late vs prev. day'], ['ep.delay.median', 'Median delay'],
 				['ep.delay.median.change[1d]', 'Median vs prev. day'], ['ep.delay.worst', 'Worst delay']] as $i => [$key, $label]) {
-			$delay[] = $this->tile($key, $i * 9, 0, 9, $label);
+			$delay[] = $this->tile($key, $i * 8, 0, 8, $label);
 		}
 		$delay[] = $this->graphWidget('Log delay: devices late', 0, 3, 36);
 		$delay[] = $this->graphWidget('Log delay: median delay', 36, 3, 36);

@@ -283,11 +283,12 @@ namespace Modules\EpCapacity\Test {
 	$spec = json_decode(file_get_contents(__DIR__.'/../columns.json'), true);
 	check('columns.json is the column catalogue and nothing else', array_keys($spec) === ['columns'], array_keys($spec));
 	$catalogue = Catalogue::columns([], []);
-	check('every column of it is a built-in column, under the id the report has always used (its key)', count($spec['columns']) === 31 && count($catalogue) === 31
+	check('every column of it is a built-in column, under the id the report has always used (its key)', count($spec['columns']) === 32 && count($catalogue) === 32
 		&& array_keys($catalogue) === array_map([Catalogue::class, 'idOf'], $spec['columns']), array_keys($catalogue));
-	check('…all of them the report\'s own', count(array_filter($catalogue, fn($e) => !empty($e['auto']))) === 31);
+	check('…all but Part Delayed Devices the report\'s own: that one is offered, not drawn until a list adds it', count(array_filter($catalogue, fn($e) => !empty($e['auto']))) === 31
+		&& $catalogue['ep.delay.part_delayed']['auto'] === false && strpos($catalogue['ep.delay.part_delayed']['fix'], 'log_type') !== false);
 	check('a version-1 id for the client is client.name and client.url', isset($catalogue['client.name'], $catalogue['client.url']));
-	check('no server rows', Catalogue::forScope($catalogue, 'row') === [] && count(Catalogue::forScope($catalogue, 'client')) === 31);
+	check('no server rows', Catalogue::forScope($catalogue, 'row') === [] && count(Catalogue::forScope($catalogue, 'client')) === 32);
 
 	/* ---------------- where a threshold comes from ---------------- */
 	// karthi's ES storage is 95 % used, which is red at the shipped thresholds.
@@ -405,9 +406,10 @@ namespace Modules\EpCapacity\Test {
 	check('…it follows the report defaults, with nothing of its own, and keeps its bar style', !isset($old['columns']) && $old['bars'] === '2');
 	check('…a threshold someone typed is kept', WidgetForm::upgrade(['usage_warn' => '70'], $catalogue, $model)['usage_warn'] === '70');
 	$d = run(['bars' => '2', 'usage_warn' => '', 'usage_high' => '']);
+	$always = array_values(array_filter($spec['columns'], fn($c) => ($c['auto'] ?? true) !== false));
 	check('…and draws the report as it always did: the same 31 columns in the same order, under the same names',
-		array_column($d['columns'], 'builtin') === array_map([Catalogue::class, 'idOf'], $spec['columns'])
-		&& array_column($d['columns'], 'name') === array_column($spec['columns'], 'label'));
+		array_column($d['columns'], 'builtin') === array_map([Catalogue::class, 'idOf'], $always)
+		&& array_column($d['columns'], 'name') === array_column($always, 'label') && count($always) === 31);
 	check('…a compact table, a sticky header and a frozen first column, no totals', $d['view']['density'] === TableOptions::DENSITY_COMPACT && $d['view']['sticky_header']
 		&& $d['view']['freeze_first'] && !$d['view']['totals'] && !$d['view']['striped'] && $d['view']['row_height'] === null);
 	check('…the toolbar on hover, with search, type, Columns and export', $d['view']['toolbar'] === ['search', 'type', 'columns', 'export']

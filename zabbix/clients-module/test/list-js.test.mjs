@@ -44,3 +44,15 @@ test('the view reads this file, posts the popover to the columns action, and has
   assert.match(view, /ep\.clients\.columns\.save/);
   assert.ok(view.indexOf("ep-sumline") > view.indexOf("</tbody></table></div>"), 'the summary line is under the table');
 });
+
+test('an operator\'s page has Maintenance and no Delete dialog: Cancel still closes it', async (t) => {
+  const { JSDOM } = await import('jsdom');
+  const dom = new JSDOM(`<div class="ep-l"><dialog id="ep-maint"><form><input type="radio" name="when" id="m-at"><input id="m-start"><b id="ep-maint-title"></b><i id="ep-maint-who"></i>
+    <button type="button" data-close>Cancel</button></form></dialog></div>`, { runScripts: 'outside-only' });
+  dom.window.eval(fs.readFileSync(path.join(HERE, 'views/js/ep.clients.dialogs.js'), 'utf8'));
+  let closed = 0;
+  dom.window.document.querySelector('#ep-maint').close = () => { closed += 1; };
+  dom.window.EpDialogs.init(dom.window.document.querySelector('.ep-l'), () => []);
+  dom.window.document.querySelector('[data-close]').dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  assert.equal(closed, 1);
+});

@@ -106,13 +106,16 @@ namespace Modules\ElasticPro\Test {
 		(new Module())->init();
 		$ep = $menu->find('ElasticPro');
 		$entries = $ep === null ? [] : array_map(fn($i) => [$i->label, $i->action], $ep->getSubMenu()->items);
-		$want = [['Clusters', 'elasticpro.overview'], ['Indices', 'elasticpro.indices'], ['Snapshots', 'elasticpro.snapshots'],
-			['REST console', 'elasticpro.console'], ['Play', 'elasticpro.play']];
-		if ($type == USER_TYPE_SUPER_ADMIN) { $want[] = ['Config', 'elasticpro.settings']; }
-		check("user type $type: ElasticPro → Play, after the REST console", $entries === $want, $entries);
+		$want = [['Clusters', 'elasticpro.overview'], ['Indices', 'elasticpro.indices'], ['Log Delay', 'elasticpro.logdelay'],
+			['REST', 'elasticpro.console'], ['Snapshots', 'elasticpro.snapshots'], ['Reports', 'elasticpro.reports'],
+			['Jobs', 'elasticpro.jobs'], ['Play', 'elasticpro.play']];
+		if ($type == USER_TYPE_SUPER_ADMIN) { $want[] = ['Config-Management', 'elasticpro.settings']; }
+		check("user type $type: ElasticPro's pages in ElasticPro's order, Play last", $entries === $want, $entries);
 		$clusters = $ep->getSubMenu()->items[0];
 		check("user type $type: Play is its own entry, not an alias of Clusters", !in_array('elasticpro.play', $clusters->aliases, true), $clusters->aliases);
 	}
+	check('every page opens ElasticPro\'s own page id', Module::appPage('logdelay') === 'log-delay' && Module::appPage('reports') === 'reports'
+		&& Module::appPage('overview') === 'overview' && Module::appPage('logs') === 'logs');
 	// The guest user (guest frontend access) has a role of the User type, and no ElasticPro role.
 	\CWebUser::$type = USER_TYPE_ZABBIX_USER;
 	\CWebUser::$guest = true;

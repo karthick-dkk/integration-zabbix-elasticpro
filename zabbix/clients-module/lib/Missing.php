@@ -98,7 +98,7 @@ final class Missing {
 	 * not have, and ClusterSecret::of() — who handed the password over, when.
 	 */
 	public static function forClient(array $now, array $clusterMacros, array $missingTemplates, ?array $secret, bool $jump, array $credential = [],
-			?string $signature = null): array {
+			?string $signature = null, bool $sees_all = true): array {
 		$out = [];
 		if ($now['groupid'] === null) {
 			$out[] = self::item('client_group', _('No client group in Zabbix.'), _('Saving the client creates it.'));
@@ -149,6 +149,16 @@ final class Missing {
 		if ($missingTemplates) {
 			$out[] = self::item('templates', _s('Templates you cannot see, or not imported: %1$s.', implode(', ', $missingTemplates)),
 				_('Import them, or ask for read permission on their template group.'));
+		}
+		// Zabbix shows anyone but a Super admin part of what there is: a host or group not among it
+		// is not known to be absent.
+		if (!$sees_all) {
+			foreach ($out as &$item) {
+				if (in_array($item['key'], ['client_group', 'cluster', 'role_hosts'], true)) {
+					$item['text'] .= ' '._('Or your Zabbix user may not see it.');
+				}
+			}
+			unset($item);
 		}
 		return self::unique($out);
 	}

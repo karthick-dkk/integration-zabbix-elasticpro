@@ -13,7 +13,9 @@ test('every column the widget draws is one the master template defines', () => {
   // and the thresholds from ElasticPro -> Settings, so neither may creep back in here as a
   // fourth place to look.
   assert.deepEqual(Object.keys(cols), ['columns']);
-  assert.equal(cols.columns.length, 31);
+  assert.equal(cols.columns.length, 32);
+  // Offered for a Columns list, not drawn until one adds it: the report keeps its 31 columns.
+  assert.deepEqual(cols.columns.filter((c) => c.auto === false).map((c) => c.key), ['ep.delay.part_delayed']);
   // When storage fills is read the Cluster Management way (shared Forecast), not as a raw figure.
   assert.deepEqual(cols.columns.filter((c) => c.kind === 'forecast').map((c) => c.key), ['ep.es.storage.full_in']);
   // Requested and purchased columns are marked, so 0 can be shown as "not set".

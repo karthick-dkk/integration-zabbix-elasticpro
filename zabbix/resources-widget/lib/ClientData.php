@@ -31,7 +31,7 @@ class ClientData {
 		$names = Roles::templateNamesFor('master');
 		$templates = API::Template()->get(['output' => ['templateid'], 'filter' => ['host' => $names]]);
 		if (!$templates) {
-			return [[], [], _s('Template "%1$s" is not in Zabbix yet — write it from ElasticPro → Clients.', $names[0])];
+			return [[], [], _s('Template "%1$s" is not in Zabbix, or your Zabbix user may not read it. A Super admin writes it on ElasticPro → Cluster Management, or gives your user group read permission on its template group.', $names[0])];
 		}
 		// Every template the mapping answers to counts: a site that renamed it and has hosts on
 		// both the old name and the new one sees all of its clients, not whichever sorted first.

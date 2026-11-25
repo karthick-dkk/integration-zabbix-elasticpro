@@ -144,13 +144,14 @@ for c in CLIENTS:
     late, measured, critical, median, worst = c['delay']
     citems = [ag('agent.ping', 'Agent ping', vt=3), ag('es.nodes.fs.total_in_bytes', 'ES file stores total', 'B', vt=3),
               ag('es.nodes.fs.used_in_bytes', 'ES file stores used', 'B', vt=3), ag('ep.es.devices.seen', 'Devices seen', vt=3)]
-    citems += [ag(f'elasticpro.delay[{k}]', f'Log delay {k}', 's' if k in ('median', 'worst') else '', vt=0) for k in ('late', 'devices', 'critical', 'median', 'worst')]
+    citems += [ag(f'elasticpro.delay[{k}]', f'Log delay {k}', 's' if k in ('median', 'worst') else '', vt=0) for k in ('late', 'devices', 'critical', 'part_delayed', 'log_types_late', 'median', 'worst')]
     values['hosts'][port] = {'host': f'{n}-ES-Cluster', 'items': {
         'agent.ping': '1', 'es.nodes.fs.total_in_bytes': {'base': alloc_gb * GB, 'int': True},
         'es.nodes.fs.used_in_bytes': {'base': used_gb * GB, 'wobble': 0.002 * used_gb * GB, 'grow': grow_gb * GB, 'max': alloc_gb * GB, 'int': True},
         'ep.es.devices.seen': {'base': c['seen'], 'int': True},
         'elasticpro.delay[late]': {'base': late, 'wobble': 1 if late else 0, 'min': 0, 'int': True},
         'elasticpro.delay[devices]': {'base': measured, 'int': True}, 'elasticpro.delay[critical]': {'base': critical, 'int': True},
+        'elasticpro.delay[part_delayed]': {'base': late // 2, 'int': True}, 'elasticpro.delay[log_types_late]': {'base': late * 2, 'int': True},
         'elasticpro.delay[median]': {'base': median, 'wobble': median * 0.1}, 'elasticpro.delay[worst]': {'base': worst, 'wobble': worst * 0.05}}}
     upsert_host(f'{n}-ES-Cluster', [cg, mock_gid], interface_port=port, items=citems)
     port += 1

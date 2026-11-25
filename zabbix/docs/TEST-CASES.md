@@ -604,8 +604,8 @@ The widgets compute nothing: every figure is an item on a host. Prove the chain
 * `ep.es.storage.purchased` (from `{$ES.VOLUME.CUS.PURCHASED}`), `.allocated`, `.used`, `.usage`,
   `.purchased.usage`, `.full_in` (`timeleft(//ep.es.storage.usage,7d,100)`)
 * `ep.devices.purchased` (from `{$EP.DEVICES.PURCHASED}`), `ep.devices.seen`, `ep.devices.usage`
-* `ep.delay.late`, `ep.delay.median`, `ep.delay.worst` and their `.avg[…]` / `.change[…]`
-  derivations — fed from the **ElasticPro log delay** template's `elasticpro.delay[...]` items
+* `ep.delay.late`, `ep.delay.part_delayed`, `ep.delay.log_types_late`, `ep.delay.median`,
+  `ep.delay.worst` and the `.avg[…]` / `.change[…]` derivations — fed from the **ElasticPro log delay** template's `elasticpro.delay[...]` items
 * `elasticpro.plan.*` on the **cluster** hosts (the `ElasticPro client plan` template), incl.
   `elasticpro.plan.epoch` and `elasticpro.plan.reachable`
 * cluster-template macros on `<client>-ES-Cluster`: `{$ELASTICSEARCH.SCHEME}`,

@@ -24,7 +24,10 @@ $op = function(string $op, string $label, array $vars = [], string $confirm = ''
 $page = (new CHtmlPage())->setTitle(_('Roles'))
 	->setControls((new CTag('nav', true, (new CList())->addItem(new CRedirectButton(_('Back to clients'), $url('ep.clients.list'))))));
 $page->addItem((new CDiv(_('A family (ES, Parser, Forwarder, Engine) groups roles — the kinds of machine. Every machine joins its role\'s host group and its family\'s. A change here rewrites the master template, so it reaches every client\'s figures, alerts and dashboard, the client form, the CSV and the Client resources report. A backup is taken first.')))->addClass('ep-soft'));
-if ($data['template'] !== 'current') {
+if ($data['template'] === 'unseen') {
+	$page->addItem((new CDiv(_('Whether the master template matches these roles is not known here: your Zabbix user does not see all of ElasticPro\'s templates.')))->addClass('ep-soft'));
+}
+elseif ($data['template'] !== 'current') {
 	$page->addItem((new CDiv(_('The master template does not match these roles yet. It is rewritten with the next change here, or from the Clients page.')))->addClass('msg-warning')->addClass('ep-box'));
 }
 

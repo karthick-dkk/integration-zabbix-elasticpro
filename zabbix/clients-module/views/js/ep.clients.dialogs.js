@@ -24,15 +24,16 @@ window.EpDialogs = {
     });
 
     // Delete for good: enabled only once the name is typed.
+    // Not on an operator's page, who may not delete.
     const del = root.querySelector('#ep-delete');
-    root.querySelectorAll('[data-open-delete]').forEach((b) => b.addEventListener('click', () => {
+    if (del) root.querySelectorAll('[data-open-delete]').forEach((b) => b.addEventListener('click', () => {
       del.querySelector('#d-client').value = b.dataset.openDelete;
       del.querySelector('#d-confirm').value = '';
       del.querySelector('#d-confirm').placeholder = b.dataset.openDelete;
       del.querySelector('#d-go').disabled = true;
       del.showModal();
     }));
-    del.querySelector('#d-confirm').addEventListener('input', (e) => { del.querySelector('#d-go').disabled = e.target.value.trim() !== del.querySelector('#d-client').value; });
+    if (del) del.querySelector('#d-confirm').addEventListener('input', (e) => { del.querySelector('#d-go').disabled = e.target.value.trim() !== del.querySelector('#d-client').value; });
     // Remove only in ElasticPro: the same typed-name gate, on the client's page only.
     const rel = root.querySelector('#ep-release');
     if (rel) {

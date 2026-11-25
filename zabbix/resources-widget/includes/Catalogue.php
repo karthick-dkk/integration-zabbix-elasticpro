@@ -16,7 +16,7 @@ use Modules\EpResources\Lib\{Columns, Roles};
  * f.es.cpu.requested, r.es_data_hot.disk.used …), which is what lets a version-1 Columns file —
  * names, hidden columns and order keyed by them — be read onto the column model unchanged.
  *
- * Also: further built-in figures a column may read (log delay median and worst, ES storage used %
+ * Also: further built-in figures a column may read (log delay part delayed, log types late, median and worst, ES storage used %
  * and "full in", each family's disk used %, every server's CPU, memory and disk), the server row's
  * columns, and the used / allocated / requested measures a Pie chart donut can show.
  *
@@ -46,6 +46,7 @@ class Catalogue {
 	public static function columns(array $roles, array $split = []): array {
 		$master = _('Write the master template (ElasticPro → Clients → Write master template) and check the client\'s cluster host is monitored.');
 		$delay = _('Link the ElasticPro log delay template and let ElasticPro measure the delay.');
+		$logType = _('Import the ElasticPro log delay template of ElasticPro 0.3.90 or later and write the master template. ElasticPro sends it only where the logs have a log_type field.');
 		$devices = _('Link the ElasticPro cluster devices template to the client\'s cluster host.');
 		$out = [
 			'client.name' => ['label' => 'Cluster Name', 'group' => '', 'on' => Columns::ON_CLIENT, 'field' => 'name', 'text' => true, 'units' => '',
@@ -56,6 +57,8 @@ class Catalogue {
 				'auto' => true, 'defaults' => self::PLAIN],
 			'delay.late' => ['label' => 'Devices late', 'group' => 'Log delay', 'on' => Columns::ON_MASTER, 'key' => 'ep.delay.late', 'units' => '',
 				'auto' => true, 'fix' => $delay, 'defaults' => self::PLAIN],
+			'delay.part' => ['label' => 'Part delayed', 'group' => 'Log delay', 'on' => Columns::ON_MASTER, 'key' => 'ep.delay.part_delayed', 'units' => '', 'fix' => $logType],
+			'delay.logtypes' => ['label' => 'Log types late', 'group' => 'Log delay', 'on' => Columns::ON_MASTER, 'key' => 'ep.delay.log_types_late', 'units' => '', 'fix' => $logType],
 			'delay.median' => ['label' => 'Median', 'group' => 'Log delay', 'on' => Columns::ON_MASTER, 'key' => 'ep.delay.median', 'units' => 's', 'fix' => $delay],
 			'delay.worst' => ['label' => 'Worst', 'group' => 'Log delay', 'on' => Columns::ON_MASTER, 'key' => 'ep.delay.worst', 'units' => 's', 'fix' => $delay],
 			'storage.purchased' => ['label' => 'Purchased', 'group' => 'ES storage', 'on' => Columns::ON_MASTER, 'key' => 'ep.es.storage.purchased', 'units' => 'B',

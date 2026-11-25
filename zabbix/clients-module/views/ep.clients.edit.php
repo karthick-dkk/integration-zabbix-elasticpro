@@ -188,7 +188,7 @@ if ($tabs) {
 	$five = \Modules\EpClients\Lib\Reconciler::clusterTemplates();
 	$fc = ($data['full_in'] ?? null) !== null ? \Modules\EpClients\Lib\Forecast::fullIn($data['full_in'], $data['forecast'] ?? []) : null;
 	$notSet = '<span class="ep-hint">'.$e(_('not set')).'</span>';
-	$seenText = $ci === null ? '<span class="ep-hint">'.$e(_('unknown: no cluster host')).'</span>'
+	$seenText = $ci === null ? '<span class="ep-hint">'.$e(($data['sees_all'] ?? true) ? _('unknown: no cluster host') : _('unknown: no cluster host you can see')).'</span>'
 		: ($field('es_url') === '' ? '<span class="ep-hint">'.$e(_('unknown: needs ES URL')).'</span>'
 		: ((int) $data['last_seen'] > 0 ? $e(date('Y-m-d H:i', (int) $data['last_seen'])) : '<span class="ep-hint">'.$e(_('never')).'</span>'));
 	$ov[] = '<div class="ep-ov3">'

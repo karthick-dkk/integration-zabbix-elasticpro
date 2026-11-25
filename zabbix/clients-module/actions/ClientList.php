@@ -154,7 +154,7 @@ class ClientList extends Base {
 				['client' => $parsed, 'errors' => $bad] = $this->spec()->fromForm(ClientState::plain($state->formFor($name)));
 				$missing = Missing::forClient($now, $cl !== null ? $rec->macros((string) $cl['hostid']) : [], $bad ? [] : $rec->missingTemplates($parsed),
 					$cl !== null ? ClusterSecret::of((string) $cl['host']) : null, ($m['{$EP.MONITORED.BY}'] ?? '') === 'jump',
-					['source' => $source, 'default_record' => $defaultRecord], $cl !== null ? ($signature[(string) $cl['hostid']] ?? null) : null);
+					['source' => $source, 'default_record' => $defaultRecord], $cl !== null ? ($signature[(string) $cl['hostid']] ?? null) : null, $this->superOnly());
 			}
 			catch (Exception $e) {
 				$missing = [['key' => 'read', 'text' => _s('Could not be read: %1$s', $e->getMessage()), 'fix' => '']];
@@ -215,7 +215,9 @@ class ClientList extends Base {
 				? count(array_filter($scan['scan']['proposals'], fn($p) => $p['status'] !== 'client')) : null,
 			'columns' => ListColumns::load($roles),
 			'roles_config' => $roles,
-			'template' => TemplateInstaller::status($roles),
+			'template' => TemplateInstaller::status($roles, $this->superOnly()),
+			// False: hosts and templates Zabbix does not show this user may exist; nothing is said to be absent.
+			'sees_all' => $this->superOnly(),
 			'store_ok' => $writable,
 			'forecast' => Settings::forecast($cfg),
 			'can_write' => $this->canWrite(),
