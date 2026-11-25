@@ -32,7 +32,7 @@ saying so, where there is neither.
 
 ## Pages
 
-The menu is ElasticPro's own page menu, in its order and under its names: **Clusters**, **Indices**,
+The menu holds the pages of ElasticPro's own menu, in its order and under its names (Nodes & shards is a click away inside): **Clusters**, **Indices**,
 **Log Delay**, **REST**, **Snapshots**, **Reports**, **Jobs**, **Play** and, for Zabbix Super admins,
 **Config-Management** (2.1.21; Log Delay, Reports and Jobs were reached only from inside ElasticPro).
 Nodes & shards, Alerts (Zabbix's own Problems), Automation and Accounts have an action each and no

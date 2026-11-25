@@ -340,8 +340,8 @@ class MasterTemplate {
 		// Since ElasticPro 0.3.90 a device is late only when every log type it sends is late; one with
 		// only some late is part delayed. ElasticPro sends the two log type figures only where the
 		// field log_type is mapped, so there they are unsupported (unknown), never 0.
-		foreach ([['late', 'devices late', '', 'Every log type of the device is late (ElasticPro 0.3.90+).'], ['devices', 'devices measured', '', ''],
-				['critical', 'devices critical', '', 'Every log type of the device is late, above the critical line (ElasticPro 0.3.90+).'],
+		foreach ([['late', 'devices late', '', 'Where log types are measured, every log type of the device is late (ElasticPro 0.3.90+).'], ['devices', 'devices measured', '', ''],
+				['critical', 'devices critical', '', 'Where log types are measured, every log type of the device is late; above the critical line (ElasticPro 0.3.90+).'],
 				['part_delayed', 'devices part delayed', '', 'Some log types of the device late, others on time; not in devices late. No value where log_type is not mapped.'],
 				['log_types_late', 'log types late', '', 'Counted per device: two late log types on one device count 2. No value where log_type is not mapped.'],
 				['median', 'median delay', 's', ''], ['worst', 'worst delay', 's', '']] as [$k, $n, $u, $what]) {

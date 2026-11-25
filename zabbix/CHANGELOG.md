@@ -14,7 +14,7 @@ How a version is chosen and released is in [README.md](README.md#versions-and-re
 
 **Widgets.** *Part delayed* (Client capacity: *Part Delayed Devices*; Client resources; Client overview) and *Log types late* (Client resources, Client overview) can be added to a column or metric list. No report gains a column by itself.
 
-**Menu.** ElasticPro's own page menu, in its order and under its names: **Log Delay**, **Reports** and **Jobs** are in the Zabbix menu beside Clusters, Indices, REST, Snapshots and Play; *REST console* is **REST** and *Config* is **Config-Management**, as in ElasticPro. The old page "Live logs & log delay" opened ElasticPro's live tail, not the delay boards: **Log Delay** opens the boards. `elasticpro.logs` and `elasticpro.volume` keep working.
+**Menu.** The pages of ElasticPro's own menu, in its order and under its names: **Log Delay**, **Reports** and **Jobs** are in the Zabbix menu beside Clusters, Indices, REST, Snapshots and Play; *REST console* is **REST** and *Config* is **Config-Management**, as in ElasticPro. The old page "Live logs & log delay" opened ElasticPro's live tail, not the delay boards: **Log Delay** opens the boards. `elasticpro.logs` and `elasticpro.volume` keep working.
 
 ## 2.1.20
 
