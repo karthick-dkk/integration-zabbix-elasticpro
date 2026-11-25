@@ -11,13 +11,13 @@ use Zabbix\Core\CModule as CoreModule;
 /**
  * Adds "ElasticPro" to the Zabbix main menu, right after Monitoring.
  *
- * The menu offers the pages people open from Zabbix directly: Clusters, Indices, Snapshots,
- * REST console, Play and, for Super admins, Config (Cluster Management, the Clients module, joins
- * them). Every other page — Alerts, Nodes & shards, Live logs, Reports, Automation,
- * Accounts — is reached inside ElasticPro, from its own tabs, as when it runs on its own;
- * each still has its action, so a link to it (a Zabbix problem's troubleshoot link) works.
- * Config and Accounts are Super admin pages: the core refuses them to anybody else
- * regardless; this only avoids offering a page whose every request fails.
+ * The menu offers the pages people open from Zabbix directly, in ElasticPro's own order and under
+ * its own names: Clusters, Indices, Log Delay, REST, Snapshots, Reports, Jobs, Play and, for Super
+ * admins, Config-Management (Cluster Management, the Clients module, joins them). Every other page
+ * — Alerts, Nodes & shards, Automation, Accounts — is reached inside ElasticPro, from its own tabs,
+ * as when it runs on its own; each still has its action, so a link to it (a Zabbix problem's
+ * troubleshoot link) works. Config-Management and Accounts are offered to Super admins only; what
+ * a person may do there is ElasticPro's to decide, whatever Zabbix offers.
  *
  * The menu API (`menu.main`, `insertAfter`, `CMenuItem`) is the one Zabbix 7.0 ships and
  * ships. If the item does not appear on another Zabbix version, this
@@ -31,27 +31,38 @@ class Module extends CoreModule {
 		'alerts'     => 'Alerts',
 		'indices'    => 'Indices',
 		'shards'     => 'Nodes & shards',
-		'logs'       => 'Live logs & log delay',
+		'logdelay'   => 'Log Delay',
+		'console'    => 'REST',
 		'snapshots'  => 'Snapshots',
-		// The page ElasticPro 0.3.53 renamed Reports. The action stays elasticpro.volume (it opens
-		// #/volume, which ElasticPro forwards to #/reports), so existing links keep working.
-		'volume'     => 'Reports',
-		'console'    => 'REST console',
+		'reports'    => 'Reports',
+		'jobs'       => 'Jobs',
 		'automation' => 'Automation',
 		'play'       => 'Play',
+		// Pages ElasticPro renamed: their old actions stay, so links and bookmarks keep working.
+		// ElasticPro forwards #/volume to Reports (0.3.53) and #/logs to Log Delay's live tail (0.3.60).
+		'volume'     => 'Reports',
+		'logs'       => 'Log Delay',
 	];
+
+	/** ElasticPro's page ids that are not the action's own name (a page id may hold a hyphen). */
+	private const APP_PAGE = ['logdelay' => 'log-delay'];
+
+	/** The page id ElasticPro knows this action's page by: the frame opens `#/<id>`. */
+	public static function appPage(string $id): string {
+		return self::APP_PAGE[$id] ?? $id;
+	}
 
 	/**
 	 * The pages in the Zabbix menu, in menu order. The rest are tabs inside the app. Play is the
 	 * NOC wall display (ElasticPro 0.3.47+, `#/play`); the "ElasticPro Play" dashboard widget
 	 * (play-widget, installed as `ep_play`) opens the same page through PlayFrame.
 	 */
-	public const MENU = ['overview', 'indices', 'snapshots', 'console', 'play'];
+	public const MENU = ['overview', 'indices', 'logdelay', 'console', 'snapshots', 'reports', 'jobs', 'play'];
 
 	/** Pages only a Super admin is offered. */
 	public const ADMIN_PAGES = [
 		'accounts' => 'Accounts',
-		'settings' => 'Config',
+		'settings' => 'Config-Management',
 	];
 
 	public function init(): void {

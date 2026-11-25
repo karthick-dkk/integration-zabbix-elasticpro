@@ -12,8 +12,10 @@ host group) and **used** (average %, or used / allocated for disk). ES storage: 
 allocated, used, usage — from `<client> cluster`.
 
 **Log delay**, from ElasticPro (measured every 15 minutes; only a measurement from the last
-hour counts): devices late, measured, critical, median and worst delay; hourly and daily average
-and peak; change on the previous hour and day.
+hour counts): devices late, part delayed, measured, critical, log types late, median and worst delay;
+hourly and daily average and peak of devices late; change on the previous hour and day. A device is
+late when every log type it sends is late, part delayed when only some are (ElasticPro 0.3.90+); the
+two log type figures have no value where the logs have no `log_type` field.
 
 A requested value of 0 means *not set*: shown as "not set", never alarmed.
 

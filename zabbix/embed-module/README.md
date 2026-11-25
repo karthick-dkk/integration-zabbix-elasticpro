@@ -30,6 +30,16 @@ Tests: `node --test embed-module/test/*.test.mjs` (part of `npm test`); the PHP 
 `test/play.test.php` runs with local `php` or a `php:8.4-cli-alpine` container and is skipped,
 saying so, where there is neither.
 
+## Pages
+
+The menu is ElasticPro's own page menu, in its order and under its names: **Clusters**, **Indices**,
+**Log Delay**, **REST**, **Snapshots**, **Reports**, **Jobs**, **Play** and, for Zabbix Super admins,
+**Config-Management** (2.1.21; Log Delay, Reports and Jobs were reached only from inside ElasticPro).
+Nodes & shards, Alerts (Zabbix's own Problems), Automation and Accounts have an action each and no
+entry. Old actions keep working: `elasticpro.volume` opens Reports, `elasticpro.logs` Log Delay's live
+tail. `Module::appPage()` is the one place an action's name and ElasticPro's page id differ
+(`elasticpro.logdelay` opens `#/log-delay`).
+
 ## Play (2.1.15)
 
 **ElasticPro → Play** (action `elasticpro.play`) opens ElasticPro's NOC wall display (`#/play`,

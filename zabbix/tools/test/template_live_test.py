@@ -449,7 +449,9 @@ def s_plan(api, tname, host, tplid, items):
 def s_delay(api, tname, host, tplid, items):
     over = {"elasticpro.delay[devices]": 40, "elasticpro.delay[late]": 3, "elasticpro.delay[delayed]": 2,
             "elasticpro.delay[critical]": 1, "elasticpro.delay[clock_ahead]": 0, "elasticpro.delay[median]": 12.5,
-            "elasticpro.delay[worst]": 5400, "elasticpro.delay[worst_device]": "fw-01"}
+            "elasticpro.delay[worst]": 5400, "elasticpro.delay[worst_device]": "fw-01",
+            "elasticpro.delay[part_delayed]": 2, "elasticpro.delay[log_types_late]": 5,
+            "elasticpro.delay[worst_log_type]": "threat on fw-01"}
     scenario_trap(api, tname, host, items, over)
     its = items_of(api, host)
     check(tname, "units: worst delay stored in seconds (5400)", "5400", its["elasticpro.delay[worst]"]["lastvalue"])

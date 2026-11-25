@@ -114,7 +114,7 @@ class View extends CController {
 			return;
 		}
 		$page = $this->page();
-		$sign = SignIn::frame($page, $this->trouble());
+		$sign = SignIn::frame(Module::appPage($page), $this->trouble());
 
 		$labels = Module::PAGES + Module::ADMIN_PAGES;
 		$response = new CControllerResponseData([

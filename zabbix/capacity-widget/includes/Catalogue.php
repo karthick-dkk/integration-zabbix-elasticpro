@@ -17,7 +17,8 @@ use Modules\EpCapacity\Lib\Columns;
  * columns.json says how each is drawn: kind requested (a request; 0 is "not set"), allocated (with
  * the request it may fall short of — vs), usage (a usage percentage, the kind ElasticPro -> Settings'
  * thresholds are for), used (with the usage item its share comes from — usageKey), forecast (the
- * time until storage is full), delay. A widget on the shared column model has a class of this name:
+ * time until storage is full), delay. `auto: false` is a figure a Columns list may add that is not one
+ * of the report's own columns. A widget on the shared column model has a class of this name:
  * the shared column editor (actions/ColumnEdit.php) and Columns dialog (actions/ColumnsSave.php)
  * find it by it.
  */
@@ -65,7 +66,7 @@ class Catalogue {
 			}
 			$kind = $c['kind'] ?? '';
 			$e = ['label' => $c['label'], 'group' => '', 'on' => Columns::ON_MASTER, 'key' => $c['key'], 'units' => $kind === 'forecast' ? 's' : (string) ($c['units'] ?? ''),
-				'auto' => true, 'fix' => $master, 'defaults' => self::PLAIN];
+				'auto' => ($c['auto'] ?? true) !== false, 'fix' => $master, 'defaults' => self::PLAIN];
 			switch ($kind) {
 				case 'requested':
 					$e['requested'] = true;
@@ -91,7 +92,9 @@ class Catalogue {
 					$e['fix'] = _('Monitor the client\'s cluster host with Elasticsearch Cluster by HTTP EP; the forecast needs 7 days of storage history.');
 					break;
 				case 'delay':
-					$e['fix'] = _('Link the ElasticPro log delay template and let ElasticPro measure the delay.');
+					$e['fix'] = $c['key'] === 'ep.delay.part_delayed'
+						? _('Import the ElasticPro log delay template of ElasticPro 0.3.90 or later and write the master template. ElasticPro sends it only where the logs have a log_type field.')
+						: _('Link the ElasticPro log delay template and let ElasticPro measure the delay.');
 					break;
 			}
 			$out[$id] = $e;

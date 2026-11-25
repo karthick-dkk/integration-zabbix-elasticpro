@@ -847,7 +847,7 @@ namespace Modules\EpClients\Test {
 	check('a static requested figure and the cluster-wide figures carry no empty-role rule (no cluster host is unknown, not 0)',
 		$pp('ep.role.cpu.requested[aiml]') === [] && $pp('ep.es.storage.allocated') === [] && $pp('ep.devices.seen') === [] && $pp('ep.es.storage.usage') === []);
 	$masterMacros = array_column($t['macros'], 'value', 'macro');
-	check('the master template says which generation wrote it, so the page asks for a rewrite after an upgrade', ($masterMacros['{$EP.MASTER.VERSION}'] ?? '') === MasterTemplate::VERSION && MasterTemplate::VERSION === '6');
+	check('the master template says which generation wrote it, so the page asks for a rewrite after an upgrade', ($masterMacros['{$EP.MASTER.VERSION}'] ?? '') === MasterTemplate::VERSION && MasterTemplate::VERSION === '7');
 	check('no aggregate hides a macro in its key', !array_filter($t['items'], fn($i) => preg_match('/last_foreach\(\/\*\/[^?]*\{\$/', $i['params'])));
 	check('a shortfall alert per role and resource, plus storage, plus storage over purchase', count($x['triggers']) === count(Roles::allRoles($roles)) * 4 + 2);
 	$overT = array_values(array_filter($x['triggers'], fn($t) => strpos($t['expression'], MasterTemplate::OVER['storage']) !== false));
@@ -907,6 +907,17 @@ namespace Modules\EpClients\Test {
 	}
 	check('the technical name stays, so linked hosts keep the template', $d['templates'][0]['template'] === 'ElasticPro cluster devices');
 	check('log-delay windows keep their keys', in_array('ep.delay.late.avg[1h]', $keys, true) && in_array('ep.delay.median.change[1d]', $keys, true));
+	$delayItem = fn($k) => array_values(array_filter($t['items'], fn($i) => $i['key'] === 'ep.delay.'.$k))[0] ?? null;
+	check('part delayed and log types late are read from the cluster host, within the last hour, beside devices late',
+		strpos((string) ($delayItem('part_delayed')['params'] ?? ''), 'max(last_foreach(/*/elasticpro.delay[part_delayed]?[') === 0
+		&& strpos((string) ($delayItem('log_types_late')['params'] ?? ''), 'elasticpro.delay[log_types_late]?[') !== false
+		&& strpos((string) $delayItem('part_delayed')['params'], '],1h))') !== false);
+	check('where log_type is not mapped the figures are unknown: no rule turns them into 0', !isset($delayItem('part_delayed')['preprocessing']) && !isset($delayItem('log_types_late')['preprocessing']));
+	$delayPage = array_values(array_filter($t['dashboards'][0]['pages'], fn($p) => $p['name'] === 'Log delay'))[0]['widgets'];
+	$tiles = array_values(array_filter($delayPage, fn($w) => $w['type'] === 'item'));
+	check('the log delay tiles fill one row of the dashboard, Part delayed beside Late devices',
+		array_sum(array_column($tiles, 'width')) === 72 && max(array_map(fn($w) => (int) $w['x'] + (int) $w['width'], $tiles)) === 72 && $tiles[1]['name'] === 'Part delayed',
+		array_column($tiles, 'name'));
 	check('the roles fingerprint is on the template', in_array(['macro' => '{$EP.ROLES.HASH}', 'value' => Roles::hash($roles), 'description' => 'Which roles this template was written for. Set by the Clients page.'], $t['macros'], true));
 	check('uuids are v4-shaped and stable', preg_match('/^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$/', MasterTemplate::uuid('x')) === 1 && MasterTemplate::uuid('x') === MasterTemplate::uuid('x'));
 	$more = $roles; $more['families'][3]['roles'][] = ['id' => 'xdr', 'label' => 'XDR', 'short' => 'XDR', 'group' => 'XDR'];
