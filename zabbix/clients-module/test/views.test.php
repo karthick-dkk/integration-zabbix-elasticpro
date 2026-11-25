@@ -158,6 +158,12 @@ namespace Modules\EpClients\Test {
 		str_contains($acts($rows[0][4]), '>Re-create</button>') && str_contains($acts($rows[0][4]), '>Forget</button>') && !str_contains($acts($rows[0][4]), 'ep-edit'));
 	check('the list still offers the bulk bar and the Maintenance and Delete dialogs', str_contains($lb, 'id="ep-bulk"') && str_contains($lb, 'id="ep-maint"') && str_contains($lb, 'id="ep-delete"'));
 	check('the list wires its dialogs through the shared script', str_contains($list, 'window.EpDialogs.init(root, ticked)') && str_contains($list, 'window.EpDialogs = '));
+	// An operator: not a Super admin, so Zabbix shows them part of what there is.
+	$part = ['sees_all' => false, 'template' => 'unseen', 'can_remove' => false, 'clients' => [$client('acme', 'active', ['cluster_host' => null, 'password' => 'not set', 'last_seen' => null])]] + $listData(true);
+	$pb = body(render('ep.clients.list', $part));
+	check('someone who does not see every template and host is told "not known", never "not in Zabbix yet" or "not set"',
+		str_contains($pb, 'is not known here') && !str_contains($pb, 'not in Zabbix yet') && str_contains($pb, 'no cluster host you can see')
+		&& !str_contains($pb, '>not set<') && str_contains($pb, '>unknown<') && !str_contains($pb, 'id="ep-delete"'));
 	$ro = render('ep.clients.list', $listData(false));
 	$dump('list-ro', $ro);
 	preg_match_all('~<tr data-tabs=.*?</tr>~s', body($ro), $rrows);

@@ -420,6 +420,9 @@ namespace Modules\EpClients\Test {
 		'macros' => ['{$ELASTICSEARCH.HOST}' => 'es.m', '{$ELASTICSEARCH.PASSWORD}' => ['x', 1]]]);
 	$r = $rec();
 	$now = $r->current('m');
+	$none = fn(bool $all) => Missing::forClient(['groupid' => null, 'cluster' => null, 'machines' => [], 'unassigned' => []], [], [], null, false, [], null, $all);
+	check('Missing: to someone Zabbix shows part of the hosts, an absent group or host "may not be seen"; to a Super admin it is absent',
+		count(array_filter($none(false), fn($m) => str_contains($m['text'], 'may not see it'))) === 3 && !array_filter($none(true), fn($m) => str_contains($m['text'], 'may not see it')), $none(false));
 	$miss = Missing::forClient($now, $r->macros($now['cluster']['hostid']), [], null, false);
 	$keys = array_column($miss, 'key');
 	check('macros not set, password ElasticPro lacks, old generation, templates not linked, no role hosts',

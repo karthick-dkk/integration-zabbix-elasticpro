@@ -31,7 +31,7 @@ class RoleList extends Base {
 			'counts' => $counts,
 			'edit' => (string) $this->getInput('edit', ''),
 			'family' => (string) $this->getInput('family', ''),
-			'template' => TemplateInstaller::status($roles),
+			'template' => TemplateInstaller::status($roles, $this->superOnly()),
 			'templates' => Roles::templateNames(),
 			'aliases' => Roles::templateAliases(),
 			'map' => TemplateMap::rows(),

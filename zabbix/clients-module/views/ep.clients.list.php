@@ -54,7 +54,12 @@ if ($ro) {
 if (!$data['store_ok']) {
 	$html[] = '<div class="ep-note ep-bad">'.$e(_s('Backups cannot be kept: %1$s is missing or not writable, so every change is refused until it is there. See the Clients module README.', $data['store_dir'])).'</div>';
 }
-if ($data['template'] !== 'current') {
+// Only a Super admin's page may say that something is not in Zabbix: the rest see part of it.
+$seesAll = (bool) ($data['sees_all'] ?? true);
+if ($data['template'] === 'unseen') {
+	$html[] = '<div class="ep-note">'.$e(_('Whether the master template is in Zabbix and current is not known here: your Zabbix user does not see all of ElasticPro\'s templates. A Zabbix Super admin sees it on this page.')).'</div>';
+}
+elseif ($data['template'] !== 'current') {
 	$html[] = '<div class="ep-note ep-warn">'.$e($data['template'] === 'missing' ? _('The master template is not in Zabbix yet. Every client\'s master host is linked to it: its capacity figures, alerts and dashboard come from there. Write it once, before adding clients; nothing is written until you press the button.')
 		: _('The templates were written for other roles or an older version. Write them again so every client follows the current ones.')).' '
 		.($admin ? $post('ep.clients.template.install', _('Write master template'), [], '', 'ep-btn-alt') : '').'</div>';
@@ -128,9 +133,9 @@ if (!$data['clients']) {
 	$html[] = '<tr><td colspan="'.(count($shown) + 3).'" class="ep-empty">'.$e($admin ? _('No clients yet. Discover the clusters Zabbix already has, add one, or import a workbook.')
 		: _('No clients yet. Add one; an administrator can discover the clusters Zabbix already has, or import a workbook.')).'</td></tr>';
 }
-$ago = function (?int $t) use ($now, $e): string {
+$ago = function (?int $t) use ($now, $e, $seesAll): string {
 	if ($t === null) {
-		return '<span class="ep-sub">'.$e(_('unknown: no cluster host')).'</span>';
+		return '<span class="ep-sub">'.$e($seesAll ? _('unknown: no cluster host') : _('unknown: no cluster host you can see')).'</span>';
 	}
 	if ($t <= 0) {
 		return '<span class="ep-sub">'.$e(_('never')).'</span>';
@@ -156,7 +161,7 @@ foreach ($data['clients'] as $c) {
 		$status = '<span class="ep-pill ep-s-maint" title="'.$e($c['maintenance']['reason']).'">'.$e(_s('Maintenance until %1$s', date('d M H:i', $c['maintenance']['till']))).'</span>';
 	}
 	$clientCell = '<div class="ep-name">'.($c['masterid'] !== null ? '<a href="'.$e($url('ep.clients.edit', ['client' => $name])).'">'.$e($name).'</a>' : $e($name)).'</div>'
-		.($underClient ? ($c['cluster_host'] !== null ? '<div class="ep-mono">'.$e($c['cluster_host']).'</div>' : '<div class="ep-sub">'.$e(_('no cluster host')).'</div>') : '')
+		.($underClient ? ($c['cluster_host'] !== null ? '<div class="ep-mono">'.$e($c['cluster_host']).'</div>' : '<div class="ep-sub">'.$e($seesAll ? _('no cluster host') : _('no cluster host you can see')).'</div>') : '')
 		.$status;
 	$cells = '';
 	foreach ($shown as $col) {
@@ -180,9 +185,9 @@ foreach ($data['clients'] as $c) {
 		}
 		elseif ($k === 'password') {
 			$p = $c['password'];
-			$cells .= '<td>'.($p === 'not set' ? '<span class="ep-bad-t">'.$e(_('not set')).'</span>'
+			$cells .= '<td>'.($c['cluster_host'] === null && !$seesAll ? '<span class="ep-sub">'.$e(_('unknown')).'</span>' : ($p === 'not set' ? '<span class="ep-bad-t">'.$e(_('not set')).'</span>'
 				: ($p === 'hidden' ? '<span class="ep-warn-t" title="'.$e(_('A linked template defines the password macro and hides the default.')).'">'.$e(_('hidden by template')).'</span>'
-				: '<span class="ep-sub">'.$e($p === 'own' ? _('own') : _('default')).'</span>')).'</td>';
+				: '<span class="ep-sub">'.$e($p === 'own' ? _('own') : _('default')).'</span>'))).'</td>';
 		}
 		elseif ($k === 'last_seen') {
 			$cells .= '<td>'.$ago($c['last_seen']).'</td>';

@@ -123,8 +123,11 @@ class TemplateInstaller {
 		return array_filter(self::LEGACY_TEMPLATES, fn($name) => !in_array($name, $current, true));
 	}
 
-	/** 'missing', 'outdated' or 'current'. */
-	public static function status(array $roles): string {
+	/**
+	 * 'missing', 'outdated' or 'current'; 'unseen' when $sees_all is false (anyone but a Zabbix Super
+	 * admin) and one of the templates is not among those Zabbix shows this user: it may be there.
+	 */
+	public static function status(array $roles, bool $sees_all = true): string {
 		$legacy = array_values(self::legacyTemplates());
 		// The legacy names are asked for in the same call as the current ones: a host cannot
 		// carry a template that is not in the install, so when none of them is here, neither
@@ -135,6 +138,9 @@ class TemplateInstaller {
 		$by = [];
 		foreach ($tpls as $t) {
 			$by[$t['host']] = array_column($t['macros'], 'value', 'macro');
+		}
+		if (!$sees_all && array_diff(self::currentNames(), array_keys($by))) {
+			return 'unseen';
 		}
 		// A template of the old generation is still here, so the install is not current whatever
 		// the current templates' macros say. Answered before 'missing' deliberately: 'missing'

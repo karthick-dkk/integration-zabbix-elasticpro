@@ -87,7 +87,7 @@ class ClientEdit extends Base {
 						fn($t) => in_array(DefaultCredential::PASSWORD_MACRO, $tm[(string) $t['templateid']] ?? [], true))))];
 			}
 			$missing = Missing::forClient($now, $cluster !== null ? $rec->macros((string) $cluster['hostid']) : [],
-				$bad ? [] : $rec->missingTemplates($parsed), $password['record'], ($form['monitored_by'] ?? '') === 'jump', $credential, $signature);
+				$bad ? [] : $rec->missingTemplates($parsed), $password['record'], ($form['monitored_by'] ?? '') === 'jump', $credential, $signature, $c->superOnly());
 		}
 		// The Overview tab (board Client-page.dc.html): servers by role, the cluster and its
 		// templates, when it last answered, when its storage fills.
@@ -139,6 +139,7 @@ class ClientEdit extends Base {
 			'forecast' => Settings::forecast(Settings::all()),
 			'default_credential' => ['set' => $default['password'], 'user' => $default['user'], 'record' => ClusterSecret::of(DefaultCredential::KEY)],
 			'missing' => $missing,
+			'sees_all' => $c->superOnly(),
 			'proxies' => $proxies,
 			'status' => $status,
 			'masterid' => $now['master']['hostid'] ?? null,
